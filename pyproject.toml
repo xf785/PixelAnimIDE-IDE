@@ -1,0 +1,11 @@
+[project]
+name = "PixelAnimIDE"
+version = "0.1.0"
+description = "像素动画 IDE —— 从文本描述到像素动画的一站式桌面工具"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]

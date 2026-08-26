@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.pyc
+
+# Virtual env
+.venv/
+venv/
+
+# Tests / runtime artifacts
+.pytest_cache/
+.pytest_tmp/
+.tmp/
+.coverage
+htmlcov/
+
+# Output / demo
+output/
+demo_output/
+
+# Runtime config (may contain encrypted API keys; stored in user data dir)
+config/api_config.json
+*.keyring
+
+# Editors / OS
+.idea/
+.vscode/
+.data_nav/
+*.swp
+Thumbs.db
+.DS_Store

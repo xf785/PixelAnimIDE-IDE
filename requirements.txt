@@ -1,0 +1,17 @@
+﻿# PixelAnimIDE - 阶段1 (MVP) 依赖清单
+# GUI
+PySide6>=6.6,<7
+# 图像处理
+Pillow>=10.3
+numpy>=1.26
+# HTTP 客户端（AI API 调用）
+httpx>=0.27
+# API Key 加密存储
+cryptography>=42.0
+# 视频拆帧 / 帧合成（依赖 imageio-ffmpeg 自带的 ffmpeg 二进制）
+imageio>=2.34
+imageio-ffmpeg>=0.4.9
+
+# ---- 测试依赖 ----
+pytest>=8.0
+pytest-qt>=4.4

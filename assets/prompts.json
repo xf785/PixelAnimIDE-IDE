@@ -1,0 +1,14 @@
+{
+  "movement": {
+    "步行": "walking cycle, side view, 8 frames, natural gait",
+    "奔跑": "running cycle, side view, 8 frames, dynamic stride",
+    "跳跃": "jumping animation, 6 frames, arc motion, squash and stretch",
+    "突进": "dashing forward, 6 frames, speed lines, leaning motion",
+    "爬行": "crawling on ground, 8 frames, low profile"
+  },
+  "combat": {
+    "攻击": "attack animation, sword swing, 6 frames, follow-through",
+    "格挡": "blocking stance, 4 frames, shield up, stable",
+    "昏迷": "stunned animation, 4 frames, dizzy wobble"
+  }
+}
