@@ -148,7 +148,7 @@ Covers: pixelization, background removal, frame utils (real mp4 extraction), key
 - [x] Phase 2: IDE workspace (step nav / preview+edit / params / timeline), pixel canvas editing, project save/load
 - [x] Phase 3: APNG/sprite export, onion skin, palette lock, background params, Krita-style palette & color wheel, selection/layers, sprite workflow, standalone pixel board, i18n, UI scale
 - [x] Phase 4: PyInstaller packaging + GitHub Actions CI + GitHub Release (v0.1.0)
-- [ ] Phase 5+ (future): map tile generation & tile-map editing, Solo performance/quality, pixel editor & sprite refinements, continuous polish — see [**ROADMAP.md**](ROADMAP.md) (milestones M1–M4)
+- [ ] Phase 5+ (future): map tile generation & tile-map editing, Solo performance/quality, pixel editor & sprite refinements, continuous polish — see [**ROADMAP.en.md**](ROADMAP.en.md) / [**ROADMAP.md**](ROADMAP.md) (milestones M1–M4)
 
 ## Notes
 

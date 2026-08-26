@@ -1,7 +1,7 @@
 # PixelAnimIDE 项目规划（ROADMAP）
 
 > 目标读者：维护者与潜在贡献者。本文档是项目发展的"活文档"，随实现持续更新。
-> 英文版后续随 D 阶段国际化同步补充（ROADMAP.en.md）。
+> 英文版见 [ROADMAP.en.md](ROADMAP.en.md)（English version: [ROADMAP.en.md](ROADMAP.en.md)）。
 
 ## 1. 愿景
 

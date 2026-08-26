@@ -237,7 +237,7 @@ IDE 分步工作流、像素画布编辑、GUI 冒烟。
   色族调色板与取色圆盘、选区/浮动图层、精灵图工作流、独立像素板块、中英 i18n、UI 缩放
 - [x] **阶段 4**：PyInstaller 打包 + GitHub Actions CI + GitHub Release（v0.1.0）
 - [ ] **阶段 5+（未来规划）**：地图瓦片生成与瓦片地图编辑、Solo 性能与生成质量优化、
-  像素编辑器/精灵图精进、持续打磨——详见 [**ROADMAP.md**](ROADMAP.md)（M1–M4 里程碑）
+  像素编辑器/精灵图精进、持续打磨——详见 [**ROADMAP.md**](ROADMAP.md) / [**ROADMAP.en.md**](ROADMAP.en.md)（M1–M4 里程碑）
 
 ## 说明
 
