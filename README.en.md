@@ -1,9 +1,9 @@
-﻿# PixelAnimIDE
+# PixelAnimIDE
 
 A pixel animation IDE — an all-in-one desktop tool: **text → image generation → video animation → strict pixelization → background removal → sprite-frame export**.
 
 - **Tech stack**: Python 3.10+ · PySide6 · Pillow · numpy · httpx · cryptography · imageio-ffmpeg
-- **Status**: Phase 1 (MVP) + Phase 2 (IDE) + sprite workflow + standalone pixel board completed — see [Roadmap](#roadmap)
+- **Status**: Phase 1–4 completed (MVP / IDE / sprite workflow / standalone pixel board / i18n / CI / release) — see [Roadmap](#roadmap)
 
 ## Quick Start
 
@@ -146,9 +146,9 @@ Covers: pixelization, background removal, frame utils (real mp4 extraction), key
 
 - [x] Phase 1 (MVP): Solo pipeline + pixelization + white keying + GIF/PNG export
 - [x] Phase 2: IDE workspace (step nav / preview+edit / params / timeline), pixel canvas editing, project save/load
-- [x] Phase 3 (partial): APNG/sprite export, onion skin, palette lock, background params, Krita-style palette & color wheel, selection/layers, sprite workflow, standalone pixel board, i18n, UI scale
-- [ ] Phase 3 remainder: more pixelization algorithms, multi-candidate pick / inpainting, large-frame performance
-- [ ] Phase 4: PyInstaller packaging
+- [x] Phase 3: APNG/sprite export, onion skin, palette lock, background params, Krita-style palette & color wheel, selection/layers, sprite workflow, standalone pixel board, i18n, UI scale
+- [x] Phase 4: PyInstaller packaging + GitHub Actions CI + GitHub Release (v0.1.0)
+- [ ] Phase 5+ (future): map tile generation & tile-map editing, Solo performance/quality, pixel editor & sprite refinements, continuous polish — see [**ROADMAP.md**](ROADMAP.md) (milestones M1–M4)
 
 ## Notes
 
