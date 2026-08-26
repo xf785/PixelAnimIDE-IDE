@@ -1,124 +1,124 @@
-# PixelAnimIDE 项目规划（ROADMAP）
+# PixelAnimIDE Roadmap
 
-> 目标读者：维护者与潜在贡献者。本文档是项目发展的"活文档"，随实现持续更新。
-> 英文版见 [ROADMAP.en.md](ROADMAP.en.md)（English version: [ROADMAP.en.md](ROADMAP.en.md)）。
+> Audience: maintainers and prospective contributors. This is a living document, updated as the project evolves.
+> 中文版（Chinese）: [ROADMAP_CN.md](ROADMAP_CN.md)。
 
-## 1. 愿景
+## 1. Vision
 
-把「AI 生成 → 像素化 → 精修 → 游戏素材」全流程做成**像素优先的一站式工具**：
+Turn the full "AI generation → pixelization → polish → game assets" flow into a **pixel-first, all-in-one tool**:
 
-- 输入：文本描述 / 自备参考图 / 图生视频
-- 产出：像素动画（GIF/APNG/PNG 序列）、精灵图、**地图瓦片与瓦片地图**、可被任意游戏引擎直接使用的素材
+- Input: text prompt / your own reference image / image-to-video
+- Output: pixel animations (GIF/APNG/PNG sequences), sprites, **map tiles & tile maps**, game-engine-ready assets
 
-## 2. 指导原则
+## 2. Guiding Principles
 
-1. **像素优先**：任何处理（缩放 / 键控 / 聚类 / 无缝化）都保证像素锐利、不模糊——"Perfect Pixel" 是本项目的品牌承诺。
-2. **可离线演示**：Mock API 永远能跑通全流程，新用户零成本上手。
-3. **服务商无关**：API 适配层隔离，新服务商只加配置不改代码。
-4. **质量 > 数量**：每个功能做到"像素级完成度"，不堆半成品。
-5. **可持续维护**：测试、CI、i18n、文档与功能同步演进。
+1. **Pixel-first**: every operation (scaling / keying / clustering / seamless tiling) must keep pixels crisp and sharp — "Perfect Pixel" is this project's brand promise.
+2. **Demo offline**: the Mock API must always run the full pipeline, so new users can try it with zero setup.
+3. **Provider-agnostic**: the API adapter layer isolates providers; adding one means configuration, not code changes.
+4. **Quality over quantity**: every feature ships at "pixel-grade" completion — no half-finished pile-ups.
+5. **Sustainable maintenance**: tests, CI, i18n, and docs evolve together with features.
 
-## 3. 当前状态（v0.1.0，已发布）
+## 3. Current State (v0.1.0, released)
 
-| 模块 | 状态 |
-|------|------|
-| Solo 一键流程（文生图→图生视频→像素化→抠图→导出） | ✅ 可用（含参考图 i2i、循环闭合、背景稳定、多服务商适配、尺寸自动回退） |
-| IDE 分步工作区（6 步、时间轴、分步参数面板） | ✅ 可用 |
-| 像素编辑器（4 工具 + 选择/图层、色族调色板、取色圆盘、导入导出） | ✅ 可用 |
-| 精灵图（文生图整张网格 → 裁切 → 抠图 → 导出，同步 IDE） | ✅ 可用 |
-| 独立像素板块（分辨率设置、双向同步、图生视频首帧） | ✅ 可用 |
-| 中英 i18n + UI 缩放 + DSH 风格图标 | ✅ 可用 |
-| CI（GitHub Actions，Py3.11/3.13 × Win/Linux） | ✅ 运行中 |
-| Windows 打包（PyInstaller）与 GitHub Release | ✅ v0.1.0 |
+| Module | Status |
+|--------|--------|
+| Solo one-click pipeline (text→image→video→pixelize→key→export) | ✅ Working (reference i2i, loop closing, background stability, multi-provider adapters, size auto-fallback) |
+| IDE step workspace (6 steps, timeline, per-step params panel) | ✅ Working |
+| Pixel editor (4 tools + selection/layers, color families, color wheel, import/export) | ✅ Working |
+| Sprite workflow (grid sheet → crop → key → export, IDE sync) | ✅ Working |
+| Standalone pixel board (resolution settings, two-way sync, video first-frame) | ✅ Working |
+| zh/en i18n + UI scaling + DSH-style icons | ✅ Working |
+| CI (GitHub Actions, Py3.11/3.13 × Win/Linux) | ✅ Running |
+| Windows packaging (PyInstaller) + GitHub Release | ✅ v0.1.0 |
 
-已知技术债：打包 onedir 体积大（~260MB）、部分工作流日志未 i18n、打包时误收 `__pycache__`、GUI 细节测试覆盖不全。
+Known tech debt: large onedir package (~260 MB), some workflow logs not yet i18n'd, `__pycache__` accidentally bundled, GUI details not fully covered by tests.
 
-## 4. 阶段规划
+## 4. Phase Plan
 
-### 阶段 A：地图瓦片生成 + 瓦片地图编辑器（新功能主线）
+### Phase A: Map Tile Generation + Tile-Map Editor (new feature line)
 
-**A1 瓦片集生成**（复用精灵图管线）
-- 文生图生成 i×j 瓦片集（地形 / 物件 / 装饰），内置强提示词：等大格、**可无缝平铺**、纯色底、风格一致、无文字边框格线；
-- 算法裁切 + 一键抠图 + **无缝化**（边缘采样混合，保证 tile 四边可平铺）；
-- 导出 **PNG tileset + JSON 索引**（兼容 Tiled `.tsx`）。
-- DoD：默认参数下 16 格地形瓦片可直接平铺无接缝。
+**A1 Tile-set generation** (reuses the sprite pipeline)
+- Text-to-image for an i×j tile set (terrain / objects / decorations) with a strong built-in prompt: equal cells, **seamlessly tileable**, solid background, consistent style, no text or border lines;
+- Algorithmic crop + one-click keying + **seamlessness pass** (edge sampling blend so all four edges tile);
+- Export **PNG tileset + JSON index** (Tiled `.tsx`-compatible).
+- DoD: a default 16-tile terrain sheet tiles seamlessly with no seams.
 
-**A2 瓦片地图编辑器**（新板块，第 5 个模式）
-- 画布为瓦片网格，右侧瓦片调色板（沿用色族交互：左键选、右键批量替换）；
-- 笔刷 / 矩形 / 填充 / 橡皮，图块翻转与旋转，**多层**（地面 / 物件 / 装饰），碰撞标记；
-- 网格 / 缩放 / 撤销 / 平移复用像素编辑器能力；
-- 导出 **PNG + JSON**（并支持 Tiled `.tmx` 导入导出）。
-- DoD：能画一张 32×32 三图层地图并导出被 Tiled 打开。
+**A2 Tile-map editor** (a 5th mode)
+- Canvas as a tile grid with a right-side tile palette (reusing family-palette interactions: left-click select, right-click batch replace);
+- Brush / rectangle / fill / eraser, tile flip & rotate, **multiple layers** (ground / objects / decoration), collision markers;
+- Reuse pixel-editor capabilities for grid / zoom / undo / pan;
+- Export **PNG + JSON** (plus Tiled `.tmx` import/export).
+- DoD: paint a 32×32 three-layer map and open the export in Tiled.
 
-**A3 与现有管线打通**
-- 瓦片 / 地图可同步到 IDE 与像素模式精修；精灵动画可放入地图预览。
+**A3 Pipeline integration**
+- Tiles / maps sync into IDE and pixel mode for polish; sprite animations can be placed in a map preview.
 
-**A4 大图性能**
-- 瓦片集 >4096 懒加载、地图编辑器视口化渲染、大图导出异步化。
+**A4 Large-map performance**
+- Lazy-load tilesets >4096, viewport-rendered map editor, async large-map export.
 
-### 阶段 B：Solo 性能与生成质量优化
+### Phase B: Solo Performance & Generation Quality
 
-**B1 性能**
-- **结果缓存**：提示词 / 图片按内容哈希缓存，重复生成直接复用（省 token、省时）；
-- **像素化并行**：numpy 向量化 + 多帧线程池/进程池；
-- **减 token**：LLM 模板压缩（已有 max_tokens 800）、首帧 min/max side 已有，图片请求尺寸按需降档；
-- 大图预览 / 导出异步化，进度粒度细化。
+**B1 Performance**
+- **Result caching**: hash prompts/images; repeated generations reuse results (saves tokens and time);
+- **Parallel pixelization**: numpy vectorization + multi-frame thread/process pools;
+- **Fewer tokens**: compress LLM templates (already max_tokens 800), keep min/max side for first-frame images, downsize image requests when possible;
+- Async large-image preview/export with finer progress granularity.
 
-**B2 质量**
-- **多候选生成**：`n=2~4` 生多张，按客观评分（清晰度 / 网格纯度 / 主体完整度）自动选优，UI 允许用户挑选；
-- **提示词模板升级**：few-shot 示例 + 参数化风格预设（像素风 / 色板 / 描边强度）；
-- **视频一致性**：抽帧后逐帧颜色直方图匹配、更好的循环首尾检测；
-- **抠图升级**：可选描边处理、边缘抗锯齿、羽化增强；
-- **seed 控制**：可复现生成。
+**B2 Quality**
+- **Multi-candidate generation**: `n=2–4` outputs scored objectively (sharpness / grid purity / subject completeness), best auto-picked, user can pick from the UI;
+- **Prompt template upgrade**: few-shot examples + parameterized style presets (pixel style / palette / outline strength);
+- **Video consistency**: per-frame color-histogram matching after sampling, better loop start/end detection;
+- **Keying upgrade**: optional outline pass, edge anti-aliasing, feathering;
+- **Seed control**: reproducible generation.
 
-**B3 质量回归基准**
-- 建立示例图集 + 客观评分脚本，任何改动跑基准防质量回退（并入 CI 可选 job）。
+**B3 Quality regression baseline**
+- A sample image set + objective scoring script; every change runs the baseline to prevent quality regressions (optional CI job).
 
-### 阶段 C：像素编辑器 & 精灵图精进
+### Phase C: Pixel Editor & Sprite Refinements
 
-**C1 像素编辑器**
-- 更多工具：直线 / 矩形 / 椭圆 / 对称绘制 / 魔棒选择 / 像素字体文本；
-- **真实图层栈**（替代当前单浮动层）+ 图层面板；
-- 编辑页内嵌动画预览（帧序列直接播放）、洋葱皮强度调节；
-- 快捷键自定义、图案笔刷。
+**C1 Pixel editor**
+- More tools: line / rectangle / ellipse / symmetry / magic wand / pixel-font text;
+- **Real layer stack** (replacing the single floating layer) + layers panel;
+- In-editor animation preview (play frame sequences inline), onion-skin strength control;
+- Customizable shortcuts, pattern brushes.
 
-**C2 精灵图**
-- **页内逐帧编辑**（点格子直接进编辑器，无需先同步 IDE）；
-- 裁切优化：内容包围盒 + 留白参数化、去边框参数 UI；
-- 多动作精灵图（一个 sheet 多行动作）、碰撞盒标注；
-- 生成结果多候选挑选。
+**C2 Sprite**
+- **In-page per-frame editing** (click a cell to edit directly, no IDE sync first);
+- Crop improvements: content bounding box + configurable padding, border-removal params UI;
+- Multi-action sheets (one sheet, multiple action rows), collision-box annotation;
+- Multi-candidate generation picker.
 
-### 阶段 D：持续打磨（贯穿始终）
+### Phase D: Continuous Polish (throughout)
 
-- **D1 工程**：PyInstaller onefile + 图标 + 版本自检；自动更新（可选）；CI 加打包 job 与 codecov；
-- **D2 体验**：空状态引导、快捷键帮助、设置项精简、错误提示友好化、日志分级与搜索；
-- **D3 国际化**：英文文案 100% 覆盖、日语等更多语言包、字体适配；
-- **D4 文档**：用户手册（中英）、示例画廊、API 适配文档、FAQ；
-- **D5 社区**：Issues 模板、Contributing、首个外部贡献。
+- **D1 Engineering**: PyInstaller onefile + icon + version self-check; optional auto-update; CI packaging job + codecov;
+- **D2 UX**: empty-state onboarding, shortcut help, simplified settings, friendlier error messages, log levels & search;
+- **D3 i18n**: 100% English coverage, more language packs (e.g. Japanese), font adaptation;
+- **D4 Docs**: user manual (zh/en), sample gallery, API adapter docs, FAQ;
+- **D5 Community**: issue templates, Contributing guide, first external contribution.
 
-## 5. 里程碑
+## 5. Milestones
 
-| 里程碑 | 范围 | 建议目标 |
-|--------|------|----------|
-| **M1（v0.2）** | A1 瓦片集 + A2 瓦片地图编辑器 MVP + B1 缓存/并行 + C1 直线/椭圆/对称 + 打包 onefile | 下一个大版本 |
-| **M2** | B2 多候选与模板升级 + C2 精灵图内联编辑 + D4 文档/示例画廊 | M1 之后 |
-| **M3** | A3/A4 瓦片打通与大图性能 + C1 图层栈 + D1 自动更新 | M2 之后 |
-| **M4** | 稳定打磨、100% i18n、社区运营、**v1.0** | 稳定发布 |
+| Milestone | Scope | Target |
+|-----------|-------|--------|
+| **M1 (v0.2)** | A1 tile-set + A2 tile-map editor MVP + B1 caching/parallel + C1 line/ellipse/symmetry + onefile packaging | next major release |
+| **M2** | B2 multi-candidate & template upgrade + C2 in-page sprite editing + D4 docs/sample gallery | after M1 |
+| **M3** | A3/A4 pipeline integration & large-map perf + C1 layer stack + D1 auto-update | after M2 |
+| **M4** | stability polish, 100% i18n, community ops, **v1.0** | stable release |
 
-## 6. 优先建议（Quick Wins，先做收益最高的）
+## 6. Quick Wins (highest ROI first)
 
-1. 打包优化（onefile / 去 pycache / 体积）——每轮发布都受益；
-2. Solo 结果缓存——用户最直接的省时省钱；
-3. 瓦片集生成（A1）——完全复用精灵图管线，开发成本低、新功能亮点大；
-4. 编辑页动画预览 + 洋葱皮强度——编辑器日常体验提升；
-5. 多候选生图——质量感知最大提升点。
+1. Packaging (onefile / drop pycache / size) — benefits every release;
+2. Solo result caching — the most direct time/money saver for users;
+3. Tile-set generation (A1) — fully reuses the sprite pipeline: low dev cost, big feature win;
+4. In-editor animation preview + onion-skin strength — daily editor UX;
+5. Multi-candidate generation — biggest perceived quality gain.
 
-## 7. 如何跟踪
+## 7. How to Track
 
-- 建议在 GitHub 建立 **Milestones（M1–M4）** 与 **Labels**：`tiles` / `map-editor` / `solo-quality` / `performance` / `pixel-editor` / `sprite` / `i18n` / `packaging` / `docs` / `good-first-issue`；
-- 每个 PR 关联对应 Issue，里程碑按此文档拆解；
-- 质量底线：任何改动必须跑通 `pytest`（当前 333 项）且不引入回归。
+- Create GitHub **Milestones (M1–M4)** and **Labels**: `tiles` / `map-editor` / `solo-quality` / `performance` / `pixel-editor` / `sprite` / `i18n` / `packaging` / `docs` / `good-first-issue`;
+- Every PR links to an Issue; milestones are decomposed from this document;
+- Quality bar: any change must pass `pytest` (currently 333 tests) without regressions.
 
 ---
 
-*最后更新：2026-08-26（随 v0.1.0 发布建立）*
+*Last updated: 2026-08-26 (created alongside v0.1.0 release)*

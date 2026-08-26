@@ -1,248 +1,193 @@
 # PixelAnimIDE
 
-> **English version: [README.en.md](README.en.md) · 界面语言可在 设置 → 常规 → 语言 切换（中/英，重启后生效）**
->
-> [![CI](https://github.com/xf785/PixelAnimIDE-IDE/actions/workflows/ci.yml/badge.svg)](https://github.com/xf785/PixelAnimIDE-IDE/actions/workflows/ci.yml)
+> **像素动画 IDE** · 中文版：[README_CN.md](README_CN.md) · UI 语言可在 设置 → 常规 → 语言 切换
 
-像素动画 IDE —— 从「文本描述 → 图片生成 → 动画生成 → 严格像素化 → 背景去除 → 序列帧导出」的一站式桌面工具。
+[![CI](https://github.com/xf785/PixelAnimIDE-IDE/actions/workflows/ci.yml/badge.svg)](https://github.com/xf785/PixelAnimIDE-IDE/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-v0.1.0-blue.svg)](https://github.com/xf785/PixelAnimIDE-IDE/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)]()
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
-- **技术栈**：Python 3.10+ · PySide6 · Pillow · numpy · httpx · cryptography · imageio-ffmpeg
-- **当前进度**：阶段 1–4 已完成（MVP / IDE / 精灵图 / 独立像素板块 / i18n / CI / 发布），见 [开发阶段计划](#开发阶段计划)
+**One-click pixel animation IDE** — a free, open-source desktop tool that turns **text or your own image into crisp, game-ready pixel assets**:
 
-## 快速开始
+> text → image generation → video animation → **strict pixelization** → background removal → GIF / APNG / PNG sequences / sprite sheets
+
+Built for indie game devs, pixel artists, and AI tinkerers who want *real* pixel art — sharp edges and exact colors — not blurry downscaled images.
+
+<p align="center">
+  <img src="docs/screenshots/EN.png" alt="PixelAnimIDE — pixel editor (English UI)" width="880"/>
+</p>
+
+## ✨ Highlights
+
+- 🚀 **One-click Solo pipeline** — text → animation → pixel art, fully automated. Works offline with deterministic mock APIs, no keys required.
+- 🎯 **Perfect-pixel engine** — frame-0 grid detection (FFT + purity/boundary search) + exact per-cell sampling on every frame, so colors stay precise and edges stay hard.
+- 🎬 **IDE step workspace** — 6 independently runnable steps, step-aware parameter panel, frame timeline, live keying preview.
+- 🧩 **Sprite sheets** — one img2img call produces a whole i×j grid sheet, auto-cropped, loop-closed and keyed.
+- 🖌️ **Krita-style pixel editor** — color-family palette with right-click whole-family replace, right-click color wheel, selection & floating layers, onion skin, palette lock.
+- 🖼️ **Standalone pixel board** — 4th mode with resolution settings, two-way IDE sync, and video-first-frame handoff (NEAREST upscale, never blurry).
+- 🌐 **Bilingual + scalable UI** — Chinese / English, UI scale 0.8×–1.5×, self-drawn DSH-style icons.
+- 🔌 **Provider-agnostic** — one-click presets for DeepSeek, Kimi, Zhipu, SiliconFlow, Ark, DashScope, Hunyuan, Ollama, gpt.ge, Kling… plus proxy & SSL options.
+- 📦 **Open source** — MIT license, CI on GitHub Actions (Win + Linux), Windows releases via PyInstaller.
+
+## 🚀 Quick Start
 
 ```bash
-# 1. 创建虚拟环境并安装依赖（Windows）
+# 1. Create a virtual environment and install dependencies (Windows)
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 
-# 2. 启动 GUI
+# 2. Launch the GUI
 python main.py
 
-# 3. 无 API 密钥也能跑通全流程（演示模式，使用确定性模拟 API）
+# 3. No API keys? Run the full pipeline with deterministic mock APIs
 python main.py --demo
 ```
 
-> 演示模式会生成 `demo_output/`，内含 GIF、PNG 序列帧、元数据与项目文件。
+> Demo mode writes `demo_output/` containing a GIF, PNG frame sequence, metadata and project files.
 
-## 使用流程（Solo 模式）
+## 🌐 UI Language
 
-1. 打开「设置」，配置三种 API（通用文本 / 图片生成 / 图转视频），
-   或勾选每类配置中的「使用模拟 API（无需密钥）」离线体验。
-2. 打开「Solo 模式」，左侧「参数」页签输入文本描述（如「一只拿着剑的橙色小猫，Q 版，侧身站立」），
-   选择动作类型与输出参数；可选点「参考图」小卡片上传自备图片做**图生图**。
-3. 点击「开始生成」，系统自动执行：提示词生成 → 首帧图片（含参考图时走图生图）→ 动画 → 像素化 → 去背景 → 导出。
-   生成中的提示词与首帧图在左侧「中间结果」页签实时更新。
-4. 右上角预览占据整个右侧，可用「GIF 播放速度」下拉调整倍速（0.5x/1x/1.5x/2x/3x）。
-5. 点「同步到 IDE」把本次生成的**首帧图**与**最终帧序列**导入 IDE 工作区继续精细编辑。
+The UI supports **Chinese / English** — switch in **Settings → General → Language** (restart to apply). Untranslated strings fall back to Chinese; the translation table lives in `ui/i18n.py` (extend it to cover more).
 
-## 使用流程（IDE 模式）
+## 🕹️ The Four Modes
 
-左上角**2×2 图标模式开关**（Solo ✦ / IDE ⊞ / 精灵图 ▤ / 像素 ▦，自绘开源风格图标，**直接绘制在侧栏上无背景框**）切到 **IDE**（左侧导航栏展开）。IDE 模式把 Solo 流程拆成
-6 个可独立执行的步骤，适合精细控制：
+### Solo Mode — one-click pipeline
 
-1. 左侧展开的步骤导航（图标按钮）逐步执行：文本生成 → 图片生成 → 视频动画生成 → 像素化 → 背景去除 → 导出；
-   每一步可随时重跑，中间结果保存在当前工作区；**右侧参数面板随步骤切换**，只显示当前步骤相关参数
-   （文本描述 / 图片尺寸 / 动画帧率 / 像素颜色数 / 背景容差 / 导出目录）。
-2. **无需全链路**：右侧「参考图 / 首帧图」导入自备图片后，可直接走「动画生成」步骤（图片作为首帧）；
-   或走「图片生成」步骤，以该参考图做**图生图**（i2i，参考图字段名可在设置中调整）。
-3. 中间「提示词」页签可手动编辑生成的图片/动画/负面提示词，「预览」页签播放动画
-   （支持 −/＋/**适应** 按钮与**滚轮缩放**（以鼠标位置为焦点，缩放百分比实时显示）、
-   **播放倍速 0.5x–3x**、**最近邻缩放保证像素边缘锐利不发糊**），「编辑」页签修改像素。
-4. 底部时间轴：点击选中帧、拖动调整顺序、插入/复制/删除/追加空白帧。
-5. 像素编辑器：**画布占满主体，所有控件收敛到右侧图标列（自绘 DSH 风格图标，左键选择工具、右键展开二级详细选项：笔刷大小/选择方式/填充方式/背景档）与底部可隐藏的色族调色板条**；
-   **画布背景四档切换**（灰黑网格 / 纯白 / 纯黑 / 纯绿），**像素网格可显示/隐藏**；
-   铅笔 / 橡皮 / 取色 / 填充 / **选择**，支持 Ctrl+Z / Ctrl+Shift+Z 撤销重做，整数倍缩放 + 网格线，**滚轮以光标为焦点缩放**；
-   **Ctrl+左键拖动平移画布**，**右键拖拽框选区域**松开即用当前颜色**填充选中矩形**（可撤销）；
-   **选择档**：框选/套索/Ctrl+点选多像素 → **Ctrl+C 复制为浮动图层** → **Ctrl+右键拖拽移动** → **Ctrl+M 合并进主图层**（Esc 取消，绘图时自动先合并）。
-6. **色族调色板 + 取色圆盘**：编辑器上方按**出现频率**显示本图前 6 个**色族**（相近颜色自动聚类：白色族 / 红色族 / 淡红色族…，族内颜色不逐个显示）+「…」（弹窗按色族显示完整列表）；
-   **左键**色族设为当前颜色（取代表色），**右键**色族「替换…」把该色族**全部相近颜色整体替换**为新色，**保留族内相对渐变**（可撤销）；
-   **在画布上按住右键**弹出 Krita 风格**取色圆盘**（外环色相 + 中央饱和度/明度方块 + 最近使用色条），移动取色实时预览、松开提交、Esc 取消。
-7. 「保存」把帧序列 + 提示词 + 参数写入目录（`frames/` + `ide_project.json`），「打开」恢复。
+1. In **Settings**, configure the three APIs (LLM / Image / Video), or tick **"Use mock API (no key)"** for offline use.
+2. Type a description on the **Parameters** tab (e.g. *"an orange kitten holding a sword, chibi, side view"*), pick an action & output options; optionally upload a **reference image** card for **image-to-image (i2i)**.
+3. Hit **Start generating**: prompts → first frame (i2i when a reference exists) → animation → pixelization → background removal → export.
+4. The right-side preview supports **playback speed** (0.5x/1x/1.5x/2x/3x).
+5. **Sync to IDE** imports the first frame + final frame sequence into the IDE workspace for fine editing.
 
-> 切回 **Solo** 时左侧导航栏内缩隐藏，回到一键生成界面。
+### IDE Mode — step-by-step control
 
-## 使用流程（像素模式）
+The top-left **2×2 icon switch** (Solo ✦ / IDE ⊞ / Sprites ▤ / Pixel ▦) opens **IDE** (left rail expands). The Solo pipeline is split into **6 independently runnable steps** — text → image → animation → pixelize → background removal → export:
 
-左上角 **2×2 图标模式开关** 切到 **像素**：独立像素画布板块（复用完整编辑能力：色族调色板 / 右键取色圆盘 / 选择与浮动图层 / 背景网格 / 滚轮缩放 / 框选填充）。
+- The **right parameter panel follows the selected step** and is **collapsed by default** (one chevron to expand); the bottom log box can be collapsed/expanded.
+- **No full pipeline needed**: import your own image as **reference / first frame**, then jump straight to the Animation step (image as first frame) or the Image step (i2i).
+- **Prompts** tab for hand-editing; **Preview** plays the animation (cursor-focus wheel zoom, crisp NEAREST sampling, speed control); **Edit** edits pixels.
+- Bottom **timeline**: click to select, drag to reorder, insert/duplicate/delete/append frames.
+- **Pixel editor**: canvas fills the panel; controls live in a right icon column (left-click = tool, right-click = second-level options) and a collapsible bottom color-family bar. Four background modes (checker/white/black/green), grid toggle, Ctrl+wheel cursor-focus zoom, Ctrl+left-drag pan, **right-drag region fill**.
+- **Selection & layers**: rect / lasso / Ctrl+click multi-select → **Ctrl+C copy → Ctrl+V paste as a semi-transparent floating layer** → **Ctrl+right-drag move (any tool)** → **Ctrl+M merge** (Esc cancels).
+- **Color families + color wheel**: colors auto-cluster into families (White / Red / Light-red…); right-click a family to replace it wholesale **preserving the inner gradient**; right-click-and-hold on the canvas opens a **Krita-style color wheel** (hue ring + S/V square + recent colors).
+- **Save** writes frames + prompts + params (`frames/` + `ide_project.json`); **Open** restores.
 
-1. **新建画布**：预设分辨率（16–512）或自定义宽×高 + 背景（透明/白/黑）。
-2. **从 IDE 同步**：把 IDE 当前帧/首帧拉进画布做精细像素编辑（色族替换、图层复制粘贴、逐帧精修）。
-3. **同步到 IDE**：把画布图作为**首帧 + 图生图参考**导入 IDE，直接走「动画生成」。
-4. **用作图生视频首帧**：把画布图作为参考/首帧发给 Solo 一键走图生视频——若分辨率低于 API 最低要求，自动**最近邻放大**到要求值（像素画保持硬边、不模糊），已达标则原样发送。
-5. **导出 PNG** 存盘。
+### Sprite Mode — grid sprite sheets (text-only, no video)
 
-> 图生视频首帧「最低要求」由 `video_image_min_side`（默认 256px 长边）控制；配合已有的 `video_image_max_side`（默认 512 上限），先按最低要求放大、再按需缩小，全程像素画不模糊。
+1. Enter a description, optional action loop, **frame count**, **grid i×j** (e.g. 4×4 = 16), cell size and max colors.
+2. **Generate sprite sheet**: text → **base image** → one img2img call producing the **whole i×j grid sheet** → algorithmic **crop into frames** (row-major, auto-inset removes AI cell border lines) → **loop close** (last = first) → one-click **keying** → export GIF / PNG sequence / keyed sheet + metadata.
+3. Live preview tabs: base image / sprite sheet / frame sequence.
+4. **Sync to IDE** imports the base image (as first frame) + cropped frames for per-frame pixel polish.
 
-## 使用流程（精灵图模式）
+### Pixel Mode — standalone pixel board
 
-切到 **精灵图**（仅用文生图，不涉及视频抽帧），一键生成网格精灵图：
+A dedicated pixel canvas (reusing the full editor):
 
-1. 输入文本描述 + 可选动作（每帧的动作循环）、**帧数**、**网格 i×j**（如 4×4=16 格）、单格尺寸、颜色数。
-2. 点「生成精灵图」，自动执行：
-   文生**对象底图**（强提示词：像素风 / 纯白背景 / 主体完整居中 / 严格分辨率与颜色数）
-   → 以底图为**参考图**（图生图）**一次调用**生成**一整张 i×j 网格精灵图**（强提示词：单张网格图、等大格子、**首尾格姿势完全一致**、**角色形象逐格绝对一致不突变**、无文字边框格线）
-   → **算法裁切**为帧序列（行优先，取前 N 帧，帧统一缩放到单格尺寸）
-   → **首尾帧对齐**（末帧=首帧，循环无缝，可取消勾选）
-   → **一键抠图**（自适应背景归一化 + 颜色键，扣除纯色背景）
-   → 导出 **GIF / PNG 序列 / 抠图后精灵图** + 项目元数据。
-3. 实时预览：对象底图 / 精灵图 / 帧序列三个页签。
-4. 点「同步到 IDE」把**对象底图**（作为首帧图）与**裁切后的帧序列**导入 IDE 工作区，可继续用像素编辑器逐帧精修（调色板 / 全局换色 / 洋葱皮），再走导出步骤。
+- **New canvas**: preset (16–512) or custom W×H + background (transparent/white/black).
+- **Sync from IDE** pulls the current IDE frame for fine pixel editing; **Sync to IDE** sends the canvas as **first frame + i2i reference**.
+- **Use as video first frame** hands it to Solo for image-to-video — if below the API minimum size it is **NEAREST-upscaled** (hard edges, no blur) via `video_image_min_side` (default 256) paired with `video_image_max_side` (default 512).
+- **Export PNG**.
 
-## 功能一览
+## 📋 Feature Table
 
-| 模块 | 说明 |
-|------|------|
-| API 配置管理 | 三类 API 多套配置增删改查、默认切换、连通性测试、JSON 导入导出 |
-| API 密钥加密 | `cryptography` Fernet 加密落盘，磁盘不存明文 |
-| LLM / 生图 / 图转视频 API | OpenAI 兼容协议封装（httpx），统一超时/重试/错误处理；端点路径可配置；视频支持轮询式任务模型 |
-| Solo 工作流 | 全自动链路 + 进度/日志/取消，LLM 失败自动降级本地模板 |
-| 完美像素化 | 内嵌 Perfect Pixel 算法：**首帧定网格，全部帧（含首帧）按同一网格做「单元采样」**（每格取精确颜色众数/均值，颜色精确还原、无 NEAREST 硬缩放的颜色损失）；**网格大小精修**：FFT 估计 + 「格内纯度 × 边界贴合度」候选搜索 + 正方形格/纯度峰值锐度门槛（修正 FFT 频率偏移、谐波混淆、非整数格距，拒绝渐变/平坦/噪声误判）；非像素风自动跳过；失败回退目标尺寸缩放 + 共享调色板量化 |
-| 像素风生图 | 提示词含像素关键字（像素/精灵/8-bit 等）时，生图尺寸强制为预设像素分辨率（长边 max(pixel_size,256)） |
-| 图生图（参考图） | Solo 与 IDE 的文字生图均支持附加参考图（i2i，豆包/即梦风格小卡片上传）：默认以 data URI 传入（字段名 `image_field`）；**上传方式可配**：`image_mode=multipart` 时改为 multipart 文件上传（gpt.ge V-API 的 `/images/generations` 要求 `image` 为 multipart 文件字段，gpt.ge 预设默认开启，旧配置未设置时也会按域名自动启用） |
-| IDE 参考图/首帧图 | IDE 无需全链路：导入自备图即可作为首帧图直接走「动画生成」，或作为参考图做「图片生成」 |
-| LLM 自动调参 | 提示词生成时 LLM 顺带按动作推荐 `frame_count`/`fps`；用户未自定义（仍是默认值）时自动套用，改过则尊重用户 |
-| 循环闭合 | 抽帧时**保留首帧与尾帧、中间均匀采样**（完整动作都体现，不截断到请求时长）；「首尾帧一致」开启时强制末帧=首帧，循环播放无跳变；视频 API 支持「首帧同时作为尾帧传入」（`last_frame` 配置）从源头保证首尾帧一致 |
-| 播放倍速 | 0.5x / 1x / 1.5x / 2x；先按视频实际时长校准原速再乘倍速 |
-| 无声视频 | 下载生成的视频后用 ffmpeg `-c copy` 去除音轨（不重编码视频），保证交付物无声 |
-| 背景稳定 | 图转视频时动画提示词附加「背景保持纯白且逐帧不变」约束，防止中间帧背景漂移；`last_frame` 首尾帧一致进一步稳定首尾背景 |
-| 主体完整性 | 图片与动画提示词均强制「主体完整居中、与画面边缘留白、不裁切不贴边」，避免对象被边缘截断 |
-| 强制纯色背景 | 提示词强制纯白背景 + **自适应背景归一化**：检测边缘连通的背景区域，主体偏亮（浅色系/极淡色）时自动刷纯黑，否则刷纯白；抠图用精确掩膜（不误伤浅色主体与描边） |
-| 颜色数一致 | 提示词写入「最多 N 种纯色」约束；像素化时调色板自动取生成帧实际颜色数（上限为用户设置的 max_colors） |
-| 背景去除 | 颜色键 + 容差 + 形态学清理 + **内缩（去白边/白晕）** + 羽化；IDE 背景步骤新增「**预览抠图效果…**」弹窗：**实时预览**扣除效果（棋盘格底显示透明区），拖动 容差/内缩/羽化 即时生效，确定后一键应用到全部帧 |
-| 导出 | GIF（含透明）、**APNG**、PNG 序列帧、**雪碧图**、JSON 元数据、项目文件 |
-| 双分辨率保留 | 像素风产物同时导出**两种分辨率**：完美像素原生网格分辨率（如 16×16，`*_native.gif` / `png_native/`）与用户预设分辨率（如 128×128，`pixelgif.gif` / `png/`）；两版共享同一调色板，颜色完全一致；网格与预设相同或非像素风时仅导出一份 |
-| IDE 分步工作区 | 左步骤导航 / 中预览+编辑+提示词 / 右参数 / 底部时间轴；6 步可独立执行、重跑；**右侧参数面板随左侧步骤同步切换**（只显示当前步骤相关参数）；**参数面板（提示词/文生图等）默认收起成三角钮**，点击展开，画布区更大；**底部日志框可收起/展开** |
-| 时间轴 | 帧缩略图预览、点击选中、拖动排序、插入/复制/删除/追加空白帧 |
-| 像素编辑画布 | 铅笔 / 橡皮 / 取色 / 填充 / **选择**，撤销重做（Ctrl+Z / Ctrl+Shift+Z），整数倍缩放 + 网格线 + 透明棋盘背景，**滚轮以光标为焦点缩放**，**Ctrl+左键拖动平移画布**；**本地导入/导出图片**（导入替换当前帧，导出 PNG）；**背景四档**（灰黑网格/纯白/纯黑/纯绿）+ **网格显示/隐藏**；控件收敛到**右侧图标列（默认展开显示）+ 底部调色板条**（均可点击三角钮展开/收起，画布更大） |
-| 工具图标素材 | 全部工具按钮为**自绘 16px 扁平线条图标**（与 DSH 图标风格统一，`ui/icons.py` editor_icon，主题可换色）；**左键选择工具，右键展开二级详细选项**（笔刷大小 / 框选·套索 / 填充方式 / 背景档） |
-| 笔刷大小 | 铅笔/橡皮支持 1–8px 方形笔刷（右键菜单切换，连线连续盖章） |
-| 选择工具 | **框选 / 套索 / Ctrl+左键逐点多选**（半透明高亮 + **屏幕空间蓝色细虚线框**：1px cosmetic 笔实时绘制，不随原图分辨率放大成粗块、任意缩放清晰）；**Ctrl+C 复制到剪贴板 → Ctrl+V 粘贴为半透明浮动新图层**（显示在原选区位置，半透明便于看清叠放、带蓝色细虚线框）；**Ctrl+右键拖拽（任意工具下）实时移动浮动图层**——有选区未复制时自动提起为浮动层再移动；**Ctrl+M 合成进主图层**（alpha 合成，可撤销）；Esc 取消；绘图前自动先合并浮动图层 |
-| 框选区域填充 | **右键拖拽**框选矩形区域（半透明选区预览），松开用当前颜色**整块填充**（含透明格子，可撤销）；右键快速点击/按住仍为取色圆盘 |
-| 色族调色板 | 本图颜色按 RGB 距离**自动聚类为色族**（白色族/红色族/淡红色族…），顶部显示前 6 个高频色族 +「…」（弹窗为**紧凑色块网格**，不再逐行显示族名，**族名悬停几秒显示**）；左键取代表色，**右键整族替换**：族内全部相近颜色整体换成新色并**保留族内相对渐变**（数值映射，可撤销） |
-| 右键取色圆盘 | Krita 式：画布上**按住右键**弹出取色圆盘（外环=色相、中央方块=饱和度/明度、底部=最近使用色条，记录最近 10 个颜色），移动取色实时预览、松开提交（锁定调色板时自动吸附）、Esc 取消 |
-| 预览缩放 | IDE 预览页与画布均支持放大/缩小/适应（0.2x–8x），**滚轮以鼠标位置为焦点缩放**，缩放百分比实时显示；**最近邻采样**，像素风预览边缘锐利不发糊 |
-| 预览倍速 | Solo 与 **IDE 预览**均支持播放倍速调整（0.5x/1x/1.5x/2x/3x），播放中调整即时生效 |
-| 洋葱皮 | 编辑时半透明叠加相邻帧（上一帧/下一帧幽灵），便于对齐动画 |
-| 调色板锁定 | 锁定调色板后绘制/填充颜色自动吸附到最近锁定色；一键从当前帧提取调色板 |
-| 项目持久化 | IDE 工作区保存/加载（`frames/` 帧序列 + `ide_project.json`） |
-| 界面布局比例 | 设置 → 常规 →「界面布局比例」：0.8×/1.0×/1.25×/1.5×；**文字与全部 UI 尺寸同步缩放**（全局字体 / 侧栏宽度 / 模式开关 / 导航按钮 / 像素编辑器按钮与面板 / IDE 参数面板 / 精灵图表单），适配不同分辨率设备 |
-| Solo→IDE 同步 | Solo 生成的首帧图与最终帧序列一键导入 IDE 工作区继续编辑 |
-| 精灵图生成 | **仅用文生图**：文生对象底图 → 以底图为参考图**一次调用生成一整张 i×j 网格精灵图**（非逐帧生成）→ 算法裁切帧序列（行优先，支持帧数 < 网格；**每格自动内缩去 AI 画的格子黑框**，可调 `cell_inset`）→ **首尾帧对齐**（末帧=首帧，循环无缝）→ 一键抠除纯色背景；内置强提示词（单张网格图 / 首尾格姿势一致 / 角色逐格不突变）；**帧尺寸确定性**：无论服务商返回的精灵图多大，裁切后的帧统一缩放到「单格尺寸」（NEAREST）；导出 GIF / PNG 序列 / 抠图后精灵图 |
-| 精灵图→IDE 同步 | 精灵图的**对象底图**（作为首帧图）与**裁切帧序列**一键导入 IDE 工作区继续编辑，然后走 IDE 导出 |
-| 独立像素板块 | 第 4 个模式「**像素**」：独立画布可设分辨率（预设/自定义 + 背景），**从 IDE 同步**当前帧、**同步到 IDE**（首帧+图生图参考）、**用作图生视频首帧**（发给 Solo；低于 API 最低要求自动最近邻放大不模糊）、导出 PNG |
+| Module | Description |
+|--------|-------------|
+| API config management | Multiple configs per API type: CRUD, default, connectivity test, JSON import/export |
+| Encrypted keys | `cryptography` Fernet, no plaintext on disk |
+| LLM / Image / Video APIs | OpenAI-compatible httpx wrapper, unified timeout/retry/error handling, configurable endpoints, video polling task model |
+| Solo workflow | Full auto pipeline + progress/log/cancel; local fallback prompts when the LLM fails |
+| Perfect pixelization | Frame-0 grid detection (FFT + purity/boundary candidate search), exact per-cell sampling on all frames, frequency-based palette; non-pixel art auto-skipped; graceful fallback |
+| Pixel-style image gen | Pixel keywords force a preset pixel resolution (long edge max(pixel_size, 256)) |
+| i2i reference image | Solo & IDE text-to-image support a reference card (Doubao/Jimeng style); `image_field` / `image_mode` (data URI vs multipart, gpt.ge auto); unsupported sizes auto-retry at 512/768/1024/1536 |
+| IDE reference / first frame | Import your own image and jump straight to Animation (as first frame) or Image (i2i) |
+| LLM auto-tuning | LLM suggests `frame_count`/`fps` from the action; applied only when the user hasn't customized |
+| Loop close | Extraction keeps first+last frames with even middle sampling; last frame forced = first; `last_frame` passes the first frame as the last to the API |
+| Playback speed | 0.5x–3x, calibrated to actual video duration |
+| Silent video | Audio stripped with ffmpeg `-c copy` (no re-encode) |
+| Background stability | Animation prompts force a stable pure-white background; `last_frame` stabilizes the endpoints |
+| Subject integrity | Prompts force the subject fully visible, centered, with clear margins — never cropped or touching edges |
+| Forced solid background | Prompt + adaptive background normalization (pale subject → black, else white); precise mask keying |
+| Background removal | Color key + tolerance + shrink (removes white fringe) + feather; IDE **live keying preview** dialog (tolerance/shrink/feather) applied to all frames |
+| Export | GIF (transparent), **APNG**, PNG sequence, **sprite sheet**, JSON metadata, project files |
+| Dual-resolution export | Pixel-art output exports both the native grid resolution and the user preset, sharing one palette (identical colors) |
+| IDE workspace | Step nav / center preview+edit+prompts / right step-aware params (collapsible) / bottom timeline + collapsible log |
+| Timeline | Frame thumbnails, click-select, drag-reorder, insert/duplicate/delete/append blank frame |
+| Pixel editor | Pencil/Eraser/Eyedropper/Fill/Select, undo/redo (Ctrl+Z / Ctrl+Shift+Z), integer zoom + grid + checkerboard, cursor-focus wheel zoom, Ctrl+left pan, **local import/export images**, background modes, right icon column + collapsible palette bar |
+| Tool icons | Self-drawn 16px flat-line icons (DSH style, recolorable); left-click = tool, right-click = second-level options (brush size / selection mode / fill / background) |
+| Brush size | 1–8 px square brushes for pencil/eraser |
+| Selection & floating layer | Rect / lasso / Ctrl+click multi-select with a **screen-space blue dashed border** (1px cosmetic pen, crisp at any zoom); Ctrl+C → Ctrl+V semi-transparent floating layer → Ctrl+right-drag move (any tool, auto-lifts a selection) → Ctrl+M merge (alpha, undoable) |
+| Region fill | Right-drag a rectangle and release to fill it with the current color (undoable); quick right-click/hold still opens the color wheel |
+| Color-family palette | Colors clustered by RGB distance (White / Red / Light-red…); top 6 families + "…" dialog (compact swatch grid, names on hover); right-click replaces a whole family preserving the inner gradient |
+| Right-click color wheel | Krita-style: hue ring + saturation/value square + recent-color bar (last 10), live preview, release commits, Esc cancels (snaps when palette locked) |
+| Preview zoom | 0.2x–8x zoom/fit with cursor-focus wheel zoom, percentage shown; NEAREST sampling keeps pixels crisp |
+| Preview speed | Playback speed in Solo **and** IDE preview (0.5x/1x/1.5x/2x/3x), applies live |
+| Onion skin | Semi-transparent overlay of adjacent frames while editing |
+| Palette lock | Drawing/filling snaps to the nearest locked color; one-click extract palette from the current frame |
+| Project persistence | IDE workspace save/load (`frames/` + `ide_project.json`) |
+| UI scale | Settings → General → UI scale (0.8×/1.0×/1.25×/1.5×) — fonts **and** all fixed UI sizes scale together |
+| Solo → IDE sync | First frame + final frame sequence imported into the IDE workspace in one click |
+| Sprite generation | Text-only grid sheet: base image → one-call i×j sheet (strong built-in prompt: uniform cells, first/last pose identical, character never mutates) → crop (row-major, auto `cell_inset` removes AI black borders) → loop close → keying; frames always scaled to the exact cell size (NEAREST) |
+| Sprite → IDE sync | Base image (as first frame) + cropped frames imported for pixel polish, then IDE export |
+| Standalone pixel board | 4th mode: resolution settings, IDE sync both ways, video-first-frame handoff, PNG export |
+| i18n | Chinese/English UI (Settings → General → Language); `ui/i18n.py` translation table |
+| Token savings | First-frame images ≤ `video_image_max_side` (512) before upload; LLM `max_tokens` 800; image size prefers the API default; minimal GET polling |
 
-**省 token 优化**：
-- 发送给视频 API 的首帧图先缩放到长边 ≤512px（图片按像素计费，可省约 75% 图片 token），
-  可配置 `video_image_max_side`；
-- 提示词生成的 LLM 请求 `max_tokens` 从 2048 降到 800（输出只是短 JSON）；
-- 生图尺寸优先使用图片 API 配置的「默认尺寸」，可在设置里调小；
-- 轮询请求极小（GET），时长取服务商最小档。
+## 🔌 Provider Adaptation
 
-## 服务商适配
+Provider differences are configured in **Settings** — no code changes:
 
-不同 AI 服务商的接口差异通过「设置」页的配置项适配，无需改代码：
+- **Presets**: one-click fill Base URL / model / adapter params (DeepSeek, Kimi, Zhipu, SiliconFlow, Ark, DashScope, Hunyuan, Ollama, gpt.ge, Kling…). With an API key set, **Query models** lists available models.
+- **LLM / Image** (OpenAI-compatible): provider root URL; if the path differs (`404 Invalid URL`), set the **endpoint path** or a full URL override. **i2i upload mode**: data URI by default; gpt.ge requires **multipart file upload** (`image_mode=multipart`, auto-enabled for `api.gpt.ge`). **Size fallback**: rejected sizes auto-retry at 512/768/1024/1536.
+- **Video**: `generic` (OpenAI-compatible polling), **Doubao Seedance (Ark)**, **gpt.ge V-API** presets; request-body templates with `$model/$prompt/$image/$frames/$fps/$duration` placeholders; `submit_url`/`poll_url` support `{base}`/`{id}`; polling fields configurable; **`last_frame`** sends the first frame as the last for first/last consistency.
+- **Proxy / SSL**: per-API advanced options — proxy URL for blocked networks, `verify_ssl` toggle; network errors auto-retry with troubleshooting hints.
 
-**服务商预设（一键填充）**：设置页每类 API 顶部都有「服务商预设」下拉，选择后自动填好
-Base URL / 模型 / 适配参数（如 DeepSeek、Kimi、智谱、硅基流动、火山方舟、通义、
-腾讯混元、Ollama、gpt.ge、可灵 Kling 等）。若已填 API Key，应用预设后会自动查询可用模型供一键选择。
-
-**通用文本 / 图片生成 API**（OpenAI 兼容，如 OpenAI、DeepSeek、通义、Ark Seedream 等）
-- Base URL 填服务商根地址（如火山方舟 `https://ark.cn-beijing.volces.com/api/v3`）。
-- 若端点路径不同（报 `404 Invalid URL` 时），在「端点路径」填实际路径（如 `/api/v3/images/generations`），
-  或直接填完整 URL 覆盖。
-- **图生图上传方式**：默认参考图以 data URI 字符串放进 JSON 请求体；gpt.ge (V-API) 等要求
-  `image` 为 multipart 文件上传（报 `invalid_image_request` 时），把图片配置的
-  「参考图上传方式」改为 `multipart 文件上传`（gpt.ge 预设已默认开启；未显式设置时
-  客户端也会对 `api.gpt.ge` 域名自动启用 multipart）。
-- **尺寸自动回退**：若服务商拒绝请求尺寸（报 `unsupported size: 256x256` 等，
-  如 gpt.ge 不支持过小的图生图尺寸），客户端会按相同宽高比自动换更大的常见档位
-  （长边 512/768/1024/1536）重试，无需手动改参数。
-
-**图转视频 API**
-- `服务商适配 = 通用`：`POST {base}/videos/generations` 提交（含首帧图），轮询 `{base}/videos/generations/{id}`；
-  端点、轮询方法、状态字段、结果路径、额外字段均可通过配置项覆盖（端点支持 `{base}`、`{id}` 占位符）。
-- `服务商适配 = Doubao Seedance（火山方舟）`：自动使用
-  `POST {base}/contents/generations/tasks` 提交、`GET .../tasks/{id}` 轮询；
-  首帧图放入 `content[].image_url`（base64 data URI），时长由帧数/帧率换算（5~10s），
-  结果从 `content.video_url` 读取。示例：
-  ```
-  Base URL: https://ark.cn-beijing.volces.com/api/v3
-  模型:     doubao-seedance-1-0-pro-250528
-  额外字段: {"resolution":"1080p","watermark":false}
-  ```
-- **首尾帧一致**：视频配置项「首帧同时作为尾帧传入」开启后（doubao/gptge 预设默认开启），
-  把首帧图同时作为尾帧传入 API，从源头强制视频首尾帧一致；通用服务商可改用
-  「请求体模板」的 `$last_image` 占位符精确指定尾帧字段。
-- `服务商适配 = gpt.ge (V-API) 豆包视频`：自动使用 `POST {base}/task/volces/seedance` 提交、
-  `GET {base}/task/{id}` 轮询（Base URL 填 `https://api.gpt.ge` 即可，误填 `/v1` 也会自动纠正），
-  请求体与结果解析同火山方舟。示例：
-  ```
-  Base URL: https://api.gpt.ge
-  模型:     doubao-seedance-1-5-pro-251215
-  ```
-- **请求体模板**：请求结构特殊服务商（如可灵 `model_name`/`image` 字段）可用「请求体模板」
-  直接写 JSON 请求体，占位符 `$model/$prompt/$image/$frames/$fps/$duration` 会被替换；
-  再配合提交/轮询端点、`job_id_path`、`status_path`、`status_success`、`result_video_url_path`
-  等字段即可适配任意任务式接口（预设里已内置「快手可灵 Kling」）。
-- 不确定自己的令牌能用哪些模型？配置表单里有「**查询模型**」按钮：自动调用
-  `GET {base}/v1/models`（OpenAI 兼容，自动兼容带/不带 `/v1` 的 Base URL），
-  弹出可过滤的模型列表，双击即可填入模型名称。
-- 无论哪种适配，**首帧图片始终随请求发送**；视频返回后自动拆帧并按「保留首帧/尾帧 + 中间均匀采样」抽到目标帧数（抽取完整视频、不截断到请求时长，保证完整动作都体现），同时去除音轨。
-
-**网络被拦截 / 需要代理时**
-- 每类 API 配置的「高级选项」里都有「**代理**」字段：直连境外服务（如 gpt.ge）被拦截、
-  报 `SSL: UNEXPECTED_EOF_WHILE_READING` 等 TLS 错误时，填入本地代理地址即可
-  （如 Clash 的 `http://127.0.0.1:7890`）。留空表示直连。
-- 若确因证书校验失败，可关闭「校验 SSL 证书」（默认开启；仅在可信网络下关闭）。
-- 网络类错误（超时 / 连接失败 / TLS 握手失败）会自动重试，最终错误信息里会附带排查提示。
-
-## 目录结构
+## 📁 Project Layout
 
 ```
 PixelAnimIDE/
-├── main.py                 # 程序入口（GUI + --demo）
+├── main.py                 # entry (GUI + --demo)
 ├── requirements.txt
-├── config/                 # 全局配置、API 配置管理（密钥加密存储）
+├── config/                 # global + API config (encrypted keys)
 ├── core/
-│   ├── api/                # BaseAPI / LLM / Image / Video / Mock / 工厂
-│   ├── workflow/           # Solo 工作流 + IDE 分步工作流（shared 工具、ide_workflow）
+│   ├── api/                # BaseAPI / LLM / Image / Video / Mock / factory
+│   ├── workflow/           # Solo / IDE / sprite workflows
 │   ├── processing/         # pixelizer / background / frame_utils / prompt_utils
-│   ├── editing/            # 像素画布数据模型（铅笔/橡皮/取色/填充/撤销重做）
-│   └── storage/            # keyring（加密）、project（项目文件）
-├── ui/                     # 主窗口、页面、组件、QSS 主题 + DSH 官方图标（QtSvg 渲染，深/浅色）
-│   ├── pages/              # solo_page / ide_page / sprite_page / pixel_page
+│   ├── editing/            # pixel canvas model (draw / undo / selection / paste)
+│   └── storage/            # keyring (encrypted), project files
+├── ui/                     # main window, pages, widgets, QSS + DSH-style icons
+│   ├── i18n.py             # zh/en translation table (tr())
+│   ├── pages/              # solo / ide / sprite / pixel
 │   └── widgets/            # image_viewer / pixel_editor / color_wheel / timeline / api_config_widget / reference_box
-├── assets/prompts.json     # 预设动作提示词库（可扩展）
-└── tests/                  # 单元测试 + 端到端测试 + GUI 冒烟测试
+├── assets/prompts.json     # preset action prompt library (extensible)
+├── docs/screenshots/       # UI screenshots used in the docs
+└── tests/                  # unit + e2e + GUI smoke tests
 ```
 
-## 测试
+## ✅ Testing
 
 ```bash
 .\.venv\Scripts\python.exe -m pytest -v
 ```
 
-覆盖：像素化算法、背景去除、帧工具（含真实 mp4 拆帧）、密钥加密、配置管理、
-三类 API 客户端（httpx MockTransport）、模拟客户端、Solo 全流程端到端、
-IDE 分步工作流、像素画布编辑、GUI 冒烟。
+Covers: pixelization, background removal, frame utils (real mp4 extraction), keyring, config management, API clients (httpx MockTransport), mock clients, Solo e2e, IDE workflow, canvas editing, i18n, GUI smoke.
 
-## 开发阶段计划
+## 🗺️ Roadmap
 
-- [x] **阶段 1（MVP）**：Solo 一键链路 + 简单像素化 + 白色去背景 + GIF/PNG 导出
-- [x] **阶段 2（IDE 模式基础）**：IDE 分步工作区（左步骤导航 / 中预览+像素编辑 / 右参数 / 底部时间轴）、
-  时间轴（预览/删除/插入/复制/拖动排序）、像素画布编辑（铅笔/橡皮/取色/填充/撤销重做）、项目保存/加载
-- [x] **阶段 3**：APNG/雪碧图/JSON 导出、洋葱皮、调色板锁定、背景去除参数（容差/羽化）暴露到 UI、
-  色族调色板与取色圆盘、选区/浮动图层、精灵图工作流、独立像素板块、中英 i18n、UI 缩放
-- [x] **阶段 4**：PyInstaller 打包 + GitHub Actions CI + GitHub Release（v0.1.0）
-- [ ] **阶段 5+（未来规划）**：地图瓦片生成与瓦片地图编辑、Solo 性能与生成质量优化、
-  像素编辑器/精灵图精进、持续打磨——详见 [**ROADMAP.md**](ROADMAP.md) / [**ROADMAP.en.md**](ROADMAP.en.md)（M1–M4 里程碑）
+Phase 1–4 shipped (MVP / IDE / sprite workflow / standalone pixel board / i18n / CI / release **v0.1.0**). Up next:
 
-## 说明
+- **Map tiles & tile-map editor** (tileset generation + a 5th tile-map mode)
+- **Solo performance & quality** (caching, multi-candidate generation, quality baselines)
+- **Pixel editor & sprite refinements** (more tools, real layer stack, in-page sprite editing)
+- **Continuous polish** (packaging, auto-update, docs, community)
 
-- 运行期配置与密钥存放在用户数据目录（Windows: `%APPDATA%\PixelAnimIDE\`）。
-- 生图/视频 API 因服务商差异较大，视频 API 支持通过配置项适配（端点、轮询、状态字段等），详见 `core/api/video_api.py`。
-- 用户素材与生成结果默认全部保存在本地。
-- **开源/商用合规**：导航图标来自 DeepSeek Harness（MIT License, Copyright (c) 2026 DeepSeek），
-  使用须保留版权声明，详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。本项目与 DeepSeek 无隶属关系。
+See [**ROADMAP.md**](ROADMAP.md) (English) / [**ROADMAP_CN.md**](ROADMAP_CN.md) (中文) for milestones M1–M4.
+
+## 📄 Notes & License
+
+- Runtime config & keys live in the user data dir (Windows: `%APPDATA%\PixelAnimIDE\`).
+- Video providers differ; adapt via config (endpoints, polling, status fields) — see `core/api/video_api.py`.
+- User assets and outputs are stored locally by default.
+- **Open-source / commercial compliance**: nav icons come from DeepSeek Harness (MIT License, Copyright (c) 2026 DeepSeek) — keep the attribution, see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). This project is not affiliated with DeepSeek.
+- Licensed under the [MIT License](LICENSE). Copyright (c) 2026 StrFaith.
