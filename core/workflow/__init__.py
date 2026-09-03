@@ -14,6 +14,14 @@ from .ide_workflow import (
     save_ide_project,
 )
 from .sprite_workflow import STEP_ORDER, SpriteParams, SpriteResult, SpriteSession, SpriteWorkflow
+from .tilemap_workflow import (
+    TILEMAP_STEPS,
+    TILEMAP_STEP_LABELS,
+    TilemapParams,
+    TilemapResult,
+    TilemapSession,
+    TilemapWorkflow,
+)
 
 __all__ = [
     "SoloParams",
@@ -31,4 +39,10 @@ __all__ = [
     "SpriteResult",
     "SpriteSession",
     "SpriteWorkflow",
+    "TILEMAP_STEPS",
+    "TILEMAP_STEP_LABELS",
+    "TilemapParams",
+    "TilemapResult",
+    "TilemapSession",
+    "TilemapWorkflow",
 ]

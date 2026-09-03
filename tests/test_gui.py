@@ -36,7 +36,7 @@ def test_main_window_structure(qtbot, ctx):
     window = MainWindow(ctx)
     qtbot.addWidget(window)
     window.show()
-    assert window._stack.count() == 4  # solo / ide / sprite / pixel
+    assert window._stack.count() == 5  # solo / ide / sprite / pixel / tilemap
     # 默认在 Solo 模式
     assert window._stack.currentIndex() == 0
     assert window._mode == "solo"
@@ -63,6 +63,12 @@ def test_main_window_structure(qtbot, ctx):
     assert window._step_nav.isHidden()
     assert window._sidebar.width() == 128
 
+    window.switch_page("tilemap")
+    assert window._stack.currentIndex() == 4
+    assert window._mode == "tilemap"
+    assert window._step_nav.isHidden()
+    assert window._sidebar.width() == 128
+
     window.switch_page("solo")
     assert window._stack.currentIndex() == 0
     assert window._step_nav.isHidden()
@@ -73,14 +79,14 @@ def test_mode_switch_and_step_buttons(qtbot, ctx):
     window = MainWindow(ctx)
     qtbot.addWidget(window)
     window.show()
-    # 模式开关四格（2×2 图标按钮）
+    # 模式开关五格（2×2 + 瓦片地图占第三行）
     assert window._mode_solo_btn.isChecked()
     assert not window._mode_ide_btn.isChecked()
     assert not window._mode_sprite_btn.isChecked()
-    for b in (window._mode_solo_btn, window._mode_ide_btn, window._mode_sprite_btn, window._mode_pixel_btn):
+    for b in (window._mode_solo_btn, window._mode_ide_btn, window._mode_sprite_btn, window._mode_pixel_btn, window._mode_tilemap_btn):
         assert b.icon() is not None and not b.icon().isNull()  # 开源风格图标
         assert b.toolTip()
-    assert window._mode_switch.layout().count() == 4  # 2×2
+    assert window._mode_switch.layout().count() == 5  # 2×2 + 第 5 模式整行
     # 6 个步骤按钮（含图标 + 短名）
     assert len(window._step_buttons) == 6
     for i, btn in window._step_buttons.items():

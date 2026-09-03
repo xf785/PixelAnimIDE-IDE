@@ -382,6 +382,14 @@ def editor_icon(kind: str, color, size: int = 16) -> QIcon:
     elif kind == "chevron_right":
         # 右三角（收起右侧面板）
         p.drawPolygon([QPointF(5.5, 3.5), QPointF(12.0, 8.0), QPointF(5.5, 12.5)])
+    elif kind == "tiles":
+        # 瓦片地图：2×2 网格 + 左上格圆角切角（地形块）
+        p.drawRect(QRectF(2.8, 2.8, 10.4, 10.4))
+        p.drawLine(QPointF(2.8, 8.0), QPointF(13.2, 8.0))
+        p.drawLine(QPointF(8.0, 2.8), QPointF(8.0, 13.2))
+        p.drawArc(QRectF(2.8, 2.8, 10.4, 10.4), 180 * 16, 90 * 16)
+        p.drawLine(QPointF(2.8, 8.0), QPointF(8.0, 8.0))
+        p.drawLine(QPointF(8.0, 2.8), QPointF(8.0, 8.0))
     else:
         p.drawRect(QRectF(3, 3, 10, 10))
     p.end()

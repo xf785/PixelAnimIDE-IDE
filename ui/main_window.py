@@ -39,6 +39,7 @@ from ui.pages.ide_page import IdePage
 from ui.pages.pixel_page import PixelPage
 from ui.pages.solo_page import SoloPage
 from ui.pages.sprite_page import SpritePage
+from ui.pages.tilemap_page import TilemapPage
 from ui.styles import apply_theme
 from ui.widgets.segmented_toggle import SegmentedToggle
 
@@ -137,17 +138,23 @@ class MainWindow(QMainWindow):
         T(self._mode_pixel_btn, "像素 — 独立像素画布", attr="tooltip")
         self._mode_pixel_btn.clicked.connect(lambda: self.set_mode("pixel"))
 
+        self._mode_tilemap_btn = _mode_btn(lambda c, s: editor_icon("tiles", c, s), T(None, "瓦片地图 — 文生瓦片集与地图铺设"))
+        T(self._mode_tilemap_btn, "瓦片地图 — 文生瓦片集与地图铺设", attr="tooltip")
+        self._mode_tilemap_btn.clicked.connect(lambda: self.set_mode("tilemap"))
+
         self._mode_group = QButtonGroup(self)
         self._mode_group.setExclusive(True)
         self._mode_group.addButton(self._mode_solo_btn)
         self._mode_group.addButton(self._mode_ide_btn)
         self._mode_group.addButton(self._mode_sprite_btn)
         self._mode_group.addButton(self._mode_pixel_btn)
+        self._mode_group.addButton(self._mode_tilemap_btn)
 
         ms.addWidget(self._mode_solo_btn, 0, 0)
         ms.addWidget(self._mode_ide_btn, 0, 1)
         ms.addWidget(self._mode_sprite_btn, 1, 0)
         ms.addWidget(self._mode_pixel_btn, 1, 1)
+        ms.addWidget(self._mode_tilemap_btn, 2, 0, 1, 2)  # 第 5 模式：占满第三行
         sb.addWidget(self._mode_switch)  # 无对齐 -> 横向填满侧栏
         sb.addSpacing(8)
 
@@ -220,6 +227,7 @@ class MainWindow(QMainWindow):
         self.ide_page = IdePage(self._ctx)
         self.sprite_page = SpritePage(self._ctx)
         self.pixel_page = PixelPage(self._ctx)
+        self.tilemap_page = TilemapPage(self._ctx)
         self.ide_page.step_changed.connect(self._on_ide_step_changed)
         self.solo_page.sync_to_ide.connect(self._on_sync_to_ide)
         self.sprite_page.sync_to_ide.connect(self._on_sync_sprite_to_ide)
@@ -231,6 +239,7 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self.ide_page)   # index 1
         self._stack.addWidget(self.sprite_page)  # index 2
         self._stack.addWidget(self.pixel_page)   # index 3
+        self._stack.addWidget(self.tilemap_page)  # index 4
         layout.addWidget(self._stack, 1)
 
         self.setCentralWidget(central)
@@ -240,31 +249,33 @@ class MainWindow(QMainWindow):
     # 模式切换
     # ------------------------------------------------------------------ #
     def set_mode(self, mode: str) -> None:
-        """切换 Solo / IDE / 精灵图 / 像素 模式（分段开关 + 侧栏收展 + 页面切换）。"""
-        self._mode = mode if mode in ("solo", "ide", "sprite", "pixel") else "solo"
+        """切换 Solo / IDE / 精灵图 / 像素 / 瓦片地图 模式（分段开关 + 侧栏收展 + 页面切换）。"""
+        self._mode = mode if mode in ("solo", "ide", "sprite", "pixel", "tilemap") else "solo"
         # 快捷键按当前工作模式生效（像素编辑器 / 预览等按键绑定）
         sc.set_active_mode(self._mode)
         self._mode_solo_btn.setChecked(self._mode == "solo")
         self._mode_ide_btn.setChecked(self._mode == "ide")
         self._mode_sprite_btn.setChecked(self._mode == "sprite")
         self._mode_pixel_btn.setChecked(self._mode == "pixel")
+        self._mode_tilemap_btn.setChecked(self._mode == "tilemap")
         self._step_nav.setVisible(self._mode == "ide")
         self._sprite_switch.setVisible(self._mode == "sprite")
         self._sidebar.setFixedWidth(int((RAIL_EXPANDED if self._mode == "ide" else RAIL_COLLAPSED) * self._scale))
-        index = {"solo": 0, "ide": 1, "sprite": 2, "pixel": 3}[self._mode]
+        index = {"solo": 0, "ide": 1, "sprite": 2, "pixel": 3, "tilemap": 4}[self._mode]
         self._stack.setCurrentIndex(index)
         hints = {
             "solo": tr("Solo 模式 — 一键生成"),
             "ide": tr("IDE 模式 — 分步工作区"),
             "sprite": tr("精灵图模式 — 文生图网格精灵图"),
             "pixel": tr("像素模式 — 独立像素画布"),
+            "tilemap": tr("瓦片地图模式 — 文生瓦片集与地图铺设"),
         }
         self.statusBar().showMessage(hints[self._mode])
         self._refresh_icons(self._current_theme())
 
     def switch_page(self, key: str) -> None:
         """兼容旧接口：按 key 切换模式。"""
-        self.set_mode(key if key in ("solo", "ide", "sprite", "pixel") else "solo")
+        self.set_mode(key if key in ("solo", "ide", "sprite", "pixel", "tilemap") else "solo")
 
     def _on_step_clicked(self, index: int) -> None:
         self.set_mode("ide")
@@ -353,7 +364,7 @@ class MainWindow(QMainWindow):
             b.setIconSize(QSize(si, si))
         mb = ui_layout.scaled(34)
         mi = ui_layout.scaled(20)
-        for b in (self._mode_solo_btn, self._mode_ide_btn, self._mode_sprite_btn, self._mode_pixel_btn):
+        for b in (self._mode_solo_btn, self._mode_ide_btn, self._mode_sprite_btn, self._mode_pixel_btn, self._mode_tilemap_btn):
             b.setFixedHeight(mb)
             b.setIconSize(QSize(mi, mi))
         self._refresh_icons(self._current_theme())

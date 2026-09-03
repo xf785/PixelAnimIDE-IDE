@@ -212,3 +212,59 @@ class SpriteWorker(QThread):
 
     def _on_log(self, level: str, message: str) -> None:
         self.log.emit(level, message)
+
+
+TILEMAP_API_KINDS = ("image",)
+
+
+class TilemapWorker(QThread):
+    """瓦片地图工作流后台线程（文生瓦片集 → 裁切 → 无缝 → 47/双网格 → 导出）。"""
+
+    log = Signal(str, str)
+    sheet_ready = Signal(str)          # 瓦片底图路径
+    atlas_ready = Signal(str)          # 瓦片集图路径
+    succeeded = Signal(object)         # TilemapResult
+    failed = Signal(str)
+
+    def __init__(self, api_manager: APIConfigManager, params, parent=None):
+        super().__init__(parent)
+        self._api_manager = api_manager
+        self._params = params
+        self._cancel = threading.Event()
+        self._clients: List = []
+
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    def run(self) -> None:  # noqa: D102
+        try:
+            clients, self._clients = create_api_clients(self._api_manager, TILEMAP_API_KINDS)
+            from core.workflow.tilemap_workflow import TilemapWorkflow
+
+            workflow = TilemapWorkflow(
+                clients["image"],
+                log=self._on_log,
+                cancel=self._cancel,
+            )
+            result = workflow.run(self._params)
+            if result.sheet_path:
+                self.sheet_ready.emit(str(result.sheet_path))
+            if result.atlas_path:
+                self.atlas_ready.emit(str(result.atlas_path))
+            self.succeeded.emit(result)
+        except WorkflowCancelled:
+            self.failed.emit(tr("任务已取消"))
+        except WorkflowError as exc:
+            step = tr("（步骤：{0}）").format(exc.step) if exc.step else ""
+            self.failed.emit(f"{exc.message}{step}")
+        except Exception as exc:  # noqa: BLE001
+            self.failed.emit(tr("未知错误: {0}").format(exc))
+        finally:
+            for c in self._clients:
+                try:
+                    c.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def _on_log(self, level: str, message: str) -> None:
+        self.log.emit(level, message)
