@@ -1,4 +1,4 @@
-﻿"""Solo 模式全自动工作流（阶段1 MVP）。
+"""Solo 模式全自动工作流（阶段1 MVP）。
 
 链路：文本描述 -> [LLM] 提示词 -> [生图] 首帧 -> [图转视频] 动画
      -> [像素化] 严格像素化 -> [背景去除] 透明背景 -> [导出] GIF / PNG 序列帧。
@@ -27,27 +27,26 @@ from config.settings import (
     DEFAULT_FRAME_COUNT,
     EXPORT_PREFIX,
 )
-from core.api.base import APIResult, BaseAPI
+from core.api.base import BaseAPI
 from core.processing import background as bg_mod
 from core.processing import frame_utils as fu
 from core.processing import pixelizer as px
 from ui.i18n import tr
 from core.processing.prompt_utils import (
     BACKGROUND_STABILITY_RULE,
-    STRICT_ANIMATION_CORRECTION,
+    BACKGROUND_STABILITY_RULE_DARK,
     SUBJECT_MARGIN_RULE,
-    SYSTEM_PROMPT,
     build_fallback_prompts,
-    build_user_prompt,
     is_pixel_prompt,
     normalize_prompts,
-    parse_json_response,
     recommended_frames,
 )
 from core.storage.project import Project, save_project
-from core.workflow.shared import finalize_prompts, resolve_api_image_size
+from core.workflow.shared import finalize_prompts, generate_prompt_data, resolve_api_image_size
 
 logger = logging.getLogger("PixelAnimIDE.workflow.solo")
+
+RGB = Tuple[int, int, int]
 
 STEPS = ["提示词生成", "首帧图片生成", "动画生成", "像素化处理", "背景去除", "导出"]
 
@@ -215,7 +214,9 @@ class SoloWorkflow:
             # ---------- 2. 首帧图片生成 ----------
             self._begin(1, total, "首帧图片生成")
             self._check_cancel()
-            first_frame_bytes, first_frame_path = self._step_first_frame(prompts["image_prompt"], artifacts)
+            first_frame_bytes, first_frame_path, bg_fill = self._step_first_frame(
+                prompts["image_prompt"], artifacts
+            )
             result.first_frame = first_frame_path
             self._report(1, total, "首帧图片生成", 1.0, str(first_frame_path))
 
@@ -223,7 +224,7 @@ class SoloWorkflow:
             self._begin(2, total, "动画生成")
             self._check_cancel()
             raw_frames, video_path, eff_fps, video_duration = self._step_animation(
-                first_frame_bytes, prompts["animation_prompt"], artifacts
+                first_frame_bytes, prompts["animation_prompt"], artifacts, bg_fill=bg_fill
             )
             result.video_path = video_path
             result.video_duration = video_duration
@@ -270,7 +271,7 @@ class SoloWorkflow:
             self._report(5, total, "导出", 1.0, "完成")
 
         except WorkflowCancelled:
-            self._log_msg("warn", "流程已取消")
+            self._log_msg("warn", tr("流程已取消"))
             raise
         except WorkflowError:
             raise
@@ -294,80 +295,29 @@ class SoloWorkflow:
         """生成提示词并解析 LLM 建议的动画参数。
 
         返回 (prompts, rec)，rec 含 LLM 按动作推荐的 frame_count/fps（可能为 None）。
-        两重保险：
-        1. 推理模型（如 DeepSeek）的 max_tokens 常被思考吃光导致 content 为空
-           -> 提高 max_tokens 重试一次；
-        2. 动画提示词冗长/偏离用户动作（>40 词）-> 用「严格纠正」指令重试一次，
-           保证只描述用户所写的动作、不虚构上下文。
+        调用/重试/严格纠正逻辑统一在 core.workflow.shared.generate_prompt_data；
+        此处负责解析动画参数、归一化 + 内置强制项，以及失败时降级本地模板。
         """
         p = self.params
-        result = self._llm_prompts_call(max_tokens=1600)
-        if not result.ok or not self._prompts_data(result):
-            self._log_msg(
-                "warn",
-                "LLM 输出为空或不可解析（推理模型可能被截断），提高 max_tokens 重试一次",
-            )
-            result = self._llm_prompts_call(max_tokens=4096)
-
-        data = self._extract_prompt_data(result)
+        data, last = generate_prompt_data(
+            self.llm_api, p.description, p.action, log=self._log_msg
+        )
         if data is not None:
-            anim = str(data.get("animation_prompt") or "")
-            word_count = len([w for w in anim.split() if w.strip()])
-            if word_count > 40:
-                self._log_msg(
-                    "warn",
-                    f"动画提示词过于冗长（{word_count} 词），按「简洁且忠实于动作」要求重试一次",
-                )
-                result = self._llm_prompts_call(max_tokens=1600, strict=True)
-                data = self._extract_prompt_data(result)
-            if data is not None:
-                rec = _parse_rec(data)
-                prompts = self._finalize_prompts(normalize_prompts(data, p.description, p.action))
-                self._log_msg("info", tr("提示词生成成功"))
-                self._notify_prompts(prompts)
-                return prompts, rec
-            self._log_msg("warn", "LLM 返回无法解析，使用本地模板")
+            rec = _parse_rec(data)
+            prompts = self._finalize_prompts(normalize_prompts(data, p.description, p.action))
+            self._log_msg("info", tr("提示词生成成功"))
+            self._notify_prompts(prompts)
+            return prompts, rec
+        if last.ok:
+            self._log_msg("warn", tr("LLM 返回无法解析，使用本地模板"))
         else:
-            self._log_msg("warn", f"LLM 调用失败（{result.message}），使用本地模板")
+            self._log_msg("warn", tr("LLM 调用失败（{0}），使用本地模板").format(last.message))
         prompts = self._finalize_prompts(build_fallback_prompts(p.description, p.action))
         self._notify_prompts(prompts)
         # 本地模板按动作类别给出建议（帧率保持用户/默认）
         frames = recommended_frames(p.action, p.fps)
         rec = {"frame_count": frames, "fps": None}
         return prompts, rec
-
-    def _llm_prompts_call(self, max_tokens: int, strict: bool = False) -> APIResult:
-        """一次 LLM 提示词调用（max_tokens / strict 可独立设置，便于重试）。"""
-        p = self.params
-        system = SYSTEM_PROMPT
-        if strict:
-            system = SYSTEM_PROMPT + STRICT_ANIMATION_CORRECTION
-        return self.llm_api.call(
-            prompt=build_user_prompt(p.description, p.action),
-            system=system,
-            action=p.action,
-            max_tokens=max_tokens,
-        )
-
-    @staticmethod
-    def _extract_prompt_data(result: APIResult) -> Optional[dict]:
-        """把 LLM 结果归一化为提示词 dict（dict 直返 / 文本解析 JSON），失败返回 None。"""
-        if not result.ok:
-            return None
-        if isinstance(result.data, dict):
-            return result.data
-        data = parse_json_response(result.data)
-        return data or None
-
-    @staticmethod
-    def _prompts_data(result: APIResult) -> bool:
-        """判断 LLM 结果是否包含可用数据（dict 或可解析文本）。"""
-        if not result.ok:
-            return False
-        if isinstance(result.data, dict):
-            return bool(result.data.get("image_prompt") or result.data.get("animation_prompt"))
-        text = (result.data or "").strip() if isinstance(result.data, str) else ""
-        return bool(text)
 
     def _apply_llm_params(self, rec: Dict[str, Optional[int]]) -> None:
         """把 LLM 建议的动画参数应用到本次运行（用户显式改过的值不被覆盖）。"""
@@ -382,7 +332,9 @@ class SoloWorkflow:
         if changed:
             self._log_msg(
                 "info",
-                f"LLM 已按动作建议调整动画参数：{'、'.join(changed)}（可下次生成前手动修改）",
+                tr("LLM 已按动作建议调整动画参数：{0}（可下次生成前手动修改）").format(
+                    "、".join(changed)
+                ),
             )
 
     def _notify_prompts(self, prompts: Dict[str, str]) -> None:
@@ -392,46 +344,56 @@ class SoloWorkflow:
             except Exception:  # noqa: BLE001
                 pass
 
-    def _step_first_frame(self, image_prompt: str, artifacts: Path) -> Tuple[bytes, Path]:
+    def _step_first_frame(self, image_prompt: str, artifacts: Path) -> Tuple[bytes, Path, Optional[RGB]]:
+        """生首帧图。返回 (发送字节, 保存路径, 背景填充色或 None)。
+
+        bg_fill 为 (0,0,0)（浅色主体归一化成黑底）或 (255,255,255)（白底）或 None
+        （未归一化）——后续动画提示词的「背景稳定」约束必须与它一致，
+        否则提示词说白底而首帧是黑底会让模型困惑、背景漂移。
+        """
         p = self.params
         w, h = self._api_image_size(image_prompt)
         ref_bytes = None
         if p.reference_image:
             try:
                 ref_bytes = fu.image_to_bytes(fu.load_image(p.reference_image), "PNG")
-                self._log_msg("info", f"已附加参考图（图生图）: {p.reference_image}")
+                self._log_msg("info", tr("已附加参考图（图生图）: {0}").format(p.reference_image))
             except Exception as exc:  # noqa: BLE001
-                self._log_msg("warn", f"参考图读取失败，忽略: {exc}")
+                self._log_msg("warn", tr("参考图读取失败，忽略: {0}").format(exc))
         result = self.image_api.call(prompt=image_prompt, size=f"{w}x{h}", n=1, image=ref_bytes)
         if not result.ok:
-            raise WorkflowError(f"首帧图片生成失败: {result.message}", step="首帧图片生成")
+            raise WorkflowError(tr("首帧图片生成失败: {0}").format(result.message), step="首帧图片生成")
         images = (result.data or {}).get("images") or []
         urls = (result.data or {}).get("urls") or []
         if images:
             data = images[0]
         elif urls:
-            self._log_msg("info", f"下载生图结果: {urls[0]}")
+            self._log_msg("info", tr("下载生图结果: {0}").format(urls[0]))
             data = fu.download_bytes(urls[0])
         else:
-            raise WorkflowError("生图接口未返回任何图片", step="首帧图片生成")
+            raise WorkflowError(tr("生图接口未返回任何图片"), step="首帧图片生成")
         img = fu.bytes_to_image(data)
+        bg_fill: Optional[RGB] = None
         if p.force_pure_bg:
             whitened, fill, mask = bg_mod.normalize_background(img)
             if mask is not None:
                 img = whitened
                 data = fu.image_to_bytes(img, "PNG")  # 重新编码，发送给视频 API 的也是纯色背景
+                bg_fill = fill
                 self._log_msg(
                     "info",
-                    f"首帧背景已归一化：主体{'浅色 → 黑底' if fill == (0, 0, 0) else '正常 → 白底'}",
+                    tr("首帧背景已归一化：{0}").format(
+                        tr("主体浅色 → 黑底") if fill == (0, 0, 0) else tr("主体正常 → 白底")
+                    ),
                 )
         path = fu.save_image(img, artifacts / "first_frame.png")
-        self._log_msg("info", f"首帧已保存: {path}")
+        self._log_msg("info", tr("首帧已保存: {0}").format(path))
         if self._on_first_frame_cb:
             try:
                 self._on_first_frame_cb(path)
             except Exception:  # noqa: BLE001
                 pass
-        return data, path
+        return data, path, bg_fill
 
     def _api_image_size(self, image_prompt: str = "") -> Tuple[int, int]:
         """生图 API 的请求尺寸（复用共享实现，仅补像素风日志）。"""
@@ -440,20 +402,27 @@ class SoloWorkflow:
         cfg_size = self.image_api.params.get("size")
         if not cfg_size and is_pixel_prompt(prompt_text):
             size = resolve_api_image_size(None, p.aspect_ratio, p.pixel_size, prompt_text)
-            self._log_msg("info", f"检测到像素风格意图，生图尺寸强制为 {size[0]}x{size[1]}")
+            self._log_msg("info", tr("检测到像素风格意图，生图尺寸强制为 {0}x{1}").format(size[0], size[1]))
             return size
         return resolve_api_image_size(cfg_size, p.aspect_ratio, p.pixel_size, prompt_text)
 
-    def _animation_prompt(self, prompt: str) -> str:
+    def _animation_prompt(self, prompt: str, bg_fill: Optional[RGB] = None) -> str:
         """动画提示词（图转视频）：附加主体完整性约束；
-        强制纯色背景时再附加背景稳定性约束。"""
+        背景归一化为纯色时附加与「实际背景色」一致的稳定性约束。"""
         parts = [prompt, SUBJECT_MARGIN_RULE]
         if self.params.force_pure_bg:
-            parts.append(BACKGROUND_STABILITY_RULE)
+            # 首帧被归一化成黑底时用黑底规则，否则默认白底规则——
+            # 规则必须与实际首帧背景一致，否则模型会在中间帧把背景漂移回去
+            rule = BACKGROUND_STABILITY_RULE_DARK if bg_fill == (0, 0, 0) else BACKGROUND_STABILITY_RULE
+            parts.append(rule)
         return " ".join(parts)
 
     def _step_animation(
-        self, first_frame_bytes: bytes, animation_prompt: str, artifacts: Path
+        self,
+        first_frame_bytes: bytes,
+        animation_prompt: str,
+        artifacts: Path,
+        bg_fill: Optional[RGB] = None,
     ) -> Tuple[List[Image.Image], Optional[Path], int, Optional[float]]:
         """图转视频 -> 拆帧/采样。
 
@@ -469,22 +438,22 @@ class SoloWorkflow:
         if p.video_image_min_side:
             up = fu.upscale_to_min_side_bytes(first_frame_bytes, min_side=p.video_image_min_side)
             if len(up) != len(first_frame_bytes):
-                self._log_msg("info", f"首帧过小，已最近邻放大至长边 ≥{p.video_image_min_side}px（像素保持锐利）")
+                self._log_msg("info", tr("首帧过小，已最近邻放大至长边 ≥{0}px（像素保持锐利）").format(p.video_image_min_side))
             first_frame_bytes = up
         # 首帧缩放到长边 ≤ video_image_max_side 再发送：图片按像素计费，缩小可省大量 token
         if p.video_image_max_side and p.video_image_max_side < 4096:
             sent_frame = fu.downscale_bytes(first_frame_bytes, max_side=p.video_image_max_side)
             if len(sent_frame) != len(first_frame_bytes):
-                self._log_msg("info", f"首帧已缩放至长边 ≤{p.video_image_max_side}px 再发送（节省图片 token）")
+                self._log_msg("info", tr("首帧已缩放至长边 ≤{0}px 再发送（节省图片 token）").format(p.video_image_max_side))
             first_frame_bytes = sent_frame
         result = self.video_api.call(
             image_bytes=first_frame_bytes,
-            prompt=self._animation_prompt(animation_prompt),
+            prompt=self._animation_prompt(animation_prompt, bg_fill),
             frames=p.frame_count,
             fps=p.fps,
         )
         if not result.ok:
-            raise WorkflowError(f"动画生成失败: {result.message}", step="动画生成")
+            raise WorkflowError(tr("动画生成失败: {0}").format(result.message), step="动画生成")
 
         data = result.data or {}
         frames_bytes: List[bytes] = data.get("frames") or []
@@ -494,36 +463,43 @@ class SoloWorkflow:
         requested_secs = p.frame_count / max(1, p.fps)  # 用户期望的动画时长
 
         if frames_bytes:
-            self._log_msg("info", f"图转视频 API 直接返回 {len(frames_bytes)} 帧")
+            self._log_msg("info", tr("图转视频 API 直接返回 {0} 帧").format(len(frames_bytes)))
             frames = [fu.bytes_to_image(b) for b in frames_bytes]
         elif video_url:
-            self._log_msg("info", f"下载视频: {video_url}")
+            self._log_msg("info", tr("下载视频: {0}").format(video_url))
             raw_video = artifacts / "video.mp4"
             raw_video.write_bytes(fu.download_bytes(video_url))
             # 生成的视频应无声：remux 去除音轨（最佳努力，失败保留原视频）
             video_path = fu.strip_audio(raw_video, artifacts / "video_silent.mp4")
-            self._log_msg("info", f"视频已静音: {video_path}")
+            self._log_msg("info", tr("视频已静音: {0}").format(video_path))
             frames, meta = fu.extract_video_frames_meta(
                 video_path,
                 max_frames=p.frame_count * 3,
             )
             video_duration = meta.get("duration")
+            duration_txt = f"{video_duration:.2f}s" if video_duration else tr("未知")
             self._log_msg(
                 "info",
-                f"视频拆帧 {len(frames)} 帧（实际时长约 "
-                + (f"{video_duration:.2f}s" if video_duration else "未知")
-                + f"，请求片段 {requested_secs:.2f}s）",
+                tr("视频拆帧 {0} 帧（实际时长约 {1}，请求片段 {2:.2f}s）").format(
+                    len(frames), duration_txt, requested_secs
+                ),
             )
         else:
-            raise WorkflowError("图转视频接口未返回帧序列或视频 URL", step="动画生成")
+            raise WorkflowError(tr("图转视频接口未返回帧序列或视频 URL"), step="动画生成")
+
+        # 去除完全相同的连续帧（AI 视频常以静态起/尾帧收尾）：动画更紧凑、循环更顺滑
+        deduped = fu.dedupe_frames(frames)
+        if len(deduped) < len(frames):
+            self._log_msg("info", tr("已去除 {0} 帧近似重复的连续帧（静态停留）").format(len(frames) - len(deduped)))
+        frames = deduped
 
         frames = fu.sample_loop_frames(frames, p.frame_count, loop=p.loop_close)
         if not frames:
-            raise WorkflowError("动画结果为空（0 帧）", step="动画生成")
+            raise WorkflowError(tr("动画结果为空（0 帧）"), step="动画生成")
         if len(frames) < p.frame_count:
-            self._log_msg("warn", f"帧数不足（{len(frames)}/{p.frame_count}），按实际帧数继续")
+            self._log_msg("warn", tr("帧数不足（{0}/{1}），按实际帧数继续").format(len(frames), p.frame_count))
         if p.loop_close and len(frames) >= 2:
-            self._log_msg("info", "已做循环闭合：首尾帧保持一致")
+            self._log_msg("info", tr("已做循环闭合：首尾帧保持一致"))
 
         # 按实际时长校准输出帧率：先保证与原视频 1x 速度一致，再乘用户倍速
         if video_duration and video_duration > 0:
@@ -531,10 +507,12 @@ class SoloWorkflow:
             base_fps = max(1, min(30, base_fps))
             effective_fps = max(1, min(30, round(base_fps * p.speed)))
             if effective_fps != p.fps:
+                speed_note = tr("（保持 1x 原速）") if p.speed == 1.0 else tr("（提速播放）")
                 self._log_msg(
                     "warn",
-                    f"视频实际时长 {video_duration:.2f}s：原速 {base_fps}fps × {p.speed:g}x = 输出 {effective_fps}fps"
-                    + ("（保持 1x 原速）" if p.speed == 1.0 else "（提速播放）"),
+                    tr("视频实际时长 {0:.2f}s：原速 {1}fps × {2:g}x = 输出 {3}fps{4}").format(
+                        video_duration, base_fps, p.speed, effective_fps, speed_note
+                    ),
                 )
         else:
             effective_fps = max(1, min(30, round(p.fps * p.speed)))
@@ -542,8 +520,10 @@ class SoloWorkflow:
         if requested_secs < 1.5:
             self._log_msg(
                 "warn",
-                "提示：AI 视频动作通常较慢，1.5s 以内的片段可能无法完整呈现动作；"
-                "建议增大帧数或使用更高播放倍速",
+                tr(
+                    "提示：AI 视频动作通常较慢，1.5s 以内的片段可能无法完整呈现动作；"
+                    "建议增大帧数或使用更高播放倍速"
+                ),
             )
         return frames, video_path, effective_fps, video_duration
 
@@ -565,7 +545,7 @@ class SoloWorkflow:
         """
         if not self.params.pixelate:
             return frames, None
-        self._log_msg("info", f"像素化：目标 {pix_params.target_size}，颜色上限 {pix_params.max_colors}")
+        self._log_msg("info", tr("像素化：目标 {0}，颜色上限 {1}").format(pix_params.target_size, pix_params.max_colors))
 
         native: Optional[List[Image.Image]] = None
         result = px.perfect_pixelize_sequence(frames)
@@ -573,12 +553,12 @@ class SoloWorkflow:
             sampled, grid = result
             self._log_msg(
                 "info",
-                f"像素风（网格 {grid[0]}×{grid[1]}）：首帧完美像素定网格，全部帧硬缩放",
+                tr("像素风（网格 {0}×{1}）：首帧定网格，全部帧单元采样").format(grid[0], grid[1]),
             )
             native = sampled
             refined: List[Image.Image] = sampled
         else:
-            self._log_msg("info", "非像素风格：跳过完美像素，目标尺寸缩放 + 色彩量化")
+            self._log_msg("info", tr("非像素风格：跳过完美像素，目标尺寸缩放 + 色彩量化"))
             refined = [px.resize_nearest(f, pix_params.target_size) for f in frames]
 
         # 统一尺寸（Perfect Pixel 输出为检测到的网格分辨率 -> 用户预设分辨率）
@@ -590,7 +570,9 @@ class SoloWorkflow:
             eff_colors = max(2, min(unique, pix_params.max_colors))
             self._log_msg(
                 "info",
-                f"生成帧实际 {unique} 色 → 调色板取 {eff_colors} 色（上限 {pix_params.max_colors}）",
+                tr("生成帧实际 {0} 色 → 调色板取 {1} 色（上限 {2}）").format(
+                    unique, eff_colors, pix_params.max_colors
+                ),
             )
         # 共享调色板量化 + 去杂点（保证帧间颜色一致、不闪烁）
         # 用频率主导调色板：离散格色按出现频率取前 N，精确保留主色（MEDIANCUT 会混色）
@@ -602,7 +584,7 @@ class SoloWorkflow:
 
         if native is not None:
             if native[0].size == quantized[0].size:
-                self._log_msg("info", "完美像素网格与用户预设分辨率一致，仅导出预设分辨率")
+                self._log_msg("info", tr("完美像素网格与用户预设分辨率一致，仅导出预设分辨率"))
                 native = None
             else:
                 # 网格原生分辨率版本：与预设版本共享同一调色板（颜色完全一致）
@@ -612,8 +594,10 @@ class SoloWorkflow:
                 )
                 self._log_msg(
                     "info",
-                    "保留两种分辨率：完美像素原生 "
-                    f"{native[0].size[0]}×{native[0].size[1]}，用户预设 {quantized[0].size[0]}×{quantized[0].size[1]}",
+                    tr("保留两种分辨率：完美像素原生 {0}×{1}，用户预设 {2}×{3}").format(
+                        native[0].size[0], native[0].size[1],
+                        quantized[0].size[0], quantized[0].size[1],
+                    ),
                 )
         return quantized, native
 
@@ -621,32 +605,33 @@ class SoloWorkflow:
         p = self.params
         if not p.remove_bg and not p.force_pure_bg:
             return frames
+        if p.remove_bg:
+            key_note = tr("，键色 {0}，容差 {1}").format(p.bg_color, p.bg_tolerance)
+        else:
+            key_note = ""
         self._log_msg(
             "info",
-            f"背景处理：纯色背景={p.force_pure_bg}，抠图={p.remove_bg}"
-            + (f"（键色 {p.bg_color}，容差 {p.bg_tolerance}）" if p.remove_bg else ""),
+            tr("背景处理：纯色背景={0}，抠图={1}{2}").format(
+                p.force_pure_bg, p.remove_bg, key_note
+            ),
         )
         normalized_count = 0
         out = []
         for f in frames:
             self._check_cancel()
-            img = f
-            mask = None
-            if p.force_pure_bg:
-                img, fill, mask = bg_mod.normalize_background(img)
-                if mask is not None:
-                    normalized_count += 1
-            if p.remove_bg:
-                if mask is not None:
-                    # 用归一化得到的精确背景掩膜抠图（键出实际填充色，不误伤主体）
-                    img = bg_mod.apply_background_mask(img, mask, feather=p.bg_feather)
-                else:
-                    img = bg_mod.remove_background(
-                        img, key_color=p.bg_color, tolerance=p.bg_tolerance, feather=p.bg_feather
-                    )
+            img, normalized = bg_mod.process_background(
+                f,
+                force_pure_bg=p.force_pure_bg,
+                remove_bg=p.remove_bg,
+                key_color=p.bg_color,
+                tolerance=p.bg_tolerance,
+                feather=p.bg_feather,
+            )
+            if normalized:
+                normalized_count += 1
             out.append(img)
         if normalized_count:
-            self._log_msg("info", f"背景归一化：{normalized_count}/{len(frames)} 帧")
+            self._log_msg("info", tr("背景归一化：{0}/{1} 帧").format(normalized_count, len(frames)))
         return out
 
     def _step_export(
@@ -662,30 +647,36 @@ class SoloWorkflow:
             png_dir = export_dir / "png"
             fu.save_png_sequence(frames, png_dir, prefix=EXPORT_PREFIX)
             result.png_dir = png_dir
-            self._log_msg("info", f"PNG 序列帧已导出: {png_dir}（{len(frames)} 张）")
+            self._log_msg("info", tr("PNG 序列帧已导出: {0}（{1} 张）").format(png_dir, len(frames)))
             if native_frames:
                 native_png_dir = export_dir / "png_native"
                 fu.save_png_sequence(native_frames, native_png_dir, prefix=EXPORT_PREFIX)
                 result.native_png_dir = native_png_dir
-                self._log_msg("info", f"PNG 序列帧（完美像素原生分辨率）已导出: {native_png_dir}")
+                self._log_msg("info", tr("PNG 序列帧（完美像素原生分辨率）已导出: {0}").format(native_png_dir))
         if p.export_gif:
             gif_path = fu.frames_to_gif(frames, export_dir / f"{EXPORT_PREFIX}.gif", fps=result.fps)
             result.gif_path = gif_path
-            self._log_msg("info", f"GIF 已导出: {gif_path}（{result.fps}fps）")
+            self._log_msg("info", tr("GIF 已导出: {0}（{1}fps）").format(gif_path, result.fps))
             if native_frames:
                 native_gif_path = export_dir / f"{EXPORT_PREFIX}_native.gif"
                 fu.frames_to_gif(native_frames, native_gif_path, fps=result.fps)
                 result.native_gif_path = native_gif_path
-                self._log_msg("info", f"GIF（完美像素原生分辨率）已导出: {native_gif_path}")
+                self._log_msg("info", tr("GIF（完美像素原生分辨率）已导出: {0}").format(native_gif_path))
         if p.export_apng:
             apng_path = fu.frames_to_apng(frames, export_dir / f"{EXPORT_PREFIX}.apng", fps=result.fps)
             result.apng_path = apng_path
-            self._log_msg("info", f"APNG 已导出: {apng_path}")
+            self._log_msg("info", tr("APNG 已导出: {0}").format(apng_path))
         if p.export_sprite:
-            sheet = fu.frames_to_sprite_sheet(frames)
+            # 雪碧图 + 索引 JSON（FrameRonin 风格：每帧坐标 + 时间戳）
+            # 自动方形布局（列数≈√N），避免帧数多时单行超长
+            timestamps = [i / max(1, result.fps) for i in range(len(frames))]
+            sheet, sheet_index = fu.compose_sprite_sheet(
+                frames, timestamps=timestamps, auto_square=True
+            )
             sprite_path = fu.save_image(sheet, export_dir / "sprite_sheet.png")
             result.sprite_path = sprite_path
-            self._log_msg("info", f"雪碧图已导出: {sprite_path}")
+            self._save_json(export_dir / "sprite_sheet.json", sheet_index)
+            self._log_msg("info", tr("雪碧图已导出: {0}（含索引 JSON）").format(sprite_path))
         meta = fu.animation_meta(frames, result.fps)
         if native_frames:
             meta["native_resolution"] = {
@@ -733,10 +724,15 @@ class SoloWorkflow:
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _begin(self, step: int, total: int, name: str) -> None:
-        self._report(step, total, name, 0.0, "开始")
+        name = tr(name)
+        self._report(step, total, name, 0.0, tr("开始"))
         self._log_msg("info", tr("—— 步骤 {step}/{total}：{name} ——").format(step=step + 1, total=total, name=name))
 
     def _report(self, step: int, total: int, name: str, pct: float, message: str) -> None:
+        name = tr(name)
+        # 进度文案的通用状态词走翻译；路径/计数等 message 原样透传
+        if message in ("完成", "开始"):
+            message = tr(message)
         if self._progress:
             try:
                 self._progress(step, total, name, float(pct), message)

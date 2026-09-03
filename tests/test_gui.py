@@ -134,18 +134,47 @@ def test_settings_dialog_structure(qtbot, ctx):
     dialog = SettingsDialog(ctx)
     qtbot.addWidget(dialog)
     dialog.show()
-    # 4 个分类：三类 API + 常规设置
-    assert dialog._cat_list.count() == 4
-    # 右侧堆栈含 3 个 ApiConfigWidget + 1 常规面板
+    # 5 个分类 + 「快捷键」分类下的 4 个模式子项（默认隐藏）
+    assert dialog._cat_list.count() == 9
+    assert len(dialog._shortcut_mode_items) == 4
+    # 右侧堆栈含 3 个 ApiConfigWidget + 常规面板 + 快捷键面板
     assert set(dialog._api_widgets.keys()) == {"llm", "image", "video"}
-    assert dialog._stack.count() == 4
+    assert dialog._stack.count() == 5
     # 选中分类 -> 切换右侧面板
     dialog._cat_list.setCurrentRow(2)
     assert dialog._stack.currentIndex() == 2
     dialog._cat_list.setCurrentRow(3)
     assert dialog._stack.currentIndex() == 3
-    # 常规面板含主题选择
-    assert dialog._theme_combo.currentData() in ("dark", "light")
+    # 常规面板：深色模式 iOS 风格开关（默认深色）
+    assert dialog._dark_switch.isChecked() is True
+    dialog._dark_switch.setChecked(False, animate=False)
+    assert dialog._dark_switch.isChecked() is False
+    dialog._dark_switch.setChecked(True, animate=False)
+    # 快捷键分类：两级交互（点击进入 → 再点展开模式子菜单 → 选模式 → 再点收起）
+    dialog._cat_list.setCurrentRow(4)
+    assert dialog._stack.currentIndex() == 4
+    panel = dialog._shortcuts_panel_widget
+    assert panel._cat_combo.count() >= 2            # 类别一级下拉
+    assert panel._action_combo.count() >= 1         # 条目二级下拉
+    assert panel._current_label.text()              # 当前快捷键显示
+    assert panel._btn_change.text() == "修改…"
+    # 第二级：再次点击「快捷键」分类项 -> 展开模式子菜单（该项目正下方）
+    shortcuts_item = dialog._cat_list.item(4)
+    pixel_row = dialog._shortcut_mode_items["pixel"][0]
+    assert dialog._cat_list.isRowHidden(pixel_row)
+    assert "▸" in shortcuts_item.text()
+    dialog._cat_list.itemClicked.emit(shortcuts_item)
+    assert not dialog._cat_list.isRowHidden(pixel_row)
+    assert "▾" in shortcuts_item.text()
+    # 第三级：选择像素模式 -> 面板切换 + 子菜单高亮，右侧停留
+    dialog._cat_list.setCurrentItem(dialog._shortcut_mode_items["pixel"][1])
+    assert panel.mode() == "pixel"
+    assert dialog._stack.currentIndex() == 4
+    # 再点分类项 -> 收起子菜单，右侧表单保持不变
+    dialog._cat_list.itemClicked.emit(shortcuts_item)
+    assert dialog._cat_list.isRowHidden(pixel_row)
+    assert "▸" in shortcuts_item.text()
+    assert panel.mode() == "pixel"
 
 
 def test_api_config_widget_shows_configs(qtbot, ctx):
@@ -182,6 +211,26 @@ def test_api_config_widget_has_models_button(qtbot, ctx):
     widget = ApiConfigWidget(ctx.api, "video")
     qtbot.addWidget(widget)
     assert widget._btn_models.text() == "查询模型"
+
+
+def test_api_config_widget_custom_request_fields(qtbot, ctx):
+    """完全自定义字段：复选框 + 多行模板/请求头（textarea）+ 路径可读写。"""
+    from PySide6.QtWidgets import QCheckBox, QPlainTextEdit
+
+    widget = ApiConfigWidget(ctx.api, "llm")
+    qtbot.addWidget(widget)
+    # 字段存在且类型正确
+    assert isinstance(widget._fields["custom_request"], QCheckBox)
+    assert isinstance(widget._fields["payload_template"], QPlainTextEdit)
+    assert isinstance(widget._fields["extra_headers"], QPlainTextEdit)
+    # 读写往返
+    widget._set_field("custom_request", True)
+    assert widget._get_field("custom_request") is True
+    template = '{"model": "$model", "prompt": "$prompt"}'
+    widget._set_field("payload_template", template)
+    assert widget._get_field("payload_template") == template
+    widget._set_field("text_path", "data.answer")
+    assert widget._get_field("text_path") == "data.answer"
 
 
 def test_api_config_widget_advanced_collapsible(qtbot, ctx):
@@ -252,7 +301,7 @@ def test_api_config_widget_video_provider_choice(qtbot, ctx):
     qtbot.addWidget(widget)
     widget.refresh()
     provider_widget = widget._fields["provider"]
-    assert provider_widget.count() == 3  # generic / doubao / gptge
+    assert provider_widget.count() == 4  # generic / doubao / gptge / custom
     widget._set_field("provider", "gptge")
     assert widget._get_field("provider") == "gptge"
     widget._set_field("base_url", "https://api.gpt.ge")
@@ -286,6 +335,33 @@ def test_solo_page_defaults_and_action_frames(qtbot, ctx):
     # 自定义动作不干预
     page._action_combo.setCurrentText("自定义动作")
     assert page._frames_spin.value() == 10
+
+
+def test_action_combo_grouped_presets(qtbot, ctx):
+    """动作下拉按分类分组：分类为禁用表头，动作项紧随其后且 userData 为中文 ID。"""
+    from PySide6.QtCore import Qt
+
+    from ui.pages.solo_page import SoloPage
+
+    page = SoloPage(ctx)
+    qtbot.addWidget(page)
+    combo = page._action_combo
+    model = combo.model()
+    assert combo.itemText(0) == ""  # 空首项 = 不选动作
+    texts = [combo.itemText(i) for i in range(combo.count())]
+    # 六个分类表头（禁用）
+    for cat in ("待机", "移动", "战斗", "魔法", "表情", "互动"):
+        idx = next((i for i, t in enumerate(texts) if "— " + cat in t), None)
+        assert idx is not None, f"缺少分类表头 {cat}"
+        assert not (model.item(idx).flags() & Qt.ItemFlag.ItemIsEnabled)
+    # 分类表头下方紧跟该分类第一个动作（userData 为中文 ID）
+    head_idx = next(i for i, t in enumerate(texts) if "— 待机" in t)
+    assert combo.itemData(head_idx + 1) == "站立待机"
+    # 动作总数 = 1 空项 + 6 表头 + 全部预设动作
+    from core.processing.prompt_utils import preset_names
+
+    assert combo.count() == 1 + 6 + len(preset_names())
+    assert combo.count() >= 50
 
 
 def test_solo_worker_end_to_end(qtbot, ctx, tmp_out):

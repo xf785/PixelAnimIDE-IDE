@@ -1,4 +1,4 @@
-﻿"""确定性模拟客户端：无需任何 API Key 即可跑通全流程（演示 / 测试 / 离线试用）。
+"""确定性模拟客户端：无需任何 API Key 即可跑通全流程（演示 / 测试 / 离线试用）。
 
 - MockLLMAPI   根据描述生成结构化的图片/动画提示词（模板化）
 - MockImageAPI 生成确定性的合成图像（PNG 字节）
@@ -27,7 +27,7 @@ def _hash_seed(text: str) -> int:
 # --------------------------------------------------------------------------- #
 def build_mock_prompts(description: str, action: str = "") -> dict:
     """根据用户描述生成结构化提示词。"""
-    from core.processing.prompt_utils import ACTION_RECOMMENDED_SECONDS, build_animation_prompt, get_preset
+    from core.processing.prompt_utils import build_animation_prompt, get_preset, preset_duration
 
     desc = _clean_description(description)
     if action.strip():
@@ -46,8 +46,8 @@ def build_mock_prompts(description: str, action: str = "") -> dict:
         "extra limbs, distorted anatomy, inconsistent colors, "
         "background objects, gray or colored background"
     )
-    # LLM 参数建议：按动作类别建议流畅循环的帧数/帧率（模拟真实 LLM 的 frame_count/fps 字段）
-    secs = ACTION_RECOMMENDED_SECONDS.get(action.strip(), 1.0)  # 无动作时保持默认 1s
+    # LLM 参数建议：按动作建议时长推导流畅循环的帧数（模拟真实 LLM 的 frame_count/fps 字段）
+    secs = preset_duration(action) or 1.0  # 无动作/未知动作时保持默认 1s
     frame_count = max(4, min(48, int(round(secs * 8))))
     return {
         "image_prompt": image_prompt,

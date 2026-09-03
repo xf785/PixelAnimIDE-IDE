@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QThread, Signal
 
@@ -19,6 +19,26 @@ from core.workflow import (
     WorkflowCancelled,
     WorkflowError,
 )
+from ui.i18n import tr
+
+SPRITE_API_KINDS = ("llm", "image")
+
+
+def create_api_clients(api_manager: APIConfigManager, kinds) -> Tuple[Dict, List]:
+    """按类型创建 API 客户端（mock 或真实）。
+
+    返回 (clients, opened)：clients 为 kind -> 客户端；opened 为需关闭的列表。
+    """
+    clients: Dict = {}
+    opened: List = []
+    for kind in kinds:
+        cfg = api_manager.get_default(kind)
+        if cfg is None:
+            raise WorkflowError(tr("未配置{0} API，请在「设置」中配置或开启模拟 API").format(kind))
+        client = create_api_client(kind, cfg)
+        opened.append(client)
+        clients[kind] = client
+    return clients, opened
 
 
 class FunctionWorker(QThread):
@@ -70,7 +90,7 @@ class SoloWorker(QThread):
             for kind in ("llm", "image", "video"):
                 cfg = self._api_manager.get_default(kind)
                 if cfg is None:
-                    raise WorkflowError(f"未配置{kind} API，请在「设置」中配置或开启模拟 API")
+                    raise WorkflowError(tr("未配置{0} API，请在「设置」中配置或开启模拟 API").format(kind))
                 client = create_api_client(kind, cfg)
                 self._clients.append(client)
                 clients[kind] = client
@@ -89,12 +109,12 @@ class SoloWorker(QThread):
             result = workflow.run()
             self.succeeded.emit(result)
         except WorkflowCancelled:
-            self.failed.emit("任务已取消")
+            self.failed.emit(tr("任务已取消"))
         except WorkflowError as exc:
-            step = f"（步骤：{exc.step}）" if exc.step else ""
+            step = tr("（步骤：{0}）").format(exc.step) if exc.step else ""
             self.failed.emit(f"{exc.message}{step}")
         except Exception as exc:  # noqa: BLE001
-            self.failed.emit(f"未知错误: {exc}")
+            self.failed.emit(tr("未知错误: {0}").format(exc))
         finally:
             for c in self._clients:
                 try:
@@ -135,7 +155,7 @@ class IdeStepWorker(QThread):
             result = self._fn(self._on_log)
             self.succeeded.emit(result)
         except WorkflowError as exc:
-            step = f"（步骤：{exc.step}）" if exc.step else ""
+            step = tr("（步骤：{0}）").format(exc.step) if exc.step else ""
             self.failed.emit(f"{exc.message}{step}")
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))
@@ -165,14 +185,7 @@ class SpriteWorker(QThread):
 
     def run(self) -> None:  # noqa: D102
         try:
-            clients = {}
-            for kind in ("llm", "image"):
-                cfg = self._api_manager.get_default(kind)
-                if cfg is None:
-                    raise WorkflowError(f"未配置{kind} API，请在「设置」中配置或开启模拟 API")
-                client = create_api_client(kind, cfg)
-                self._clients.append(client)
-                clients[kind] = client
+            clients, self._clients = create_api_clients(self._api_manager, SPRITE_API_KINDS)
             workflow = SpriteWorkflow(
                 clients["llm"],
                 clients["image"],
@@ -184,12 +197,12 @@ class SpriteWorker(QThread):
             result = workflow.run(self._params)
             self.succeeded.emit(result)
         except WorkflowCancelled:
-            self.failed.emit("任务已取消")
+            self.failed.emit(tr("任务已取消"))
         except WorkflowError as exc:
-            step = f"（步骤：{exc.step}）" if exc.step else ""
+            step = tr("（步骤：{0}）").format(exc.step) if exc.step else ""
             self.failed.emit(f"{exc.message}{step}")
         except Exception as exc:  # noqa: BLE001
-            self.failed.emit(f"未知错误: {exc}")
+            self.failed.emit(tr("未知错误: {0}").format(exc))
         finally:
             for c in self._clients:
                 try:

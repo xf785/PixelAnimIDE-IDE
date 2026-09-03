@@ -1,4 +1,4 @@
-﻿"""Solo 模式页：一键式全自动生成像素动画。
+"""Solo 模式页：一键式全自动生成像素动画。
 
 布局（全屏不变形）：
 - 左侧：固定宽度(408px)参数表单，内含纵向滚动，运行按钮固定可见；
@@ -43,10 +43,11 @@ from config.settings import (
     DEFAULT_SPEED,
     PIXEL_SIZES,
 )
-from core.processing.prompt_utils import preset_names, recommended_frames
+from core.processing.prompt_utils import recommended_frames
 from core.workflow import SoloParams, SoloResult
 from ui.app_context import AppContext
 from ui.i18n import T, tr
+from ui.widgets.action_combo import populate_action_combo
 from ui.widgets.image_viewer import ImageViewer
 from ui.widgets.reference_box import ReferenceImageBox
 from ui.workers import SoloWorker
@@ -122,9 +123,7 @@ class SoloPage(QWidget):
         self._action_combo = QComboBox()
         self._action_combo.setEditable(True)
         self._action_combo.setPlaceholderText(T(None, "选择或输入动作…"))
-        self._action_combo.addItem("")
-        for name in preset_names():
-            self._action_combo.addItem(tr(name), userData=name)
+        populate_action_combo(self._action_combo)
         self._action_combo.currentTextChanged.connect(self._on_action_changed)
         f.addRow(T(QLabel(), "动作类型(可选)"), self._action_combo)
         action_hint = T(QLabel(), "选择预设动作会自动按建议时长设置帧数（AI 视频动作较慢）")
@@ -298,7 +297,7 @@ class SoloPage(QWidget):
         self._btn_cancel.setEnabled(False)
         self._btn_cancel.clicked.connect(self._on_cancel)
         ctrl.addWidget(self._btn_cancel)
-        self._btn_open_out = QPushButton("打开输出目录")
+        self._btn_open_out = QPushButton(tr("打开输出目录"))
         self._btn_open_out.setEnabled(False)
         self._btn_open_out.clicked.connect(self._on_open_output)
         ctrl.addWidget(self._btn_open_out)
@@ -360,7 +359,7 @@ class SoloPage(QWidget):
     # 事件
     # ------------------------------------------------------------------ #
     def _on_browse_output(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "选择输出目录", self._output_edit.text())
+        path = QFileDialog.getExistingDirectory(self, tr("选择输出目录"), self._output_edit.text())
         if path:
             self._output_edit.setText(path)
 
@@ -370,17 +369,17 @@ class SoloPage(QWidget):
         if frames:
             self._frames_spin.setValue(frames)
             secs = frames / max(1, self._fps_spin.value())
-            self._log(f"动作「{text}」：建议帧数已设为 {frames}（约 {secs:.1f}s）", "info")
+            self._log(tr("动作「{0}」：建议帧数已设为 {1}（约 {2}s）").format(text, frames, round(secs, 1)), "info")
 
     def set_reference_image(self, img) -> None:
         """外部导入参考图/首帧（像素板块「用作图生视频首帧」用）。"""
         self._ref_box.set_image(img.convert("RGBA"))
-        self._log("已导入像素板块图片作为参考图/首帧，可点击「开始生成」走图生视频", "info")
+        self._log(tr("已导入像素板块图片作为参考图/首帧，可点击「开始生成」走图生视频"), "info")
 
     def _on_start(self) -> None:
         desc = self._desc_edit.toPlainText().strip()
         if not desc:
-            QMessageBox.warning(self, "提示", "请先输入文本描述")
+            QMessageBox.warning(self, tr("提示"), tr("请先输入文本描述"))
             return
 
         run_dir = self._run_dir()
@@ -432,16 +431,16 @@ class SoloPage(QWidget):
         self._clear_intermediate()
         self._result = None
         self._btn_sync.setEnabled(False)
-        self._log(f"开始生成：{desc[:60]}")
+        self._log(tr("开始生成：{0}").format(desc[:60]))
         self._worker.start()
 
     def _on_cancel(self) -> None:
         if self._worker:
-            self._log("正在取消…")
+            self._log(tr("正在取消…"))
             self._worker.cancel()
 
     def _on_progress(self, step: int, total: int, name: str, pct: float, message: str) -> None:
-        self._step_label.setText(f"步骤 {step + 1}/{total}：{name} — {message}")
+        self._step_label.setText(tr("步骤 {0}/{1}：{2} — {3}").format(step + 1, total, name, message))
         overall = (step + pct) / total * 100
         self._progress.setValue(int(overall))
 
@@ -453,13 +452,13 @@ class SoloPage(QWidget):
         for key, edit in self._prompt_edits.items():
             edit.setPlainText(prompts.get(key, ""))
         self._tabs.setCurrentWidget(self._intermediate_tab)
-        self._log("中间结果：提示词已生成，可在「中间结果」面板查看", "info")
+        self._log(tr("中间结果：提示词已生成，可在「中间结果」面板查看"), "info")
 
     def _on_first_frame(self, path: str) -> None:
         """中间结果：首帧图就绪，实时展示。"""
         self._first_frame_viewer.show_path(path)
         self._tabs.setCurrentWidget(self._intermediate_tab)
-        self._log("中间结果：首帧图片已生成", "info")
+        self._log(tr("中间结果：首帧图片已生成"), "info")
 
     def _copy_prompt(self, key: str) -> None:
         text = self._prompt_edits[key].toPlainText()
@@ -480,8 +479,8 @@ class SoloPage(QWidget):
         self._result = result
         self._set_running(False)
         self._progress.setValue(100)
-        self._step_label.setText("完成")
-        self._log(f"生成完成：{result.frame_count} 帧，{result.width}x{result.height}", "info")
+        self._step_label.setText(tr("完成"))
+        self._log(tr("生成完成：{0} 帧，{1}x{2}").format(result.frame_count, result.width, result.height), "info")
         speed = float(self._preview_speed_combo.currentData() or 1.0)
         if result.gif_path:
             self._preview.show_gif(result.gif_path, speed=speed)
@@ -490,7 +489,7 @@ class SoloPage(QWidget):
             self._preview.show_path(result.first_frame)
         if result.native_gif_path:
             self._log(
-                f"GIF（完美像素原生分辨率 {result.native_width}x{result.native_height}）: {result.native_gif_path}",
+                tr("GIF（完美像素原生分辨率 {0}x{1}）: {2}").format(result.native_width, result.native_height, result.native_gif_path),
                 "info",
             )
         self._build_frames_strip(result)
@@ -498,16 +497,16 @@ class SoloPage(QWidget):
         self._btn_sync.setEnabled(True)
         QMessageBox.information(
             self,
-            "完成",
-            f"动画已生成！\n{result.gif_path or result.frames_dir}"
-            + (f"\n原生分辨率版: {result.native_gif_path}" if result.native_gif_path else ""),
+            tr("完成"),
+            tr("动画已生成！\n{0}").format(result.gif_path or result.frames_dir)
+            + (tr("原生分辨率版: {0}").format(result.native_gif_path) if result.native_gif_path else ""),
         )
 
     def _on_failed(self, message: str) -> None:
         self._set_running(False)
-        self._step_label.setText("失败")
+        self._step_label.setText(tr("失败"))
         self._log(message, "error")
-        QMessageBox.critical(self, "生成失败", message)
+        QMessageBox.critical(self, tr("生成失败"), message)
 
     # ------------------------------------------------------------------ #
     def _set_running(self, running: bool) -> None:
@@ -558,7 +557,7 @@ class SoloPage(QWidget):
             label.setToolTip(p.name)
             self._frames_strip.addWidget(label)
         self._frames_strip.addStretch(1)
-        self._strip_count.setText(f"{len(paths)} 帧")
+        self._strip_count.setText(tr("{0} 帧").format(len(paths)))
 
     def _run_dir(self) -> Path:
         base = Path(self._output_edit.text().strip() or str(DEFAULT_OUTPUT_DIR))
@@ -579,3 +578,37 @@ class SoloPage(QWidget):
     def _on_open_output(self) -> None:
         if self._result:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._result.output_dir)))
+
+    # ------------------------------------------------------------------ #
+    # 键盘快捷键（设置 → 快捷键 → Solo 可自定义；固定使用 solo 键位）
+    # ------------------------------------------------------------------ #
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        from ui import shortcuts as sc
+
+        if sc.match(event, sc.get("preview_play", "solo")):
+            self._preview.toggle_play()
+            event.accept()
+            return
+        if sc.match(event, sc.get("preview_fit", "solo")):
+            self._preview.reset_zoom()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    # ------------------------------------------------------------------ #
+    # 语言切换：刷新常驻下拉框项（动作预设分组 + 倍速等文本）
+    # ------------------------------------------------------------------ #
+    def retranslate_ui(self) -> None:
+        populate_action_combo(self._action_combo)
+        for combo, items in (
+            (self._speed_combo, [("0.5x（慢放）", 0.5), ("1x（原速）", 1.0), ("1.5x", 1.5), ("2x（提速）", 2.0)]),
+            (self._preview_speed_combo, [("0.5x", 0.5), ("1x（原速）", 1.0), ("1.5x", 1.5), ("2x", 2.0), ("3x", 3.0)]),
+        ):
+            current = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            for label, value in items:
+                combo.addItem(tr(label), userData=value)
+            idx = combo.findData(current)
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            combo.blockSignals(False)

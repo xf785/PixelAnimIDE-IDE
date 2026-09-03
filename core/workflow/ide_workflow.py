@@ -1,4 +1,4 @@
-﻿"""IDE 模式分步工作流：每一步可独立执行、编辑、重跑。
+"""IDE 模式分步工作流：每一步可独立执行、编辑、重跑。
 
 与 Solo 的区别：IDE 各步骤解耦，中间结果（提示词 / 首帧 / 帧序列）保存在
 IdeSession 中，可随时修改或从任一步重新执行；支持项目保存/加载与多种导出。
@@ -25,27 +25,40 @@ from config.settings import (
     DEFAULT_SPEED,
     EXPORT_PREFIX,
 )
-from core.api.base import APIResult, BaseAPI
+from core.api.base import BaseAPI
 from core.processing import background as bg_mod
 from core.processing import frame_utils as fu
 from core.processing import pixelizer as px
 from core.processing.prompt_utils import (
     BACKGROUND_STABILITY_RULE,
-    STRICT_ANIMATION_CORRECTION,
+    BACKGROUND_STABILITY_RULE_DARK,
     SUBJECT_MARGIN_RULE,
-    SYSTEM_PROMPT,
     build_fallback_prompts,
-    build_user_prompt,
     normalize_prompts,
-    parse_json_response,
 )
-from core.workflow.shared import finalize_prompts, resolve_api_image_size
+from core.workflow.shared import finalize_prompts, generate_prompt_data, resolve_api_image_size
 from core.workflow.solo_workflow import WorkflowError
 from ui.i18n import tr
 
 logger = logging.getLogger("PixelAnimIDE.workflow.ide")
 
 IDE_STEPS = ["文本生成", "图片生成", "视频动画生成", "像素化处理", "背景去除", "导出"]
+
+
+def _corner_tone(img: Image.Image) -> Optional[str]:
+    """按四角平均色判断首帧背景基调：'white' / 'black' / None（其它）。"""
+    rgb = img.convert("RGB")
+    w, h = rgb.size
+    if w < 2 or h < 2:
+        return None
+    corners = [rgb.getpixel(p) for p in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))]
+    avg = tuple(sum(c[i] for c in corners) // 4 for i in range(3))
+    lum = 0.299 * avg[0] + 0.587 * avg[1] + 0.114 * avg[2]
+    if lum > 200:
+        return "white"
+    if lum < 55:
+        return "black"
+    return None
 
 
 @dataclass
@@ -189,56 +202,34 @@ class IdeWorkflow:
         if self._cancel.is_set():
             raise WorkflowCancelled()
 
-    @staticmethod
-    def _extract_prompt_data(result: APIResult) -> Optional[dict]:
-        if not result.ok:
-            return None
-        if isinstance(result.data, dict):
-            return result.data
-        data = parse_json_response(result.data)
-        return data or None
-
     # ------------------------------------------------------------------ #
     # 步骤 1：文本生成
     # ------------------------------------------------------------------ #
     def step_prompts(self, session: IdeSession, description: Optional[str] = None, action: Optional[str] = None) -> dict:
-        """生成提示词，写入 session.prompts 并返回。"""
+        """生成提示词，写入 session.prompts 并返回。
+
+        调用/重试/严格纠正逻辑统一在 core.workflow.shared.generate_prompt_data；
+        此处负责归一化 + 内置强制项，以及失败时降级本地模板。
+        """
         if description is not None and str(description).strip():
             session.description = str(description).strip()
         if action is not None:
             session.action = str(action or "").strip()
         desc, act = session.description, session.action
 
-        def _call(max_tokens: int, strict: bool = False) -> APIResult:
-            system = SYSTEM_PROMPT + (STRICT_ANIMATION_CORRECTION if strict else "")
-            return self.llm_api.call(
-                prompt=build_user_prompt(desc, act),
-                system=system,
-                action=act,
-                max_tokens=max_tokens,
-            )
-
-        result = _call(1600)
-        data = self._extract_prompt_data(result)
-        if data is None:
-            self._log_msg("warn", "LLM 输出为空或不可解析，提高 max_tokens 重试一次")
-            result = _call(4096)
-            data = self._extract_prompt_data(result)
+        data, last = generate_prompt_data(self.llm_api, desc, act, log=self._log_msg)
         if data is not None:
-            anim = str(data.get("animation_prompt") or "")
-            if len([w for w in anim.split() if w.strip()]) > 40:
-                self._log_msg("warn", "动画提示词过于冗长，按「简洁且忠实于动作」重试一次")
-                result = _call(1600, strict=True)
-                data = self._extract_prompt_data(result)
-            if data is not None:
-                prompts = normalize_prompts(data, desc, act)
-                session.prompts = finalize_prompts(
-                    prompts, session.target_size(), session.aspect_ratio, session.max_colors
-                )
-                self._log_msg("info", tr("提示词生成成功"))
-                return dict(session.prompts)
+            prompts = normalize_prompts(data, desc, act)
+            session.prompts = finalize_prompts(
+                prompts, session.target_size(), session.aspect_ratio, session.max_colors
+            )
+            self._log_msg("info", tr("提示词生成成功"))
+            return dict(session.prompts)
 
-        self._log_msg("warn", f"LLM 调用失败（{result.message}），使用本地模板")
+        if last.ok:
+            self._log_msg("warn", tr("LLM 返回无法解析，使用本地模板"))
+        else:
+            self._log_msg("warn", tr("LLM 调用失败（{0}），使用本地模板").format(last.message))
         session.prompts = finalize_prompts(
             build_fallback_prompts(desc, act),
             session.target_size(),
@@ -257,7 +248,7 @@ class IdeWorkflow:
         """
         img_prompt = (prompt or session.prompts.get("image_prompt") or "").strip()
         if not img_prompt:
-            raise WorkflowError("请先生成或填写图片提示词", step="图片生成")
+            raise WorkflowError(tr("请先生成或填写图片提示词"), step="图片生成")
         ref = reference if reference is not None else session.reference_image
         prompt_text = f"{session.description} {session.action} {img_prompt}"
         w, h = resolve_api_image_size(
@@ -266,30 +257,30 @@ class IdeWorkflow:
             session.pixel_size,
             prompt_text,
         )
-        self._log_msg("info", f"请求生图尺寸 {w}x{h}" + ("（含参考图，图生图）" if ref is not None else ""))
+        self._log_msg("info", tr("请求生图尺寸 {0}x{1}").format(w, h) + (tr("（含参考图，图生图）") if ref is not None else ""))
         ref_bytes = fu.image_to_bytes(ref, "PNG") if ref is not None else None
         result = self.image_api.call(
             prompt=img_prompt, size=f"{w}x{h}", n=1, image=ref_bytes
         )
         if not result.ok:
-            raise WorkflowError(f"首帧图片生成失败: {result.message}", step="图片生成")
+            raise WorkflowError(tr("首帧图片生成失败: {0}").format(result.message), step="图片生成")
         images = (result.data or {}).get("images") or []
         urls = (result.data or {}).get("urls") or []
         if images:
             data = images[0]
         elif urls:
-            self._log_msg("info", f"下载生图结果: {urls[0]}")
+            self._log_msg("info", tr("下载生图结果: {0}").format(urls[0]))
             data = fu.download_bytes(urls[0])
         else:
-            raise WorkflowError("生图接口未返回任何图片", step="图片生成")
+            raise WorkflowError(tr("生图接口未返回任何图片"), step="图片生成")
         img = fu.bytes_to_image(data)
         if session.force_pure_bg:
             whitened, _fill, mask = bg_mod.normalize_background(img)
             if mask is not None:
                 img = whitened
-                self._log_msg("info", "首帧背景已归一化（纯色）")
+                self._log_msg("info", tr("首帧背景已归一化（纯色）"))
         session.first_frame = img
-        self._log_msg("info", f"首帧图片已生成（{img.width}x{img.height}）")
+        self._log_msg("info", tr("首帧图片已生成（{0}x{1}）").format(img.width, img.height))
         return img
 
     # ------------------------------------------------------------------ #
@@ -298,11 +289,16 @@ class IdeWorkflow:
     def step_animation(self, session: IdeSession, prompt: Optional[str] = None) -> List[Image.Image]:
         """图转视频 → 拆帧/采样，写入 session.frames 并返回。"""
         if session.first_frame is None:
-            raise WorkflowError("请先生成或导入首帧图片", step="动画生成")
+            raise WorkflowError(tr("请先生成或导入首帧图片"), step="动画生成")
         anim_prompt = (prompt or session.prompts.get("animation_prompt") or "smooth looping animation").strip()
         parts = [anim_prompt, SUBJECT_MARGIN_RULE]
         if session.force_pure_bg:
-            parts.append(BACKGROUND_STABILITY_RULE)
+            # 背景稳定规则必须与首帧实际背景一致：首帧角落为黑色（浅色主体
+            # 归一化成黑底 / 用户自备黑底图）时用黑底规则，否则默认白底规则
+            if _corner_tone(session.first_frame) == "black":
+                parts.append(BACKGROUND_STABILITY_RULE_DARK)
+            else:
+                parts.append(BACKGROUND_STABILITY_RULE)
         anim_prompt = " ".join(parts)
         first_bytes = fu.image_to_bytes(session.first_frame, "PNG")
         if session.video_image_min_side:
@@ -318,7 +314,7 @@ class IdeWorkflow:
             fps=session.fps,
         )
         if not result.ok:
-            raise WorkflowError(f"动画生成失败: {result.message}", step="动画生成")
+            raise WorkflowError(tr("动画生成失败: {0}").format(result.message), step="动画生成")
 
         data = result.data or {}
         frames_bytes: List[bytes] = data.get("frames") or []
@@ -327,7 +323,7 @@ class IdeWorkflow:
         if frames_bytes:
             frames = [fu.bytes_to_image(b) for b in frames_bytes]
         elif video_url:
-            self._log_msg("info", f"下载视频: {video_url}")
+            self._log_msg("info", tr("下载视频: {0}").format(video_url))
             artifacts = session.output_dir / "artifacts"
             artifacts.mkdir(parents=True, exist_ok=True)
             raw_video = artifacts / "video.mp4"
@@ -340,11 +336,17 @@ class IdeWorkflow:
             )
             session.video_duration = meta.get("duration")
         else:
-            raise WorkflowError("图转视频接口未返回帧序列或视频 URL", step="动画生成")
+            raise WorkflowError(tr("图转视频接口未返回帧序列或视频 URL"), step="动画生成")
+
+        # 去除完全相同的连续帧（AI 视频常以静态起/尾帧收尾）：动画更紧凑、循环更顺滑
+        deduped = fu.dedupe_frames(frames)
+        if len(deduped) < len(frames):
+            self._log_msg("info", tr("已去除 {0} 帧近似重复的连续帧（静态停留）").format(len(frames) - len(deduped)))
+        frames = deduped
 
         frames = fu.sample_loop_frames(frames, session.frame_count, loop=session.loop_close)
         if not frames:
-            raise WorkflowError("动画结果为空（0 帧）", step="动画生成")
+            raise WorkflowError(tr("动画结果为空（0 帧）"), step="动画生成")
 
         # 按实际时长校准输出帧率（1x 原速 × 用户倍速）
         if session.video_duration and session.video_duration > 0:
@@ -352,7 +354,7 @@ class IdeWorkflow:
             session.fps = max(1, min(30, round(base_fps * session.speed)))
 
         session.frames = frames
-        self._log_msg("info", f"动画生成：{len(frames)} 帧 @ {session.fps}fps")
+        self._log_msg("info", tr("动画生成：{0} 帧 @ {1}fps").format(len(frames), session.fps))
         return list(frames)
 
     # ------------------------------------------------------------------ #
@@ -361,20 +363,20 @@ class IdeWorkflow:
     def step_pixelize(self, session: IdeSession) -> List[Image.Image]:
         """像素化 session.frames（就地替换），返回结果。"""
         if not session.frames:
-            raise WorkflowError("没有可像素化的帧", step="像素化处理")
+            raise WorkflowError(tr("没有可像素化的帧"), step="像素化处理")
         if not session.pixelate:
-            self._log_msg("info", "已跳过像素化（选项关闭）")
+            self._log_msg("info", tr("已跳过像素化（选项关闭）"))
             return list(session.frames)
 
         target = session.target_size()
-        self._log_msg("info", f"像素化：目标 {target}，颜色上限 {session.max_colors}")
+        self._log_msg("info", tr("像素化：目标 {0}，颜色上限 {1}").format(target, session.max_colors))
         seq = px.perfect_pixelize_sequence(session.frames)
         if seq is not None:
             sampled, grid = seq
-            self._log_msg("info", f"像素风（网格 {grid[0]}×{grid[1]}）：首帧定网格，全部帧硬缩放")
+            self._log_msg("info", tr("像素风（网格 {0}×{1}）：首帧定网格，全部帧硬缩放").format(grid[0], grid[1]))
             base = sampled
         else:
-            self._log_msg("info", "非像素风格：跳过完美像素，目标尺寸缩放")
+            self._log_msg("info", tr("非像素风格：跳过完美像素，目标尺寸缩放"))
             base = [px.resize_nearest(f, target) for f in session.frames]
 
         base = [px.resize_nearest(f, target) for f in base]
@@ -398,19 +400,14 @@ class IdeWorkflow:
         out: List[Image.Image] = []
         for f in session.frames:
             self._check_cancel()
-            img, mask = f, None
-            if session.force_pure_bg:
-                img, _fill, mask = bg_mod.normalize_background(img)
-            if session.remove_bg:
-                if mask is not None:
-                    img = bg_mod.apply_background_mask(
-                        img, mask, feather=session.bg_feather, erode=session.bg_erode
-                    )
-                else:
-                    img = bg_mod.remove_background(
-                        img, key_color=(255, 255, 255), tolerance=session.bg_tolerance,
-                        feather=session.bg_feather, erode=session.bg_erode,
-                    )
+            img, _normalized = bg_mod.process_background(
+                f,
+                force_pure_bg=session.force_pure_bg,
+                remove_bg=session.remove_bg,
+                tolerance=session.bg_tolerance,
+                feather=session.bg_feather,
+                erode=session.bg_erode,
+            )
             out.append(img)
         session.frames = out
         return list(out)
@@ -427,7 +424,7 @@ class IdeWorkflow:
     ) -> dict:
         """导出帧序列，返回路径 dict（keys: gif/png_dir/sprite/metadata）。"""
         if not session.frames:
-            raise WorkflowError("没有可导出的帧", step="导出")
+            raise WorkflowError(tr("没有可导出的帧"), step="导出")
         out = Path(export_dir or (session.output_dir / "export"))
         out.mkdir(parents=True, exist_ok=True)
         fps = int(fps or session.fps or DEFAULT_FPS)
@@ -441,7 +438,13 @@ class IdeWorkflow:
         if "apng" in formats:
             paths["apng"] = str(fu.frames_to_apng(session.frames, out / f"{EXPORT_PREFIX}.apng", fps=fps))
         if "sprite" in formats:
-            paths["sprite"] = str(fu.save_image(fu.frames_to_sprite_sheet(session.frames), out / "sprite_sheet.png"))
+            # 雪碧图 + 索引 JSON（FrameRonin 风格：每帧坐标 + 时间戳）
+            timestamps = [i / max(1, fps) for i in range(len(session.frames))]
+            sheet, sheet_index = fu.compose_sprite_sheet(session.frames, timestamps=timestamps)
+            paths["sprite"] = str(fu.save_image(sheet, out / "sprite_sheet.png"))
+            index_file = out / "sprite_sheet.json"
+            index_file.write_text(json.dumps(sheet_index, ensure_ascii=False, indent=2), encoding="utf-8")
+            paths["sprite_index"] = str(index_file)
         if "json" in formats:
             meta = fu.animation_meta(session.frames, fps)
             meta_file = out / "metadata.json"

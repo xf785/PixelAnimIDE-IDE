@@ -1,4 +1,4 @@
-﻿"""API 配置管理：多套配置的增删改查、默认配置切换、加密落盘、导入导出。
+"""API 配置管理：多套配置的增删改查、默认配置切换、加密落盘、导入导出。
 
 存储格式（JSON，位于用户数据目录）：
 {
@@ -49,6 +49,14 @@ FIELD_DEFS: Dict[str, List[dict]] = {
         {"key": "proxy", "label": "代理(可选)", "type": "text", "default": "",
          "placeholder": "http://127.0.0.1:7890（直连被拦截时填写）", "group": "advanced"},
         {"key": "verify_ssl", "label": "校验 SSL 证书", "type": "bool", "default": True, "group": "advanced"},
+        {"key": "custom_request", "label": "完全自定义请求（用下方模板覆盖默认请求体）", "type": "bool", "default": False, "group": "advanced"},
+        {"key": "request_method", "label": "请求方法", "type": "choice", "default": "POST", "options": [("POST", "POST"), ("GET", "GET")], "group": "advanced"},
+        {"key": "payload_template", "label": "请求体模板(JSON)", "type": "textarea", "default": "",
+         "placeholder": "如 {\"model\": \"$model\", \"messages\": [{\"role\": \"user\", \"content\": \"$prompt\"}]}；占位符 $model/$prompt/$system/$max_tokens/$temperature", "group": "advanced"},
+        {"key": "extra_headers", "label": "额外请求头(JSON, 可选)", "type": "textarea", "default": "",
+         "placeholder": "如 {\"X-API-Key\": \"abc\", \"Accept\": \"text/plain\"}；留空则仅自动加 Authorization Bearer", "group": "advanced"},
+        {"key": "text_path", "label": "响应文本字段路径(可选)", "type": "text", "default": "",
+         "placeholder": "默认自动兼容；如 data.answer / output.0.content", "group": "advanced"},
         {"key": "mock", "label": "使用模拟 API（无需密钥）", "type": "bool", "default": False},
     ],
     "image": [
@@ -70,6 +78,14 @@ FIELD_DEFS: Dict[str, List[dict]] = {
         {"key": "proxy", "label": "代理(可选)", "type": "text", "default": "",
          "placeholder": "http://127.0.0.1:7890（直连被拦截时填写）", "group": "advanced"},
         {"key": "verify_ssl", "label": "校验 SSL 证书", "type": "bool", "default": True, "group": "advanced"},
+        {"key": "custom_request", "label": "完全自定义请求（用下方模板覆盖默认请求体）", "type": "bool", "default": False, "group": "advanced"},
+        {"key": "request_method", "label": "请求方法", "type": "choice", "default": "POST", "options": [("POST", "POST"), ("GET", "GET")], "group": "advanced"},
+        {"key": "payload_template", "label": "请求体模板(JSON)", "type": "textarea", "default": "",
+         "placeholder": "如 {\"model\": \"$model\", \"prompt\": \"$prompt\", \"size\": \"$size\", \"n\": $n}；占位符 $model/$prompt/$size/$n/$image/$negative_prompt/$seed/$steps/$response_format", "group": "advanced"},
+        {"key": "extra_headers", "label": "额外请求头(JSON, 可选)", "type": "textarea", "default": "",
+         "placeholder": "如 {\"X-API-Key\": \"abc\"}；留空则仅自动加 Authorization Bearer", "group": "advanced"},
+        {"key": "images_path", "label": "响应图片数组字段路径(可选)", "type": "text", "default": "",
+         "placeholder": "默认 data（兼容 b64_json/url）；如 result.images / output.items", "group": "advanced"},
         {"key": "mock", "label": "使用模拟 API（无需密钥）", "type": "bool", "default": False},
     ],
     "video": [
@@ -77,7 +93,7 @@ FIELD_DEFS: Dict[str, List[dict]] = {
         {"key": "api_key", "label": "API Key", "type": "password", "default": "", "required": True},
         {"key": "model", "label": "模型名称", "type": "text", "default": "video-model", "required": True},
         {"key": "provider", "label": "服务商适配", "type": "choice", "default": "generic",
-         "options": [("generic", "通用（OpenAI 兼容轮询）"), ("doubao", "Doubao Seedance（火山方舟）"), ("gptge", "gpt.ge (V-API) 豆包视频")]},
+         "options": [("generic", "通用（OpenAI 兼容轮询）"), ("doubao", "Doubao Seedance（火山方舟）"), ("gptge", "gpt.ge (V-API) 豆包视频"), ("custom", "完全自定义（全部手填：端点/模板/字段路径）")]},
         {"key": "frames", "label": "默认帧数", "type": "int", "default": 8, "min": 2},
         {"key": "fps", "label": "默认帧率", "type": "int", "default": 8, "min": 1},
         {"key": "last_frame", "label": "首帧同时作为尾帧传入（首尾帧一致）", "type": "bool", "default": False},
@@ -93,11 +109,13 @@ FIELD_DEFS: Dict[str, List[dict]] = {
         {"key": "status_success", "label": "成功状态(逗号分隔)", "type": "text", "default": "", "group": "advanced"},
         {"key": "status_failure", "label": "失败状态(逗号分隔)", "type": "text", "default": "", "group": "advanced"},
         {"key": "result_video_url_path", "label": "视频URL字段路径", "type": "text", "default": "", "group": "advanced"},
-        {"key": "payload_template", "label": "请求体模板(JSON, 可选)", "type": "text", "default": "",
-         "placeholder": '如 {"model_name":"$model","image":"$image"}，支持 $model/$prompt/$image/$frames/$fps/$duration',
+        {"key": "payload_template", "label": "请求体模板(JSON, 可选)", "type": "textarea", "default": "",
+         "placeholder": '如 {"model_name":"$model","image":"$image"}，支持 $model/$prompt/$image/$last_image/$frames/$fps/$duration',
          "group": "advanced"},
-        {"key": "extra_payload", "label": "额外字段(JSON, 可选)", "type": "text", "default": "",
+        {"key": "extra_payload", "label": "额外字段(JSON, 可选)", "type": "textarea", "default": "",
          "placeholder": '如 {"resolution":"1080p","watermark":false}', "group": "advanced"},
+        {"key": "extra_headers", "label": "额外请求头(JSON, 可选)", "type": "textarea", "default": "",
+         "placeholder": '如 {"X-API-Key":"abc"}；留空则仅自动加 Authorization Bearer', "group": "advanced"},
         {"key": "timeout", "label": "超时(秒)", "type": "int", "default": 300, "min": 5, "group": "advanced"},
         {"key": "proxy", "label": "代理(可选)", "type": "text", "default": "",
          "placeholder": "http://127.0.0.1:7890（直连被拦截时填写）", "group": "advanced"},

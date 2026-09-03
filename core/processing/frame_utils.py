@@ -1,10 +1,11 @@
-﻿"""帧提取、保存、合成工具：PNG 序列帧、GIF、雪碧图、视频拆帧。"""
+"""帧提取、保存、合成工具：PNG 序列帧、GIF、雪碧图、视频拆帧。"""
 from __future__ import annotations
 
 import io
 import logging
+import math
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import httpx
 import numpy as np
@@ -134,13 +135,95 @@ sample_frames = _sample_frames  # 公开别名
 
 
 # --------------------------------------------------------------------------- #
+# 帧相似度 / 内容感知抽帧 / 去重
+# --------------------------------------------------------------------------- #
+_THUMB_SIZE = 24
+
+
+def _frame_thumb(img: Image.Image, size: int = _THUMB_SIZE) -> np.ndarray:
+    """降采样为灰度缩略图（用于帧间差异比较，成本 O(size²)，对大帧数友好）。"""
+    g = img.convert("L").resize((size, size), Image.Resampling.BOX)
+    return np.asarray(g, dtype=np.float32) / 255.0
+
+
+def frame_diff(a: Image.Image, b: Image.Image) -> float:
+    """两帧的归一化平均绝对差（0.0=完全相同，1.0=完全不同）。
+
+    借鉴 FrameRonin 的帧指纹思路：先降采样再比较，
+    对微小位移/噪点不敏感，适合 AI 生成视频中「同姿势停留数帧」的检测。
+    """
+    ta, tb = _frame_thumb(a), _frame_thumb(b)
+    return float(np.abs(ta - tb).mean())
+
+
+def dedupe_frames(frames: List[Image.Image], threshold: float = 0.001) -> List[Image.Image]:
+    """去除近似重复的连续帧（保留每组第一帧）。
+
+    AI 视频常以静态起/尾帧收尾（同一姿势的帧在视频流中逐字节相同），
+    去重后动画更紧凑、GIF/PNG 数量更少、循环更顺滑。
+
+    threshold 为 24×24 缩略图的归一化平均绝对差，默认 0.001（只删除
+    完全一致或几乎一致的连续帧，避免误伤细微动作——参考 FrameRonin 的
+    精确指纹去重思路，宁可保守）。
+    """
+    if len(frames) < 2:
+        return list(frames)
+    out: List[Image.Image] = [frames[0]]
+    prev = frames[0]
+    for f in frames[1:]:
+        if frame_diff(prev, f) <= threshold:
+            continue
+        out.append(f)
+        prev = f
+    return out
+
+
+def _sample_diverse_indices(frames: List[Image.Image], count: int) -> List[int]:
+    """内容感知中间帧选择：在候选帧（不含首尾）中贪心挑选与已选帧差异最大的帧。
+
+    比纯均匀采样更能覆盖动画的关键姿态：中间若有大量近似重复帧（静态停留），
+    均匀采样会重复选中它们，而这里会自动跳到差异最大的帧。
+    全部帧相同时退化为均匀采样（避免任意选择）。
+    """
+    n = len(frames)
+    thumbs = [_frame_thumb(f) for f in frames]
+    candidates = list(range(1, n - 1))
+    selected = [0, n - 1]
+
+    min_d: Dict[int, float] = {}
+    for i in candidates:
+        d = min(float(np.abs(thumbs[i] - thumbs[j]).mean()) for j in selected)
+        min_d[i] = d
+    chosen: List[int] = []
+    for _ in range(count - 2):
+        if not min_d:
+            break
+        best = max(min_d, key=min_d.get)
+        if min_d[best] <= 0.0:
+            # 剩余候选与已选帧全部相同（静态片段）→ 均匀补齐
+            chosen.extend(_evenly_sample_indices(len(candidates), count - 2 - len(chosen)))
+            break
+        chosen.append(best)
+        del min_d[best]
+        for i in min_d:
+            d = float(np.abs(thumbs[i] - thumbs[best]).mean())
+            if d < min_d[i]:
+                min_d[i] = d
+    chosen = sorted(set(chosen))[: count - 2]
+    return [0] + chosen + [n - 1]
+
+
+# --------------------------------------------------------------------------- #
 # 循环动画抽帧（首尾帧一致）
 # --------------------------------------------------------------------------- #
-def sample_frames_preserve_ends(frames: List[Image.Image], count: int) -> List[Image.Image]:
-    """保留首帧与尾帧、中间均匀采样的抽帧策略。
+def sample_frames_preserve_ends(
+    frames: List[Image.Image], count: int, diverse: bool = True
+) -> List[Image.Image]:
+    """保留首帧与尾帧、中间抽帧的策略（保证视频完整动作都体现）。
 
-    保证视频完整动作都体现：首帧（起始姿态）与尾帧（结束姿态）必被保留，
-    中间帧均匀铺开（避免循环段搜索丢弃首尾、或只截取部分片段导致动作不完整）。
+    首帧（起始姿态）与尾帧（结束姿态）必被保留；
+    中间帧默认**内容感知采样**（diverse=True）：贪心挑选与已选帧差异最大的
+    帧，避免静态停留帧被重复选中；diverse=False 时中间均匀采样。
     """
     n = len(frames)
     if not frames or count <= 0:
@@ -151,6 +234,9 @@ def sample_frames_preserve_ends(frames: List[Image.Image], count: int) -> List[I
         return [frames[0]]
     if count == 2:
         return [frames[0], frames[-1]]
+    if diverse and n - 2 >= count - 2:
+        indices = _sample_diverse_indices(frames, count)
+        return [frames[i] for i in indices]
     # 中间 count-2 帧：在索引 1..n-2 之间均匀取
     middle = _evenly_sample_indices(n - 2, count - 2)
     indices = [0] + [i + 1 for i in middle] + [n - 1]
@@ -342,19 +428,117 @@ def apng_frame_count(path: Path | str) -> int:
         return int(getattr(img, "n_frames", 1))
 
 
-def frames_to_sprite_sheet(frames: List[Image.Image], columns: Optional[int] = None, spacing: int = 0) -> Image.Image:
-    """合成雪碧图（横向排列，可指定列数换行）。"""
+def frames_to_sprite_sheet(
+    frames: List[Image.Image],
+    columns: Optional[int] = None,
+    spacing: int = 0,
+    orientation: str = "rows",
+    auto_square: bool = False,
+) -> Image.Image:
+    """合成雪碧图（兼容入口，返回合成图；需要索引 JSON 请用 compose_sprite_sheet）。"""
+    sheet, _ = compose_sprite_sheet(
+        frames, columns=columns, spacing=spacing, orientation=orientation, auto_square=auto_square
+    )
+    return sheet
+
+
+def compose_sprite_sheet(
+    frames: List[Image.Image],
+    columns: Optional[int] = None,
+    spacing: int = 0,
+    orientation: str = "rows",
+    timestamps: Optional[List[float]] = None,
+    auto_square: bool = False,
+) -> Tuple[Image.Image, dict]:
+    """合成雪碧图并返回 (sheet, index)。
+
+    index 为 FrameRonin 风格索引（游戏引擎可直接使用）：
+    {"version": "1.0", "frame_size", "sheet_size", "spacing", "orientation",
+     "frames": [{"i", "x", "y", "w", "h", "t"}]}，t 为帧原始时间戳（秒）。
+
+    布局：
+    - columns=None：单行排列；auto_square=True 时自动方形布局（列数 ≈ √N）；
+    - orientation="columns"：先填满列再换行（纵向排列）；
+    - spacing：帧间距像素（合成图与索引同步计入）。
+    """
     if not frames:
         raise ValueError("没有可用帧")
     fw, fh = frames[0].size
-    cols = columns or len(frames)
-    rows = (len(frames) + cols - 1) // cols
-    sheet = Image.new("RGBA", (cols * fw + (cols - 1) * spacing, rows * fh + (rows - 1) * spacing), (0, 0, 0, 0))
+    n = len(frames)
+    if auto_square and columns is None:
+        columns = max(1, math.ceil(math.sqrt(n)))
+    cols = max(1, columns or n)
+    if orientation == "columns":
+        rows = cols
+        cols = max(1, math.ceil(n / rows))
+    else:
+        rows = max(1, math.ceil(n / cols))
+    sheet_w = cols * fw + (cols - 1) * spacing
+    sheet_h = rows * fh + (rows - 1) * spacing
+    sheet = Image.new("RGBA", (sheet_w, sheet_h), (0, 0, 0, 0))
+    idx: List[dict] = []
     for i, frame in enumerate(frames):
-        x = (i % cols) * (fw + spacing)
-        y = (i // cols) * (fh + spacing)
+        if orientation == "columns":
+            col, row = i // rows, i % rows
+        else:
+            col, row = i % cols, i // cols
+        x = col * (fw + spacing)
+        y = row * (fh + spacing)
         sheet.paste(frame.convert("RGBA"), (x, y), frame.convert("RGBA"))
-    return sheet
+        idx.append(
+            {
+                "i": i,
+                "x": x,
+                "y": y,
+                "w": fw,
+                "h": fh,
+                "t": round(float(timestamps[i]), 3) if timestamps and i < len(timestamps) else None,
+            }
+        )
+    index = {
+        "version": "1.0",
+        "frame_size": {"w": fw, "h": fh},
+        "sheet_size": {"w": sheet_w, "h": sheet_h},
+        "spacing": int(spacing),
+        "orientation": orientation,
+        "frames": idx,
+    }
+    return sheet, index
+
+
+def content_bbox(img: Image.Image, color_tol: int = 24) -> Optional[Tuple[int, int, int, int]]:
+    """内容包围盒 (l, t, r, b)。
+
+    优先按 Alpha 通道（>0）计算；不透明图按与四角平均色的差异计算
+    （FrameRonin 的 tight_bbox 思路）。找不到内容时返回 None。
+    """
+    rgba = img.convert("RGBA")
+    arr = np.array(rgba)
+    alpha = arr[..., 3]
+    if int(alpha.min()) < 255:
+        ys, xs = np.nonzero(alpha > 0)
+    else:
+        rgb = arr[..., :3].astype(np.int16)
+        bg = np.mean([rgb[0, 0], rgb[0, -1], rgb[-1, 0], rgb[-1, -1]], axis=0)
+        diff = np.abs(rgb - bg).sum(axis=-1)
+        ys, xs = np.nonzero(diff > color_tol)
+    if len(xs) == 0 or len(ys) == 0:
+        return None
+    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+
+
+def crop_to_content(img: Image.Image, margin: int = 0) -> Image.Image:
+    """裁掉四周空白，只保留内容包围盒（margin 为额外安全边距像素）。"""
+    box = content_bbox(img)
+    if box is None:
+        return img.convert("RGBA")
+    l, t, r, b = box
+    w, h = img.size
+    l = max(0, l - margin)
+    t = max(0, t - margin)
+    r = min(w, r + margin)
+    b = min(h, b + margin)
+    return img.crop((l, t, r, b))
 
 
 def crop_sprite_sheet(
@@ -362,10 +546,12 @@ def crop_sprite_sheet(
     rows: int,
     cols: int,
     count: Optional[int] = None,
+    inset: int = 0,
 ) -> List[Image.Image]:
     """按 i×j 网格把精灵图裁切为帧序列（行优先）。
 
     count 指定要取的帧数（≤ rows×cols，行优先取前 count 个）；默认取全部。
+    inset>0 时每格向内收缩 inset 像素再去掉 AI 画的格子黑框/边框线。
     """
     if sheet is None or rows < 1 or cols < 1:
         raise ValueError("精灵图与网格参数无效")
@@ -377,6 +563,11 @@ def crop_sprite_sheet(
             x0, y0 = round(c * cw), round(r * ch)
             x1, y1 = round((c + 1) * cw), round((r + 1) * ch)
             frames.append(sheet.crop((x0, y0, x1, y1)))
+    if inset > 0:
+        max_inset = max(0, min(cw, ch) // 2 - 1)
+        inset = min(int(inset), max_inset)
+        if inset > 0:
+            frames = [f.crop((inset, inset, f.width - inset, f.height - inset)) for f in frames]
     if count is not None:
         frames = frames[: max(0, int(count))]
     return frames

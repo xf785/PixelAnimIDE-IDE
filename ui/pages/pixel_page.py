@@ -1,4 +1,4 @@
-﻿"""像素编辑板块：独立像素画布（可设分辨率），与 IDE 双向同步，可作图生视频首帧。
+"""像素编辑板块：独立像素画布（可设分辨率），与 IDE 双向同步，可作图生视频首帧。
 
 - 新建画布：预设/自定义分辨率 + 背景（透明/白/黑）；
 - 从 IDE 同步：拉取 IDE 当前帧/首帧进画布精细编辑；
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -55,17 +56,43 @@ class PixelPage(QWidget):
     def _build_ui(self) -> None:
         root = QHBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
-        root.setSpacing(12)
+        root.setSpacing(0)
 
-        # ---------- 左：设置与操作 ----------
-        left = QWidget()
-        lp = QVBoxLayout(left)
+        # ---------- 展开按钮条（画布设置收起时显示） ----------
+        self._btn_expand = QPushButton("▶")
+        self._btn_expand.setObjectName("SidebarCollapseBtn")
+        self._btn_expand.setFixedWidth(24)
+        self._btn_expand.setVisible(False)
+        T(self._btn_expand, "展开画布设置", attr="tooltip")
+        self._btn_expand.clicked.connect(self._on_expand_settings)
+        root.addWidget(self._btn_expand)
+
+        # ---------- 左：设置与操作（可收起；分栏可拖拽调宽） ----------
+        self._settings_panel = QWidget()
+        lp = QVBoxLayout(self._settings_panel)
         lp.setContentsMargins(0, 0, 0, 0)
         lp.setSpacing(10)
 
-        box = T(QGroupBox(), "画布设置")
-        f = QFormLayout(box)
-        f.setContentsMargins(12, 18, 12, 12)
+        # 「画布设置」框：标题行右侧带收起按钮
+        box = QWidget()
+        bv = QVBoxLayout(box)
+        bv.setContentsMargins(0, 0, 0, 0)
+        bv.setSpacing(6)
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        title = T(QLabel(), "画布设置")
+        title.setObjectName("GroupTitle")
+        header.addWidget(title)
+        header.addStretch(1)
+        self._btn_collapse = QPushButton("◀")
+        self._btn_collapse.setObjectName("SidebarCollapseBtn")
+        self._btn_collapse.setFixedSize(22, 22)
+        T(self._btn_collapse, "收起画布设置，画布更大", attr="tooltip")
+        self._btn_collapse.clicked.connect(self._on_collapse_settings)
+        header.addWidget(self._btn_collapse)
+        bv.addLayout(header)
+        f = QFormLayout()
+        f.setContentsMargins(12, 8, 12, 12)
         f.setVerticalSpacing(8)
 
         self._preset_combo = QComboBox()
@@ -96,6 +123,7 @@ class PixelPage(QWidget):
         self._btn_new.setObjectName("PrimaryButton")
         self._btn_new.clicked.connect(self._on_new)
         f.addRow("", self._btn_new)
+        bv.addLayout(f)
         lp.addWidget(box)
 
         act_box = T(QGroupBox(), "操作")
@@ -123,11 +151,28 @@ class PixelPage(QWidget):
         av.addWidget(self._btn_export)
         lp.addWidget(act_box)
         lp.addStretch(1)
-        root.addWidget(left)
 
-        # ---------- 右：画布编辑器 ----------
+        # ---------- 右：画布编辑器（分栏可拖拽调宽） ----------
         self._editor = PixelEditorWidget()
-        root.addWidget(self._editor, 1)
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.addWidget(self._settings_panel)
+        self._splitter.addWidget(self._editor)
+        self._splitter.setStretchFactor(0, 0)
+        self._splitter.setStretchFactor(1, 1)
+        self._splitter.setSizes([260, 900])
+        root.addWidget(self._splitter, 1)
+
+    # ------------------------------------------------------------------ #
+    def _on_collapse_settings(self) -> None:
+        """收起画布设置栏：画布占满，仅留展开按钮。"""
+        self._settings_panel.setVisible(False)
+        self._btn_expand.setVisible(True)
+
+    def _on_expand_settings(self) -> None:
+        """重新展开画布设置栏。"""
+        self._settings_panel.setVisible(True)
+        self._btn_expand.setVisible(False)
+        self._splitter.setSizes([260, max(200, self._splitter.width() - 260)])
 
     # ------------------------------------------------------------------ #
     def _on_preset(self) -> None:

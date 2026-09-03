@@ -1,14 +1,108 @@
 {
-  "movement": {
-    "步行": "walking cycle, side view, 8 frames, natural gait",
-    "奔跑": "running cycle, side view, 8 frames, dynamic stride",
-    "跳跃": "jumping animation, 6 frames, arc motion, squash and stretch",
-    "突进": "dashing forward, 6 frames, speed lines, leaning motion",
-    "爬行": "crawling on ground, 8 frames, low profile"
+  "categories": {
+    "待机": {
+      "站立待机": "standing idle, gentle sway, arms relaxed, smooth looping",
+      "呼吸待机": "deep breathing idle, chest rises and falls, calm, smooth looping",
+      "环顾四周": "looking around alertly, head turns left and right, smooth looping",
+      "蹲守待机": "crouching idle, low stance, slight weight shifts, smooth looping"
+    },
+    "移动": {
+      "步行": "walking cycle, natural gait, arms swinging, smooth looping",
+      "奔跑": "running cycle, dynamic stride, pumping arms, smooth looping",
+      "跳跃": "jumping in place, arc motion, squash and stretch, smooth looping",
+      "突进": "dashing forward and resetting, fast lean, brief speed motion, smooth looping",
+      "爬行": "crawling cycle on the ground, low profile, smooth looping",
+      "游泳": "swimming cycle in place, arm strokes, smooth looping",
+      "飞行": "hovering in place, gentle wing flap, floating slightly, smooth looping",
+      "翻滚": "forward roll and reset to standing, smooth looping",
+      "滑铲": "slide forward and reset, low stance, smooth looping"
+    },
+    "战斗": {
+      "攻击": "attack swing and recover, slashing arc, smooth looping",
+      "重击": "heavy overhead strike, big windup, impact, recover, smooth looping",
+      "连击": "three-hit combo, quick strikes, return to stance, smooth looping",
+      "格挡": "blocking stance, guard up, slight deflections, smooth looping",
+      "闪避": "quick dodge roll to the side and reset, smooth looping",
+      "受击": "getting hit, knockback flinch, recover to stance, smooth looping",
+      "昏迷": "stunned, dizzy wobble, smooth looping",
+      "倒地起身": "falling to the ground and getting back up, smooth looping"
+    },
+    "魔法": {
+      "施法": "casting a spell, hands gathering energy, glow, smooth looping",
+      "蓄力": "charging power, crouch and build up, release, smooth looping",
+      "冲击波": "thrusting arms out, pushing a shockwave ring, smooth looping",
+      "护盾": "raising a protective shield bubble around self, smooth looping",
+      "治疗": "healing cast, soft glow, gentle gesture, smooth looping",
+      "召唤": "summoning a creature, magic circle, dramatic pose, smooth looping",
+      "瞬移": "blinking out and reappearing, vanish and return, smooth looping"
+    },
+    "表情": {
+      "点头": "nodding yes, several nods, smooth looping",
+      "摇头": "shaking head no, smooth looping",
+      "挥手": "waving hand, cheerful greeting, smooth looping",
+      "鼓掌": "clapping hands, cheerful, smooth looping",
+      "欢呼": "cheering, arms raised, small hops, smooth looping",
+      "鞠躬": "bowing politely and straightening up, smooth looping",
+      "思考": "thinking pose, hand on chin, slight tilt, smooth looping",
+      "跳舞": "dancing in place, rhythmic steps, smooth looping",
+      "生气": "angry stomping, shaking fists, smooth looping",
+      "害怕": "scared trembling, arms raised, stepping back, smooth looping"
+    },
+    "互动": {
+      "坐下": "sitting down and standing back up, smooth looping",
+      "躺下": "lying down flat and getting back up, smooth looping",
+      "睡觉": "sleeping, slow breathing, relaxed, smooth looping",
+      "拾取": "bending down to pick up an object, standing back up, smooth looping",
+      "挖掘": "digging motion, rhythmic tool swings, smooth looping",
+      "敲击": "repeated knocking or hammering strikes, smooth looping",
+      "庆祝": "jumping for joy, fists raised, smooth looping"
+    }
   },
-  "combat": {
-    "攻击": "attack animation, sword swing, 6 frames, follow-through",
-    "格挡": "blocking stance, 4 frames, shield up, stable",
-    "昏迷": "stunned animation, 4 frames, dizzy wobble"
+  "durations": {
+    "站立待机": 2.5,
+    "呼吸待机": 3.0,
+    "环顾四周": 2.0,
+    "蹲守待机": 2.5,
+    "步行": 2.0,
+    "奔跑": 1.5,
+    "跳跃": 1.2,
+    "突进": 1.0,
+    "爬行": 2.5,
+    "游泳": 2.0,
+    "飞行": 2.0,
+    "翻滚": 1.0,
+    "滑铲": 1.0,
+    "攻击": 1.2,
+    "重击": 1.5,
+    "连击": 2.0,
+    "格挡": 1.0,
+    "闪避": 0.8,
+    "受击": 0.8,
+    "昏迷": 1.5,
+    "倒地起身": 2.0,
+    "施法": 2.0,
+    "蓄力": 1.5,
+    "冲击波": 1.2,
+    "护盾": 1.5,
+    "治疗": 2.0,
+    "召唤": 2.5,
+    "瞬移": 0.8,
+    "点头": 1.5,
+    "摇头": 1.5,
+    "挥手": 2.0,
+    "鼓掌": 2.0,
+    "欢呼": 1.5,
+    "鞠躬": 2.0,
+    "思考": 2.5,
+    "跳舞": 2.0,
+    "生气": 1.5,
+    "害怕": 1.5,
+    "坐下": 1.5,
+    "躺下": 2.0,
+    "睡觉": 3.0,
+    "拾取": 1.2,
+    "挖掘": 2.0,
+    "敲击": 1.2,
+    "庆祝": 1.5
   }
 }

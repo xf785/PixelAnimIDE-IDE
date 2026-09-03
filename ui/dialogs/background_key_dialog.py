@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.processing import background as bg_mod
+from ui.i18n import tr
 from ui.widgets.image_viewer import ImageViewer
 
 
@@ -58,7 +59,7 @@ class BackgroundKeyDialog(QDialog):
         parent=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("背景扣除预览")
+        self.setWindowTitle(tr("背景扣除预览"))
         self.setMinimumSize(700, 460)
         self._original = image.convert("RGBA")
 
@@ -75,7 +76,7 @@ class BackgroundKeyDialog(QDialog):
         rl = QVBoxLayout(right)
         rl.setSpacing(10)
 
-        rl.addWidget(QLabel("参数调整（实时预览）"))
+        rl.addWidget(QLabel(tr("参数调整（实时预览）")))
 
         def row(label: str, spin: QSpinBox) -> QWidget:
             w = QWidget()
@@ -88,24 +89,24 @@ class BackgroundKeyDialog(QDialog):
         self._tol_spin = QSpinBox()
         self._tol_spin.setRange(0, 200)
         self._tol_spin.setValue(int(tolerance))
-        rl.addWidget(row("背景容差", self._tol_spin))
+        rl.addWidget(row(tr("背景容差"), self._tol_spin))
 
         self._erode_spin = QSpinBox()
         self._erode_spin.setRange(0, 12)
         self._erode_spin.setValue(int(erode))
-        self._erode_spin.setToolTip("前景内缩像素：消掉对象边缘残留的白边/白晕")
-        rl.addWidget(row("内缩(px)", self._erode_spin))
+        self._erode_spin.setToolTip(tr("前景内缩像素：消掉对象边缘残留的白边/白晕"))
+        rl.addWidget(row(tr("内缩(px)"), self._erode_spin))
 
         self._feather_spin = QSpinBox()
         self._feather_spin.setRange(0, 30)
         self._feather_spin.setValue(int(feather))
-        rl.addWidget(row("羽化(px)", self._feather_spin))
+        rl.addWidget(row(tr("羽化(px)"), self._feather_spin))
 
-        self._force_chk = QCheckBox("先强制纯色背景（自适应归一化）")
+        self._force_chk = QCheckBox(tr("先强制纯色背景（自适应归一化）"))
         self._force_chk.setChecked(bool(force_pure_bg))
         rl.addWidget(self._force_chk)
 
-        self._orig_chk = QCheckBox("显示原图对照")
+        self._orig_chk = QCheckBox(tr("显示原图对照"))
         rl.addWidget(self._orig_chk)
 
         for w in (self._tol_spin, self._erode_spin, self._feather_spin):
@@ -116,11 +117,11 @@ class BackgroundKeyDialog(QDialog):
         rl.addStretch(1)
 
         btns = QHBoxLayout()
-        apply_btn = QPushButton("应用到全部帧")
+        apply_btn = QPushButton(tr("应用到全部帧"))
         apply_btn.setObjectName("PrimaryButton")
         apply_btn.clicked.connect(self.accept)
         btns.addWidget(apply_btn)
-        cancel_btn = QPushButton("取消")
+        cancel_btn = QPushButton(tr("取消"))
         cancel_btn.clicked.connect(self.reject)
         btns.addWidget(cancel_btn)
         rl.addLayout(btns)

@@ -1,4 +1,4 @@
-﻿"""API 抽象基类与统一结果对象。
+"""API 抽象基类与统一结果对象。
 
 设计目标：
 - 屏蔽不同服务商差异，返回统一的 APIResult（成功/失败、数据、错误信息）。
@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -93,10 +94,58 @@ class BaseAPI(ABC):
         path = self.params.get("endpoint") or default_path
         return f"{self.base_url}{path}"
 
+    # ------------------------------------------------------------------ #
+    # 完全自定义请求：JSON 请求体模板 + 占位符
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def render_template_payload(template: str, values: dict) -> Optional[dict]:
+        """按占位符渲染 JSON 请求体模板。
+
+        template 为合法 JSON 文本，占位符使用 $ 前缀（避免与 JSON 花括号冲突），
+        例如 {"model": "$model", "messages": [{"role": "user", "content": "$prompt"}]}。
+        values 为 {占位符名: 值}；值按 str() 替换（None/False -> "None"/"False"，因此
+        布尔等需先转成字符串如 "true"）。模板非法 JSON 时返回 None。
+        """
+        text = str(template)
+        for key, value in values.items():
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                text = text.replace("$" + key, "true" if value else "false")
+            else:
+                text = text.replace("$" + key, str(value))
+        try:
+            data = json.loads(text)
+        except (ValueError, TypeError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def custom_enabled(self) -> bool:
+        """是否开启完全自定义请求（params.custom_request 或 provider=custom）。"""
+        flag = self.params.get("custom_request")
+        if flag in (True, 1, "1", "true", "True", "yes", "on"):
+            return True
+        return str(self.params.get("provider") or "").lower() == "custom"
+
+    def custom_method(self) -> str:
+        return str(self.params.get("request_method") or "POST").upper()
+
     def _headers(self) -> dict:
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        # 完全自定义：额外请求头（JSON，如 {"X-API-Key": "…", "Authorization": "…"}）
+        extra = self.params.get("extra_headers")
+        if extra:
+            if isinstance(extra, str):
+                try:
+                    extra = json.loads(extra)
+                except (ValueError, TypeError):
+                    extra = {}
+            if isinstance(extra, dict):
+                for k, v in extra.items():
+                    if isinstance(k, str) and isinstance(v, str) and k.strip():
+                        headers[k.strip()] = v
         return headers
 
     def _http(self) -> httpx.Client:
@@ -260,13 +309,24 @@ class BaseAPI(ABC):
     def _friendly_error(self, exc: Exception) -> str:
         """把底层异常转为带排查建议的提示。
 
-        404 + "Invalid URL" 通常是 Base URL 缺少路径前缀（如 /v1），
-        例如应填 https://api.gpt.ge/v1 而不是 https://api.gpt.ge。
+        404 + "Invalid URL" 通常有两种原因：
+        - 多数 OpenAI 兼容服务：Base URL 缺少路径前缀（如 /v1），
+          例如应填 https://api.gpt.ge/v1 而不是 https://api.gpt.ge；
+        - gpt.ge 视频（豆包 Seedance）：不走 /videos/generations 通用路径，
+          加 /v1 也无济于事——应使用「gpt.ge (V-API) 豆包视频」适配
+          （端点 /task/volces/seedance）。
         SSL 握手失败通常是网络被拦截或需要代理。
         """
         msg = str(exc)
         if "Invalid URL" in msg and "/v1" not in msg:
-            msg += "（提示：多为 Base URL 缺少 /v1 等路径前缀所致，请核对服务商要求的完整路径，如 https://api.gpt.ge/v1）"
+            if self.KIND == "video" and "gpt.ge" in self.base_url:
+                msg += (
+                    "（提示：gpt.ge 视频不走通用 /videos/generations 路径——"
+                    "请把「服务商适配」选为 gpt.ge (V-API) 豆包视频，自动使用 "
+                    "/task/volces/seedance；或在高级项「提交端点/轮询端点」手动填写正确路径）"
+                )
+            else:
+                msg += "（提示：多为 Base URL 缺少 /v1 等路径前缀所致，请核对服务商要求的完整路径，如 https://api.gpt.ge/v1）"
         if ("SSL" in msg or "TLS" in msg or "EOF" in msg) and "代理" not in msg:
             msg += "（提示：SSL/TLS 握手失败通常是网络被拦截或直连不通。可在 API 配置的高级项「代理」中填写代理地址，如 http://127.0.0.1:7890；或更换网络后重试）"
         return msg

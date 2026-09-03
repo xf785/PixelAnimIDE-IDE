@@ -13,7 +13,7 @@ from .ide_workflow import (
     load_ide_project,
     save_ide_project,
 )
-from .sprite_workflow import SpriteParams, SpriteResult, SpriteWorkflow
+from .sprite_workflow import STEP_ORDER, SpriteParams, SpriteResult, SpriteSession, SpriteWorkflow
 
 __all__ = [
     "SoloParams",
@@ -26,7 +26,9 @@ __all__ = [
     "IdeWorkflow",
     "load_ide_project",
     "save_ide_project",
+    "STEP_ORDER",
     "SpriteParams",
     "SpriteResult",
+    "SpriteSession",
     "SpriteWorkflow",
 ]

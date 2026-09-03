@@ -5,7 +5,10 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
-_STYLES_DIR = Path(__file__).resolve().parent
+from config.settings import bundle_root
+
+# 源码 / 冻结（PyInstaller）两种环境都能找到 QSS
+_STYLES_DIR = bundle_root() / "ui" / "styles"
 
 THEMES = ("dark", "light")
 

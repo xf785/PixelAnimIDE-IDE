@@ -1,4 +1,4 @@
-﻿"""主窗口：左上角 Solo/IDE 模式开关 + 自适应侧边栏 + 页面堆栈 + 设置弹窗 + 主题。
+"""主窗口：左上角 Solo/IDE 模式开关 + 自适应侧边栏 + 页面堆栈 + 设置弹窗 + 主题。
 
 设计（参考 Trae 的 Builder/Chat 切换）：
 - 左上角一个圆角分段开关：「Solo | IDE」，左 = Solo 模式，右 = IDE 模式。
@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from config.settings import APP_DISPLAY_NAME, APP_VERSION
 from core.workflow import IDE_STEPS
 from ui import layout as ui_layout
+from ui import shortcuts as sc
 from ui.app_context import AppContext
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.i18n import T, retranslate_all, tr
@@ -39,6 +40,7 @@ from ui.pages.pixel_page import PixelPage
 from ui.pages.solo_page import SoloPage
 from ui.pages.sprite_page import SpritePage
 from ui.styles import apply_theme
+from ui.widgets.segmented_toggle import SegmentedToggle
 
 logger = logging.getLogger("PixelAnimIDE.ui.main_window")
 
@@ -65,6 +67,8 @@ class MainWindow(QMainWindow):
         # 先设置全局比例，让所有固定尺寸（按钮/面板/图标）按比例构建
         self._scale = max(0.7, min(1.6, float(ctx.ui_settings.get("ui_scale", 1.0))))
         ui_layout.set_ui_scale(self._scale)
+        # 载入用户自定义快捷键（像素编辑器等按键绑定生效）
+        sc.set_shortcuts(ctx.ui_settings.get("shortcuts"))
         self.setWindowTitle(f"{APP_DISPLAY_NAME} v{APP_VERSION}")
         self.resize(1200, 780)
         self.setMinimumSize(960, 600)
@@ -171,6 +175,22 @@ class MainWindow(QMainWindow):
         self._step_nav.setVisible(False)
         sb.addWidget(self._step_nav)
 
+        # ---------- 精灵图执行方式开关（左=自动 / 右=手动，点击切换；仅精灵图模式显示） ----------
+        self._sprite_switch = QWidget()
+        self._sprite_switch.setObjectName("SpriteModeSwitch")
+        sw = QVBoxLayout(self._sprite_switch)
+        sw.setContentsMargins(2, 4, 2, 4)
+        sw.setSpacing(3)
+        sw_caption = QLabel(tr("执行方式"))
+        sw_caption.setObjectName("SidebarCaption")
+        sw_caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sw.addWidget(sw_caption)
+        self._sprite_toggle = SegmentedToggle(height=30)
+        self._sprite_toggle.toggled.connect(self._on_sprite_toggle)
+        sw.addWidget(self._sprite_toggle, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._sprite_switch.setVisible(False)
+        sb.addWidget(self._sprite_switch)
+
         sb.addStretch(1)
 
         # ---------- 设置 + 主题 ----------
@@ -203,6 +223,7 @@ class MainWindow(QMainWindow):
         self.ide_page.step_changed.connect(self._on_ide_step_changed)
         self.solo_page.sync_to_ide.connect(self._on_sync_to_ide)
         self.sprite_page.sync_to_ide.connect(self._on_sync_sprite_to_ide)
+        self.sprite_page.running_changed.connect(self._on_sprite_running_changed)
         self.pixel_page.sync_from_ide_requested.connect(self._on_pixel_sync_from_ide)
         self.pixel_page.sync_to_ide.connect(self._on_pixel_sync_to_ide)
         self.pixel_page.use_as_video_first_frame.connect(self._on_pixel_to_video)
@@ -221,11 +242,14 @@ class MainWindow(QMainWindow):
     def set_mode(self, mode: str) -> None:
         """切换 Solo / IDE / 精灵图 / 像素 模式（分段开关 + 侧栏收展 + 页面切换）。"""
         self._mode = mode if mode in ("solo", "ide", "sprite", "pixel") else "solo"
+        # 快捷键按当前工作模式生效（像素编辑器 / 预览等按键绑定）
+        sc.set_active_mode(self._mode)
         self._mode_solo_btn.setChecked(self._mode == "solo")
         self._mode_ide_btn.setChecked(self._mode == "ide")
         self._mode_sprite_btn.setChecked(self._mode == "sprite")
         self._mode_pixel_btn.setChecked(self._mode == "pixel")
         self._step_nav.setVisible(self._mode == "ide")
+        self._sprite_switch.setVisible(self._mode == "sprite")
         self._sidebar.setFixedWidth(int((RAIL_EXPANDED if self._mode == "ide" else RAIL_COLLAPSED) * self._scale))
         index = {"solo": 0, "ide": 1, "sprite": 2, "pixel": 3}[self._mode]
         self._stack.setCurrentIndex(index)
@@ -246,6 +270,17 @@ class MainWindow(QMainWindow):
         self.set_mode("ide")
         self._step_buttons[index].setChecked(True)
         self.ide_page.set_current_step(index)
+
+    # ------------------------------------------------------------------ #
+    # 精灵图执行方式开关（A=自动 / M=手动，点击切换；悬停提示信息）
+    # ------------------------------------------------------------------ #
+    def _on_sprite_toggle(self, checked: bool) -> None:
+        """点击切换 -> 精灵图页面手动/自动模式。"""
+        self.sprite_page.set_manual_mode(checked)
+
+    def _on_sprite_running_changed(self, running: bool) -> None:
+        """精灵图生成中禁用模式开关（运行中不允许切换自动/手动）。"""
+        self._sprite_toggle.setEnabled(not running)
 
     def _on_ide_step_changed(self, index: int) -> None:
         if index in self._step_buttons:
@@ -344,9 +379,14 @@ class MainWindow(QMainWindow):
         self._theme_btn.setToolTip(tr("切换主题（深色 / 浅色）"))
         for i, btn in self._step_buttons.items():
             btn.setText(tr(STEP_SHORT_ZH[i]) if i < len(STEP_SHORT_ZH) else "")
+        # 精灵图执行方式开关文案（悬停提示由控件自身管理）
         # IDE 执行按钮按当前步骤重刷
         if hasattr(self.ide_page, "_current_step"):
             self.ide_page.set_current_step(self.ide_page._current_step)
+        # 常驻下拉框项（倍速等）随语言重刷
+        for page in (self.solo_page, self.ide_page, self.sprite_page):
+            if hasattr(page, "retranslate_ui"):
+                page.retranslate_ui()
         self.set_mode(self._mode)
         self._refresh_icons(self._current_theme())
 
@@ -362,6 +402,7 @@ class MainWindow(QMainWindow):
     def _apply_theme(self, theme: str) -> None:
         apply_theme(QApplication.instance(), theme)
         self._ctx.ui_settings.set("theme", theme)
+        self._sprite_toggle.setDark(theme == "dark")
         self._refresh_icons(theme)
 
     def _refresh_icons(self, theme: str) -> None:

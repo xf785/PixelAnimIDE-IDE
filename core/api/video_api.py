@@ -1,4 +1,4 @@
-﻿"""图转视频 API：通用「提交任务 -> 轮询 -> 取结果」模型。
+"""图转视频 API：通用「提交任务 -> 轮询 -> 取结果」模型。
 
 适配主流服务商（如 Luma、Kling、可灵、Runway 等）的常见差异点通过
 params 配置项控制：
@@ -256,37 +256,40 @@ class VideoAPI(BaseAPI):
         failure = self._status_set("status_failure", ["failed", "error", "cancelled", "canceled", "expired", "rejected"])
         frames_path = self.params.get("result_frames_path") or "output.frames"
 
+        # 先轮询、后休眠：任务若在两次轮询之间完成可提前一个 interval 拿到结果
+        # （不会因「提交后先空等一个间隔」而额外增加延迟）
         for attempt in range(max_polls):
-            time.sleep(interval)
             try:
                 data = self._parse_json(self._request(method, self._poll_url(job_id)))
             except Exception as exc:  # noqa: BLE001
                 # 轮询期间的网络抖动不致命，继续尝试
                 logger.warning("轮询异常（第 %d 次）: %s", attempt + 1, exc)
-                continue
-
-            status = str(self._dig(data, self.params.get("status_path") or "status") or "").lower()
-            if status in failure:
-                err = (
-                    self._dig(data, "error.message")
-                    or self._dig(data, "error_message")
-                    or self._dig(data, "error")
-                    or data
-                )
-                err = str(err)[:300] if err is not None else ""
-                return APIResult(ok=False, error=f"视频任务失败（{status}）: {err}", raw=data)
-            if status in success or status in ("", "none"):
-                video_url = self._dig(data, self._result_video_url_path())
-                frames_bytes = self._extract_frames_from(data, frames_path)
-                if video_url or frames_bytes or status in success:
-                    return APIResult(
-                        ok=True,
-                        data={"video_url": video_url, "frames": frames_bytes},
-                        raw=data,
+            else:
+                status = str(self._dig(data, self.params.get("status_path") or "status") or "").lower()
+                if status in failure:
+                    err = (
+                        self._dig(data, "error.message")
+                        or self._dig(data, "error_message")
+                        or self._dig(data, "error")
+                        or data
                     )
-            logger.info("视频任务 %s 轮询中（%d/%d）: %s", job_id, attempt + 1, max_polls, status)
+                    err = str(err)[:300] if err is not None else ""
+                    return APIResult(ok=False, error=f"视频任务失败（{status}）: {err}", raw=data)
+                if status in success or status in ("", "none"):
+                    video_url = self._dig(data, self._result_video_url_path())
+                    frames_bytes = self._extract_frames_from(data, frames_path)
+                    if video_url or frames_bytes or status in success:
+                        return APIResult(
+                            ok=True,
+                            data={"video_url": video_url, "frames": frames_bytes},
+                            raw=data,
+                        )
+                logger.info("视频任务 %s 轮询中（%d/%d）: %s", job_id, attempt + 1, max_polls, status)
+            if attempt < max_polls - 1:
+                time.sleep(interval)
 
-        return APIResult(ok=False, error=f"轮询超时（{max_polls} 次，约 {max_polls * interval:.0f} 秒）")
+        waited_secs = max(0, (max_polls - 1)) * interval
+        return APIResult(ok=False, error=f"轮询超时（{max_polls} 次，约 {waited_secs:.0f} 秒）")
 
     @staticmethod
     def _extract_frames_from(data: dict, path: str) -> List[bytes]:

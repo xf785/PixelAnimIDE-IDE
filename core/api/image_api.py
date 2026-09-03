@@ -1,4 +1,4 @@
-﻿"""图片生成 API：兼容 OpenAI /images/generations 的服务商（支持 b64_json 或 URL 返回）。"""
+"""图片生成 API：兼容 OpenAI /images/generations 的服务商（支持 b64_json 或 URL 返回）。"""
 from __future__ import annotations
 
 import base64
@@ -82,6 +82,98 @@ class ImageAPI(BaseAPI):
             return None, None
 
     # ------------------------------------------------------------------ #
+    def _call_custom(
+        self,
+        prompt: str,
+        size: Optional[str] = None,
+        n: int = 1,
+        seed: Optional[int] = None,
+        steps: Optional[int] = None,
+        negative_prompt: Optional[str] = None,
+        image: Optional[bytes] = None,
+    ) -> APIResult:
+        """完全自定义请求：按 JSON 请求体模板 + 自定义响应图片路径。
+
+        占位符：$model / $prompt / $size / $n / $negative_prompt / $image
+        （参考图 data URI）/ $seed / $steps / $response_format。
+        URL 由 base_url + 端点路径（endpoint，默认 /images/generations）决定；
+        响应图片默认从 data 数组取 b64_json/url，也可用 images_path 指定字段路径。
+        """
+        size = str(size or self.params.get("size", "1024x1024"))
+        rendered = self.render_template_payload(
+            str(self.params.get("payload_template")),
+            {
+                "model": self.model,
+                "prompt": prompt,
+                "size": size,
+                "n": str(max(1, int(n))),
+                "negative_prompt": negative_prompt or "",
+                "image": self._to_data_uri(image) if image else "",
+                "seed": str(int(seed if seed is not None else int(self.params.get("seed", -1)))),
+                "steps": str(int(steps if steps is not None else int(self.params.get("steps", 20)))),
+                "response_format": str(self.params.get("response_format", "b64_json")),
+            },
+        )
+        if rendered is None:
+            return APIResult(ok=False, error="请求体模板不是合法 JSON，请检查「请求体模板(JSON)」")
+        url = self._generations_url()
+        try:
+            if self.custom_method() == "POST":
+                data = self._post_json(url, rendered)
+            else:
+                data = self._get_json(url)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("生图 API（自定义）调用失败")
+            return APIResult(ok=False, error=self._friendly_error(exc))
+        images, urls = self._extract_images_custom(data)
+        if not images and not urls:
+            return APIResult(ok=False, error=f"无法从响应中解析图片: {str(data)[:300]}", raw=data)
+        return APIResult(ok=True, data={"images": images, "urls": urls}, raw=data)
+
+    def _extract_images_custom(self, data: dict):
+        """自定义图片解析：按 images_path 取数组（每项 b64_json/url/字符串 URL），
+        取不到回退兼容 _extract_images。"""
+        path = self.params.get("images_path")
+        items = None
+        if path:
+            items = self._dig(data, path)
+        if not items:
+            return self._extract_images(data)
+        if isinstance(items, dict):
+            items = items.get("images") or items.get("items") or items.get("data")
+        if not isinstance(items, list):
+            return self._extract_images(data)
+        images: List[bytes] = []
+        urls: List[str] = []
+        for item in items:
+            if isinstance(item, str):
+                if item.startswith(("http://", "https://", "data:image")):
+                    if item.startswith("data:image"):
+                        try:
+                            b64 = item.split(",", 1)[1]
+                            images.append(base64.b64decode(b64))
+                        except Exception:  # noqa: BLE001
+                            pass
+                    else:
+                        urls.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            b64 = item.get("b64_json") or item.get("base64")
+            if b64:
+                try:
+                    if isinstance(b64, str) and b64.startswith("data:"):
+                        b64 = b64.split(",", 1)[1]
+                    images.append(base64.b64decode(b64))
+                    continue
+                except Exception:  # noqa: BLE001
+                    pass
+            url = item.get("url") or item.get("image_url") or item.get("uri")
+            if url:
+                urls.append(str(url))
+        return images, urls
+
+    # ------------------------------------------------------------------ #
     def call(
         self,
         prompt: str,
@@ -105,6 +197,12 @@ class ImageAPI(BaseAPI):
         error = self._validate_config()
         if error:
             return APIResult(ok=False, error=error)
+
+        if self.custom_enabled() and str(self.params.get("payload_template") or "").strip():
+            return self._call_custom(
+                prompt, size=size, n=n, seed=seed, steps=steps,
+                negative_prompt=negative_prompt, image=image,
+            )
 
         size = size or self.params.get("size", "1024x1024")
         payload: dict = {

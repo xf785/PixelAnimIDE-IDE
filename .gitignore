@@ -15,13 +15,21 @@ venv/
 .coverage
 htmlcov/
 
-# Output / demo
+# Output / demo / packaging artifacts
 output/
 demo_output/
+build/
+dist/
+release/
+*.log
 
 # Runtime config (may contain encrypted API keys; stored in user data dir)
 config/api_config.json
 *.keyring
+ui_settings.json
+
+# Third-party reference copy (vendored code lives in core/)
+perfectPixel-main/
 
 # Editors / OS
 .idea/

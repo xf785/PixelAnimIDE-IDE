@@ -1,4 +1,4 @@
-﻿"""API 配置控件：一套 API 类型的配置增删改查 + 连接测试。
+"""API 配置控件：一套 API 类型的配置增删改查 + 连接测试。
 
 每种 API 类型的字段由 config.api_config.FIELD_DEFS 定义，
 控件按字段类型自动生成表单控件（文本/密码/整数/浮点/布尔）。
@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -80,7 +81,7 @@ class ModelPickerDialog(QDialog):
         self._update_hint(len(filtered))
 
     def _update_hint(self, count: int) -> None:
-        self._hint.setText(f"共 {count} 个模型；双击或选中后点「使用该模型」")
+        self._hint.setText(tr("共 {0} 个模型；双击或选中后点「使用该模型」").format(count))
 
     def _accept_item(self, item) -> None:
         self.selected = item.text()
@@ -150,7 +151,7 @@ class ApiConfigWidget(QWidget):
         self._form.setContentsMargins(4, 4, 4, 4)
         self._form.setVerticalSpacing(8)
 
-        self._adv_box = QGroupBox("高级选项")
+        self._adv_box = QGroupBox(tr("高级选项"))
         self._adv_box.setCheckable(True)
         self._adv_box.setChecked(False)
         adv_layout = QVBoxLayout(self._adv_box)
@@ -222,11 +223,18 @@ class ApiConfigWidget(QWidget):
             w.setRange(float(field.get("min", -1e9)), float(field.get("max", 1e9)))
             w.setDecimals(2)
             w.setSingleStep(0.1)
+        elif ftype == "textarea":
+            # 多行文本（JSON 请求体模板 / 额外请求头等）
+            w = QPlainTextEdit()
+            w.setPlainText(str(field.get("default", "") or ""))
+            w.setPlaceholderText(tr(field.get("placeholder") or ""))
+            w.setFixedHeight(max(56, min(96, w.fontMetrics().lineSpacing() * 4 + 14)))
+            w.setTabChangesFocus(True)
         else:
             w = QLineEdit()
             if ftype == "password":
                 w.setEchoMode(QLineEdit.EchoMode.Password)
-            w.setPlaceholderText(field.get("placeholder") or str(field.get("default", "")))
+            w.setPlaceholderText(tr(field.get("placeholder") or str(field.get("default", ""))))
         return w
 
     # ------------------------------------------------------------------ #
@@ -249,7 +257,7 @@ class ApiConfigWidget(QWidget):
         if self._combo.count() == 0:
             self._current_id = None
             self._set_form_enabled(False)
-            self._test_result.setText("暂无配置，点击「新建」创建")
+            self._test_result.setText(tr("暂无配置，点击「新建」创建"))
             return
 
         # 恢复选中项
@@ -295,7 +303,7 @@ class ApiConfigWidget(QWidget):
         return cfg
 
     def _current_name(self) -> str:
-        base = self._get_field("model") or f"{self.kind} 配置"
+        base = self._get_field("model") or tr("{0} 配置").format(self.kind)
         return base[:24]
 
     # ------------------------------------------------------------------ #
@@ -321,7 +329,7 @@ class ApiConfigWidget(QWidget):
         cfg_id = self._combo.currentData()
         if not cfg_id:
             return
-        ret = QMessageBox.question(self, "删除配置", "确定删除当前配置？")
+        ret = QMessageBox.question(self, tr("删除配置"), tr("确定删除当前配置？"))
         if ret != QMessageBox.StandardButton.Yes:
             return
         self._api.delete(cfg_id)
@@ -331,7 +339,7 @@ class ApiConfigWidget(QWidget):
     def _on_save(self) -> None:
         cfg = self._collect_config()
         if not cfg.base_url:
-            QMessageBox.warning(self, "提示", "Base URL 不能为空")
+            QMessageBox.warning(self, tr("提示"), tr("Base URL 不能为空"))
             return
         try:
             if self._api.get(cfg.id):
@@ -339,9 +347,9 @@ class ApiConfigWidget(QWidget):
             else:
                 self._api.add(cfg)
         except Exception as exc:  # noqa: BLE001
-            QMessageBox.critical(self, "保存失败", str(exc))
+            QMessageBox.critical(self, tr("保存失败"), str(exc))
             return
-        self._test_result.setText("已保存")
+        self._test_result.setText(tr("已保存"))
         self.refresh()
         self.configs_changed.emit()
 
@@ -353,17 +361,17 @@ class ApiConfigWidget(QWidget):
             try:
                 self._api.set_default(cfg_id)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("设为默认失败: %s", exc)
+                logger.warning(tr("设为默认失败: {0}").format(exc))
         self.refresh()
         self.configs_changed.emit()
 
     def _on_test(self) -> None:
         cfg = self._collect_config()
         if not cfg.base_url:
-            QMessageBox.warning(self, "提示", "请先填写 Base URL 并保存")
+            QMessageBox.warning(self, tr("提示"), tr("请先填写 Base URL 并保存"))
             return
         self._btn_test.setEnabled(False)
-        self._test_result.setText("测试中…")
+        self._test_result.setText(tr("测试中…"))
         self._test_worker = FunctionWorker(self._api.test_connection, cfg)
         self._test_worker.succeeded.connect(self._on_test_done)
         self._test_worker.failed.connect(lambda msg: self._on_test_done(APIResultShim(False, msg)))
@@ -373,10 +381,10 @@ class ApiConfigWidget(QWidget):
         self._btn_test.setEnabled(True)
         if getattr(result, "ok", False):
             self._test_result.setStyleSheet("color: #22c55e;")
-            self._test_result.setText(f"✓ {result.message}（{getattr(result, 'data', '')}）")
+            self._test_result.setText(tr("✓ {0}（{1}）").format(result.message, getattr(result, 'data', '')))
         else:
             self._test_result.setStyleSheet("color: #f25a5a;")
-            self._test_result.setText(f"✗ {getattr(result, 'message', result)}")
+            self._test_result.setText(tr("✗ {0}").format(getattr(result, 'message', result)))
 
     # ------------------------------------------------------------------ #
     # 服务商预设
@@ -397,11 +405,11 @@ class ApiConfigWidget(QWidget):
                 self._set_field(pkey, pval)
         self._test_result.setStyleSheet("")
         if self._get_field("api_key"):
-            self._test_result.setText(f"已应用预设「{preset['label']}」，正在查询可用模型…")
+            self._test_result.setText(tr("已应用预设「{0}」，正在查询可用模型…").format(preset["label"]))
             self._on_list_models()
         else:
             self._test_result.setText(
-                f"已应用预设「{preset['label']}」；填写 API Key 后可点「查询模型」一键选择"
+                tr("已应用预设「{0}」；填写 API Key 后可点「查询模型」一键选择").format(preset["label"])
             )
 
     # ------------------------------------------------------------------ #
@@ -410,13 +418,13 @@ class ApiConfigWidget(QWidget):
     def _on_list_models(self) -> None:
         cfg = self._collect_config()
         if not cfg.base_url:
-            QMessageBox.warning(self, "提示", "请先填写 Base URL")
+            QMessageBox.warning(self, tr("提示"), tr("请先填写 Base URL"))
             return
         if is_mock_config(cfg):
-            QMessageBox.information(self, "提示", "模拟 API 无需查询模型")
+            QMessageBox.information(self, tr("提示"), tr("模拟 API 无需查询模型"))
             return
         self._btn_models.setEnabled(False)
-        self._test_result.setText("正在查询可用模型…")
+        self._test_result.setText(tr("正在查询可用模型…"))
         self._models_worker = FunctionWorker(self._list_models_sync, cfg)
         self._models_worker.succeeded.connect(self._on_models_done)
         self._models_worker.failed.connect(lambda msg: self._on_models_done(APIResultShim(False, msg)))
@@ -435,17 +443,17 @@ class ApiConfigWidget(QWidget):
         self._btn_models.setEnabled(True)
         if not getattr(result, "ok", False):
             self._test_result.setStyleSheet("color: #f25a5a;")
-            self._test_result.setText(f"✗ 查询失败: {getattr(result, 'message', result)}")
+            self._test_result.setText(tr("✗ 查询失败: {0}").format(getattr(result, 'message', result)))
             return
         models = result.data or []
         if not models:
-            self._test_result.setText("接口可用，但未返回模型列表")
+            self._test_result.setText(tr("接口可用，但未返回模型列表"))
             return
         dialog = ModelPickerDialog(models, self)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected:
             self._set_field("model", dialog.selected)
             self._test_result.setStyleSheet("color: #22c55e;")
-            self._test_result.setText(f"已选择模型: {dialog.selected}")
+            self._test_result.setText(tr("已选择模型: {0}").format(dialog.selected))
 
     # ------------------------------------------------------------------ #
     # 表单字段辅助
@@ -475,6 +483,8 @@ class ApiConfigWidget(QWidget):
             widget.setValue(int(value if value is not None else 0))
         elif isinstance(widget, QDoubleSpinBox):
             widget.setValue(float(value if value is not None else 0.0))
+        elif isinstance(widget, QPlainTextEdit):
+            widget.setPlainText(str(value if value is not None else ""))
         else:
             widget.setText(str(value if value is not None else ""))
 
@@ -490,6 +500,8 @@ class ApiConfigWidget(QWidget):
             return widget.value()
         if isinstance(widget, QDoubleSpinBox):
             return widget.value()
+        if isinstance(widget, QPlainTextEdit):
+            return widget.toPlainText().strip()
         return widget.text().strip()
 
     def _set_form_enabled(self, enabled: bool) -> None:

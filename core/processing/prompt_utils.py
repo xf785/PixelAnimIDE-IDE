@@ -1,6 +1,8 @@
-﻿"""提示词生成与预设管理。
+"""提示词生成与预设管理。
 
-- 从 assets/prompts.json 加载预设动作提示词（可扩展）。
+- 从 assets/prompts.json 加载预设动作提示词库（可扩展）：
+  {"categories": {分类: {动作: 提示词}}, "durations": {动作: 建议时长秒}}；
+  兼容旧结构（顶层即分类 dict，无 durations）。
 - LLM 提示词工程：把用户描述转成结构化 JSON（图片提示词/动画提示词/负面提示词）。
 - 解析 LLM 返回的 JSON（兼容 markdown 代码块）。
 - LLM 不可用时的本地模板 fallback。
@@ -11,55 +13,75 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from config.settings import ASSETS_DIR
 
 logger = logging.getLogger("PixelAnimIDE.processing.prompt_utils")
 
-_PRESETS_CACHE: Optional[dict] = None
+_PRESETS_CACHE: Optional[dict] = None     # {分类: {动作: 提示词}}
+_DURATIONS_CACHE: Optional[dict] = None   # {动作: 建议时长（秒）}
 
 
 # --------------------------------------------------------------------------- #
 # 预设提示词库
 # --------------------------------------------------------------------------- #
-# 各预设动作建议的动画时长（秒）。
-# AI 视频生成的运动普遍偏慢、偏柔和，时长不足会截到动作起步阶段、循环不完整。
-ACTION_RECOMMENDED_SECONDS = {
-    # 移动类
-    "步行": 2.0,
-    "奔跑": 1.5,
-    "跳跃": 1.2,
-    "突进": 1.0,
-    "爬行": 2.5,
-    # 战斗类
-    "攻击": 1.2,
-    "格挡": 1.0,
-    "昏迷": 1.5,
-}
-
-
-def recommended_frames(action: str, fps: int) -> Optional[int]:
-    """按动作类型建议帧数（帧数 = 建议时长 × 帧率）；未知动作返回 None。"""
-    secs = ACTION_RECOMMENDED_SECONDS.get((action or "").strip())
-    if not secs:
-        return None
-    return max(2, int(round(secs * max(1, int(fps)))))
-
-
 def load_presets() -> dict:
-    """加载预设提示词库（assets/prompts.json）。"""
-    global _PRESETS_CACHE
+    """加载预设提示词库（assets/prompts.json），返回 {分类: {动作: 提示词}}。"""
+    global _PRESETS_CACHE, _DURATIONS_CACHE
     if _PRESETS_CACHE is not None:
         return _PRESETS_CACHE
     path = ASSETS_DIR / "prompts.json"
     try:
         with open(path, encoding="utf-8") as f:
-            _PRESETS_CACHE = json.load(f)
+            data = json.load(f)
     except FileNotFoundError:
         logger.warning("未找到预设提示词文件 %s", path)
-        _PRESETS_CACHE = {}
+        _PRESETS_CACHE, _DURATIONS_CACHE = {}, {}
+        return _PRESETS_CACHE
+    except json.JSONDecodeError as exc:
+        logger.warning("预设提示词文件解析失败 %s: %s", path, exc)
+        _PRESETS_CACHE, _DURATIONS_CACHE = {}, {}
+        return _PRESETS_CACHE
+    if isinstance(data, dict) and "categories" in data:
+        cats = data.get("categories") or {}
+        _DURATIONS_CACHE = data.get("durations") or {}
+    else:
+        # 旧结构兼容：顶层即分类 dict，无建议时长
+        cats = data
+        _DURATIONS_CACHE = {}
+    _PRESETS_CACHE = {
+        cat: items for cat, items in cats.items() if isinstance(items, dict)
+    }
     return _PRESETS_CACHE
+
+
+def preset_duration(name: str) -> Optional[float]:
+    """预设动作的建议动画时长（秒）；未收录返回 None。"""
+    load_presets()
+    try:
+        v = float(_DURATIONS_CACHE.get((name or "").strip(), 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    return v if 0.1 <= v <= 10.0 else None
+
+
+def preset_categories() -> List[Tuple[str, List[str]]]:
+    """返回 [(分类, [动作名…])]，按文件顺序；动作数为 0 的分类不返回。"""
+    out: List[Tuple[str, List[str]]] = []
+    for cat, items in load_presets().items():
+        names = [n for n in items.keys() if str(n).strip()]
+        if names:
+            out.append((cat, names))
+    return out
+
+
+def recommended_frames(action: str, fps: int) -> Optional[int]:
+    """按动作建议帧数（帧数 = 建议时长 × 帧率）；未知动作返回 None。"""
+    secs = preset_duration(action)
+    if not secs:
+        return None
+    return max(2, int(round(secs * max(1, int(fps)))))
 
 
 def get_preset(name: str) -> Optional[str]:
@@ -72,11 +94,10 @@ def get_preset(name: str) -> Optional[str]:
 
 
 def preset_names() -> list:
-    """返回所有预设动作名。"""
+    """返回所有预设动作名（跨分类摊平，保持加载顺序）。"""
     names: list = []
-    for items in load_presets().values():
-        if isinstance(items, dict):
-            names.extend(items.keys())
+    for _cat, items in preset_categories():
+        names.extend(items)
     return names
 
 
@@ -126,6 +147,14 @@ STRICT_ANIMATION_CORRECTION = (
 # 图转视频背景稳定性强约束：首帧背景为纯色时，防止中间帧背景漂移
 BACKGROUND_STABILITY_RULE = (
     "IMPORTANT: the background must remain a SOLID PURE WHITE (#FFFFFF) and completely "
+    "unchanged in every frame — only the subject moves. No background shift, no camera "
+    "movement, no background color/texture change."
+)
+
+# 黑色版：主体为浅色系、首帧背景被归一化为纯黑时使用（提示词必须与首帧背景一致，
+# 否则模型会困惑并在中间帧漂移回白色/灰色背景）
+BACKGROUND_STABILITY_RULE_DARK = (
+    "IMPORTANT: the background must remain a SOLID PURE BLACK (#000000) and completely "
     "unchanged in every frame — only the subject moves. No background shift, no camera "
     "movement, no background color/texture change."
 )

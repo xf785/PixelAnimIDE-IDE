@@ -1,4 +1,4 @@
-﻿"""IDE 模式页：分步式专业工作区。
+"""IDE 模式页：分步式专业工作区。
 
 布局：
 - 左侧：步骤引导栏（6 步）+ 项目（新建/打开/保存）。
@@ -51,7 +51,6 @@ from config.settings import (
 )
 from core.api.factory import create_api_client
 from core.processing import frame_utils as fu
-from core.processing.prompt_utils import preset_names
 from core.workflow import (
     IDE_STEPS,
     IdeSession,
@@ -63,6 +62,7 @@ from core.workflow import (
 from core.workflow.solo_workflow import WorkflowError
 from ui.app_context import AppContext
 from ui.i18n import T, tr
+from ui.widgets.action_combo import populate_action_combo
 from ui.widgets.image_viewer import ImageViewer
 from ui.widgets.pixel_editor import PixelEditorWidget
 from ui.widgets.reference_box import ReferenceImageBox
@@ -158,7 +158,7 @@ class IdePage(QWidget):
         self._log_toggle_btn = QToolButton()
         self._log_toggle_btn.setText("▾")
         self._log_toggle_btn.setFixedSize(20, 20)
-        self._log_toggle_btn.setToolTip("收起/展开日志")
+        T(self._log_toggle_btn, "收起/展开日志", attr="tooltip")
         self._log_toggle_btn.clicked.connect(self._on_toggle_log)
         log_header.addWidget(self._log_toggle_btn)
         root.addLayout(log_header)
@@ -185,7 +185,7 @@ class IdePage(QWidget):
         # 缩放控制（预览区放大/缩小/适应）
         zoom_out = QPushButton("−")
         zoom_out.setFixedSize(26, 26)
-        zoom_out.setToolTip(tr("缩小预览"))
+        T(zoom_out, "缩小预览", attr="tooltip")
         zoom_out.clicked.connect(lambda: self._preview.zoom_out())
         row.addWidget(zoom_out)
         self._zoom_label = QLabel("100%")
@@ -194,11 +194,11 @@ class IdePage(QWidget):
         row.addWidget(self._zoom_label)
         zoom_in = QPushButton("＋")
         zoom_in.setFixedSize(26, 26)
-        zoom_in.setToolTip(tr("放大预览"))
+        T(zoom_in, "放大预览", attr="tooltip")
         zoom_in.clicked.connect(lambda: self._preview.zoom_in())
         row.addWidget(zoom_in)
         fit_btn = QPushButton(tr("适应"))
-        fit_btn.setToolTip(tr("重置为适应窗口"))
+        T(fit_btn, "重置为适应窗口", attr="tooltip")
         fit_btn.clicked.connect(lambda: self._preview.reset_zoom())
         row.addWidget(fit_btn)
         # 播放倍速
@@ -223,7 +223,7 @@ class IdePage(QWidget):
         self._editor = PixelEditorWidget()
         self._editor.edited.connect(self._on_editor_edited)
         layout.addWidget(self._editor, 1)
-        self._editor_hint = QLabel("在时间轴选择帧后，在此用铅笔/橡皮/取色/填充编辑像素")
+        self._editor_hint = QLabel(tr("在时间轴选择帧后，在此用铅笔/橡皮/取色/填充编辑像素"))
         self._editor_hint.setObjectName("HintLabel")
         layout.addWidget(self._editor_hint)
         self._tabs.addTab(tab, T(None, "编辑"))
@@ -270,7 +270,7 @@ class IdePage(QWidget):
         kind = "chevron_left" if self._params_collapsed else "chevron_right"
         self._params_toggle_btn.setIcon(editor_icon(kind, "#9aa0a8", size=14))
         self._params_toggle_btn.setToolTip(
-            "展开参数面板" if self._params_collapsed else "收起参数面板"
+            tr("展开参数面板") if self._params_collapsed else tr("收起参数面板")
         )
 
     def _on_toggle_log(self) -> None:
@@ -382,9 +382,7 @@ class IdePage(QWidget):
         self._action_combo = QComboBox()
         self._action_combo.setEditable(True)
         self._action_combo.setPlaceholderText(T(None, "选择或输入动作…"))
-        self._action_combo.addItem("")
-        for name in preset_names():
-            self._action_combo.addItem(tr(name), userData=name)
+        populate_action_combo(self._action_combo)
         f.addRow(T(QLabel(), "动作类型(可选)"), self._action_combo)
         tip = T(QLabel(), "生成图片/动画提示词（LLM 失败自动用本地模板）")
         tip.setObjectName("HintLabel")
@@ -502,7 +500,7 @@ class IdePage(QWidget):
         elif self._session.first_frame is not None:
             src = self._session.first_frame
         if src is None:
-            QMessageBox.information(self, "提示", "请先生成动画或导入首帧图再预览抠图")
+            QMessageBox.information(self, tr("提示"), tr("请先生成动画或导入首帧图再预览抠图"))
             return
         dialog = BackgroundKeyDialog(
             src,
@@ -601,7 +599,7 @@ class IdePage(QWidget):
     def _on_apply_prompts(self) -> None:
         for key, edit in self._prompt_edits.items():
             self._session.prompts[key] = edit.toPlainText().strip()
-        self._log("提示词已应用到工作区", "info")
+        self._log(tr("提示词已应用到工作区"), "info")
         self._mark_dirty()
 
     # ------------------------------------------------------------------ #
@@ -727,7 +725,7 @@ class IdePage(QWidget):
         self._worker.succeeded.connect(lambda result: self._on_step_success(step, result))
         self._worker.failed.connect(self._on_step_failed)
         self._set_busy(True)
-        self._log(f"执行步骤：{IDE_STEPS[step]} …", "info")
+        self._log(tr("执行步骤：{0} …").format(IDE_STEPS[step]), "info")
         self._worker.start()
 
     def _create_clients(self) -> dict:
@@ -735,7 +733,7 @@ class IdePage(QWidget):
         for kind in ("llm", "image", "video"):
             cfg = self._ctx.api.get_default(kind)
             if cfg is None:
-                raise WorkflowError(f"未配置{kind} API，请在「设置」中配置或开启模拟 API")
+                raise WorkflowError(tr("未配置{0} API，请在「设置」中配置或开启模拟 API").format(kind))
             clients[kind] = create_api_client(kind, cfg)
         return clients
 
@@ -748,32 +746,32 @@ class IdePage(QWidget):
         if step == 0:
             self._load_prompts_to_form()
             self._tabs.setCurrentIndex(2)
-            self._log("提示词已生成，可在「提示词」页签编辑", "info")
+            self._log(tr("提示词已生成，可在「提示词」页签编辑"), "info")
         elif step == 1:
             self._refresh_preview()
             self._tabs.setCurrentIndex(0)
-            self._log("首帧图片已生成", "info")
+            self._log(tr("首帧图片已生成"), "info")
         elif step == 2:
             self._current = 0
             self._play_index = 0
             self._refresh_all()
             self._tabs.setCurrentIndex(0)
-            self._log(f"动画已生成：{len(self._session.frames)} 帧", "info")
+            self._log(tr("动画已生成：{0} 帧").format(len(self._session.frames)), "info")
         elif step == 3:
             self._refresh_all()
-            self._log("像素化完成", "info")
+            self._log(tr("像素化完成"), "info")
         elif step == 4:
             self._refresh_all()
-            self._log("背景去除完成", "info")
+            self._log(tr("背景去除完成"), "info")
         elif step == 5:
-            self._log("导出完成", "info")
+            self._log(tr("导出完成"), "info")
             msg = "\n".join(f"{k}: {v}" for k, v in (result or {}).items())
-            QMessageBox.information(self, "导出完成", msg or "已导出")
+            QMessageBox.information(self, tr("导出完成"), msg or tr("已导出"))
 
     def _on_step_failed(self, message: str) -> None:
         self._set_busy(False)
         self._log(message, "error")
-        QMessageBox.critical(self, "步骤失败", message)
+        QMessageBox.critical(self, tr("步骤失败"), message)
 
     def _set_busy(self, busy: bool) -> None:
         self._btn_run.setEnabled(not busy)
@@ -822,7 +820,7 @@ class IdePage(QWidget):
 
     def _on_delete_frame(self) -> None:
         if len(self._session.frames) <= 1:
-            QMessageBox.information(self, "提示", "至少保留一帧")
+            QMessageBox.information(self, tr("提示"), tr("至少保留一帧"))
             return
         idx = max(0, min(self._current, len(self._session.frames) - 1))
         self._session.delete_frame(idx)
@@ -881,10 +879,10 @@ class IdePage(QWidget):
         self._dirty = False
         self._stop_play()
         self._refresh_all()
-        self._log("已新建工作区", "info")
+        self._log(tr("已新建工作区"), "info")
 
     def _on_open_project(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "打开 IDE 项目", "", "IDE 项目 (*.json);;所有文件 (*)")
+        path, _ = QFileDialog.getOpenFileName(self, tr("打开 IDE 项目"), "", tr("IDE 项目 (*.json);;所有文件 (*)"))
         if not path:
             return
         try:
@@ -894,14 +892,14 @@ class IdePage(QWidget):
             self._dirty = False
             self._load_session_to_form()
             self._refresh_all()
-            self._log(f"已打开项目：{path}", "info")
+            self._log(tr("已打开项目：{0}").format(path), "info")
         except Exception as exc:  # noqa: BLE001
-            QMessageBox.critical(self, "打开失败", str(exc))
+            QMessageBox.critical(self, tr("打开失败"), str(exc))
 
     def _on_save_project(self) -> None:
         self._sync_session()
         base = self._session.output_dir
-        path = QFileDialog.getExistingDirectory(self, "选择项目保存目录", str(base))
+        path = QFileDialog.getExistingDirectory(self, tr("选择项目保存目录"), str(base))
         if not path:
             return
         try:
@@ -912,12 +910,12 @@ class IdePage(QWidget):
             save_ide_project(self._session, proj_dir)
             self._dirty = False
             self._update_status()
-            self._log(f"项目已保存到：{proj_dir}", "info")
+            self._log(tr("项目已保存到：{0}").format(proj_dir), "info")
         except Exception as exc:  # noqa: BLE001
-            QMessageBox.critical(self, "保存失败", str(exc))
+            QMessageBox.critical(self, tr("保存失败"), str(exc))
 
     def _confirm_discard(self) -> bool:
-        return QMessageBox.question(self, "未保存", "当前工作区有未保存修改，确定丢弃吗？") == QMessageBox.StandardButton.Yes
+        return QMessageBox.question(self, tr("未保存"), tr("当前工作区有未保存修改，确定丢弃吗？")) == QMessageBox.StandardButton.Yes
 
     # ------------------------------------------------------------------ #
     # 参考图 / 首帧图
@@ -928,10 +926,10 @@ class IdePage(QWidget):
             self._session.reference_image = img
             if self._session.first_frame is None:
                 self._session.first_frame = img.copy()
-            self._log("已添加参考图（图生图 + 首帧图）", "info")
+            self._log(tr("已添加参考图（图生图 + 首帧图）"), "info")
         else:
             self._session.reference_image = None
-            self._log("已移除参考图", "info")
+            self._log(tr("已移除参考图"), "info")
         self._refresh_preview()
         self._mark_dirty()
 
@@ -947,7 +945,7 @@ class IdePage(QWidget):
         self._mark_dirty()
         self._refresh_all()
         self._tabs.setCurrentIndex(0)
-        self._log("已导入图片（首帧 + 图生图参考），可直接走「动画生成」步骤", "info")
+        self._log(tr("已导入图片（首帧 + 图生图参考），可直接走「动画生成」步骤"), "info")
 
     def import_from_solo(self, result: SoloResult) -> None:
         """把 Solo 生成的首帧图与最终帧序列同步到 IDE 工作区。"""
@@ -973,7 +971,7 @@ class IdePage(QWidget):
         self._refresh_all()
         self._tabs.setCurrentIndex(0)  # 切到预览
         self._log(
-            f"已从 Solo 同步：{len(frames)} 帧" + ("（含首帧图）" if s.first_frame is not None else ""),
+            tr("已从 Solo 同步：{0} 帧").format(len(frames)) + (tr("（含首帧图）") if s.first_frame is not None else ""),
             "info",
         )
 
@@ -997,7 +995,7 @@ class IdePage(QWidget):
         self._dirty = True
         self._refresh_all()
         self._tabs.setCurrentIndex(0)
-        self._log(f"已从精灵图同步：{len(frames)} 帧" + ("（含对象底图）" if s.first_frame is not None else ""), "info")
+        self._log(tr("已从精灵图同步：{0} 帧").format(len(frames)) + (tr("（含对象底图）") if s.first_frame is not None else ""), "info")
 
     @staticmethod
     def _aspect_from_size(w: int, h: int) -> str:
@@ -1020,7 +1018,7 @@ class IdePage(QWidget):
     # 其他
     # ------------------------------------------------------------------ #
     def _on_browse_output(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "选择输出目录", self._output_edit.text())
+        path = QFileDialog.getExistingDirectory(self, tr("选择输出目录"), self._output_edit.text())
         if path:
             self._output_edit.setText(path)
 
@@ -1031,3 +1029,45 @@ class IdePage(QWidget):
         color = _LOG_COLORS.get(level, "#8b949e")
         safe = message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         self._log_view.appendHtml(f'<span style="color:{color};">[{level.upper()}] {safe}</span>')
+
+    # ------------------------------------------------------------------ #
+    # 键盘快捷键（设置 → 快捷键 → IDE 可自定义；固定使用 ide 键位）
+    # ------------------------------------------------------------------ #
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        from ui import shortcuts as sc
+
+        if sc.match(event, sc.get("preview_play", "ide")):
+            self._on_toggle_play()
+            event.accept()
+            return
+        if sc.match(event, sc.get("preview_fit", "ide")):
+            self._preview.reset_zoom()
+            event.accept()
+            return
+        if sc.match(event, sc.get("timeline_insert", "ide")):
+            self._on_insert_frame()
+            event.accept()
+            return
+        if sc.match(event, sc.get("timeline_duplicate", "ide")):
+            self._on_duplicate_frame()
+            event.accept()
+            return
+        if sc.match(event, sc.get("timeline_delete", "ide")):
+            self._on_delete_frame()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    # ------------------------------------------------------------------ #
+    # 语言切换：刷新常驻下拉框项（动作预设分组 + 倍速等文本）
+    # ------------------------------------------------------------------ #
+    def retranslate_ui(self) -> None:
+        populate_action_combo(self._action_combo)
+        current = self._preview_speed_combo.currentData()
+        self._preview_speed_combo.blockSignals(True)
+        self._preview_speed_combo.clear()
+        for label, value in [("0.5x", 0.5), ("1x（原速）", 1.0), ("1.5x", 1.5), ("2x", 2.0), ("3x", 3.0)]:
+            self._preview_speed_combo.addItem(tr(label), userData=value)
+        idx = self._preview_speed_combo.findData(current)
+        self._preview_speed_combo.setCurrentIndex(idx if idx >= 0 else 1)
+        self._preview_speed_combo.blockSignals(False)

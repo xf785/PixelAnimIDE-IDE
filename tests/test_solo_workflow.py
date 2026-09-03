@@ -36,6 +36,62 @@ def make_workflow(params, **kwargs):
     )
 
 
+def test_animation_prompt_background_rule_matches_fill():
+    """动画提示词的背景稳定规则必须与首帧实际背景色一致（黑底/白底）。"""
+    wf = make_workflow(build_params(Path("x")))
+
+    # 黑底（浅色主体归一化结果）-> 黑底规则
+    dark = wf._animation_prompt("motion", bg_fill=(0, 0, 0))
+    assert "PURE BLACK (#000000)" in dark and "PURE WHITE" not in dark
+    # 白底 / 未归一化 -> 白底规则
+    white = wf._animation_prompt("motion", bg_fill=(255, 255, 255))
+    assert "PURE WHITE (#FFFFFF)" in white
+    none_fill = wf._animation_prompt("motion", bg_fill=None)
+    assert "PURE WHITE (#FFFFFF)" in none_fill
+    # 关闭强制纯色时只保留主体完整性约束
+    wf.params.force_pure_bg = False
+    plain = wf._animation_prompt("motion", bg_fill=(0, 0, 0))
+    assert "PURE BLACK" not in plain and "PURE WHITE" not in plain
+
+
+def test_preset_library_categories_and_durations():
+    """动作预设库：新结构（分类 + 建议时长）加载、名称/分类/时长 API 一致。"""
+    from core.processing.prompt_utils import (
+        get_preset,
+        preset_categories,
+        preset_duration,
+        preset_names,
+        recommended_frames,
+    )
+
+    cats = preset_categories()
+    names = preset_names()
+    # 分类数量与顺序
+    assert [c for c, _n in cats] == ["待机", "移动", "战斗", "魔法", "表情", "互动"]
+    # 旧 8 动作全部保留；总动作数大幅扩充
+    for old in ("步行", "奔跑", "跳跃", "突进", "爬行", "攻击", "格挡", "昏迷"):
+        assert old in names
+    assert len(names) >= 40
+    # 摊平顺序 = 分类内顺序
+    cat0_names = cats[0][1]
+    assert names[: len(cat0_names)] == cat0_names
+    # 每个动作都有提示词与建议时长（时长与帧数推导一致）
+    for cat, items in cats:
+        for name in items:
+            assert get_preset(name)
+            secs = preset_duration(name)
+            assert secs and 0 < secs <= 6
+    # 建议帧数：步行 2.0s @8fps = 16
+    assert preset_duration("步行") == 2.0
+    assert recommended_frames("步行", 8) == 16
+    # 未知动作无预设/无建议
+    assert get_preset("不存在的动作") is None
+    assert preset_duration("不存在的动作") is None
+    assert recommended_frames("不存在的动作", 8) is None
+    # 旧动作的提示词仍是循环动画描述（不含帧数字样，面向图转视频）
+    assert "smooth looping" in get_preset("步行")
+
+
 def test_full_pipeline_produces_gif_and_png(tmp_out):
     params = build_params(tmp_out)
     result = make_workflow(params).run()

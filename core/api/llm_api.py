@@ -1,4 +1,4 @@
-﻿"""通用文本 API：兼容 OpenAI /chat/completions 的服务商。"""
+"""通用文本 API：兼容 OpenAI /chat/completions 的服务商。"""
 from __future__ import annotations
 
 import logging
@@ -34,6 +34,7 @@ class LLMAPI(BaseAPI):
         if error:
             return APIResult(ok=False, error=error)
 
+        custom = self.custom_enabled()
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -47,16 +48,61 @@ class LLMAPI(BaseAPI):
         if top_p is not None or "top_p" in self.params:
             payload["top_p"] = float(top_p if top_p is not None else self.params.get("top_p", 1.0))
 
+        url = self._chat_url()
+        method = "POST"
+        if custom:
+            template = str(self.params.get("payload_template") or "")
+            if template.strip():
+                rendered = self.render_template_payload(
+                    template,
+                    {
+                        "model": self.model,
+                        "prompt": prompt,
+                        "system": system or "",
+                        "max_tokens": str(int(max_tokens if max_tokens is not None else self.params.get("max_tokens", 800))),
+                        "temperature": str(float(temperature if temperature is not None else self.params.get("temperature", 0.7))),
+                    },
+                )
+                if rendered is None:
+                    return APIResult(ok=False, error="请求体模板不是合法 JSON，请检查「请求体模板(JSON)」")
+                payload = rendered
+            method = self.custom_method()
+
         try:
-            data = self._post_json(self._chat_url(), payload)
+            data = self._post_json(url, payload) if method == "POST" else self._get_json(url)
         except Exception as exc:  # noqa: BLE001
             logger.exception("LLM 调用失败")
             return APIResult(ok=False, error=self._friendly_error(exc))
 
-        text = self._extract_text(data)
+        text = self._extract_text_custom(data) if custom else self._extract_text(data)
         if text is None:
             return APIResult(ok=False, error=f"无法从响应中解析文本: {str(data)[:300]}", raw=data)
         return APIResult(ok=True, data=text, raw=data)
+
+    def _extract_text_custom(self, data: dict) -> Optional[str]:
+        """完全自定义模式的文本解析：优先按 text_path 取，取不到回退兼容解析。"""
+        path = self.params.get("text_path")
+        if path:
+            val = self._dig(data, path)
+            if isinstance(val, str) and val.strip():
+                return val
+            if isinstance(val, list):
+                # 数组里拼 content/文本段（部分服务返回分段数组）
+                parts = []
+                for seg in val:
+                    if isinstance(seg, str):
+                        parts.append(seg)
+                    elif isinstance(seg, dict):
+                        c = seg.get("content") or seg.get("text")
+                        if isinstance(c, str) and c.strip():
+                            parts.append(c)
+                if parts:
+                    return "\n".join(parts)
+            if val is not None:
+                s = str(val)
+                if s.strip():
+                    return s
+        return self._extract_text(data)
 
     @staticmethod
     def _extract_text(data: dict) -> Optional[str]:

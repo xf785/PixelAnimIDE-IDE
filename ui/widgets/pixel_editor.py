@@ -1,4 +1,4 @@
-﻿"""像素编辑画布控件：基于 PixelCanvas 数据模型的 QWidget 编辑器。
+"""像素编辑画布控件：基于 PixelCanvas 数据模型的 QWidget 编辑器。
 
 支持：铅笔 / 橡皮 / 取色 / 填充；整数倍缩放（NEAREST）+ 滚轮缩放；透明棋盘格背景；
 像素网格线；撤销 / 重做（Ctrl+Z / Ctrl+Shift+Z 或按钮）。
@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.editing import PixelCanvas
-from ui.i18n import tr
+from ui.i18n import T, tr
 from ui.layout import scaled
 
 logger = logging.getLogger("PixelAnimIDE.ui.pixel_editor")
@@ -97,37 +97,37 @@ def color_family_name(rgba: Tuple[int, int, int, int]) -> str:
     """按代表色生成中文色族名：白色族 / 红色族 / 淡红色族 / 深蓝色族 / 灰色族 …"""
     r, g, b, a = rgba
     if a < 16:
-        return "透明族"
+        return tr("透明族")
     h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
     if v < 0.16:
-        return "黑色族"
+        return tr("黑色族")
     if s < 0.12:
         if v > 0.88:
-            return "白色族"
+            return tr("白色族")
         if v > 0.55:
-            return "浅灰族"
-        return "灰色族"
+            return tr("浅灰族")
+        return tr("灰色族")
     hue = h * 360.0
     if hue >= 335 or hue < 20:
-        name = "红色族"
+        name = tr("红色族")
     elif hue < 45:
-        name = "橙色族"
+        name = tr("橙色族")
     elif hue < 70:
-        name = "黄色族"
+        name = tr("黄色族")
     elif hue < 160:
-        name = "绿色族"
+        name = tr("绿色族")
     elif hue < 200:
-        name = "青色族"
+        name = tr("青色族")
     elif hue < 250:
-        name = "蓝色族"
+        name = tr("蓝色族")
     elif hue < 290:
-        name = "紫色族"
+        name = tr("紫色族")
     else:
-        name = "品红色族"
+        name = tr("品红色族")
     if v > 0.85 and s < 0.55:
-        name = "淡" + name
+        name = tr("淡{0}").format(tr(name))
     elif v < 0.35:
-        name = "深" + name
+        name = tr("深{0}").format(tr(name))
     return name
 
 
@@ -157,10 +157,11 @@ def _swatch_style(rgba: Tuple[int, int, int, int]) -> str:
 
 def _family_tooltip(name: str, rep: Tuple[int, int, int, int], members: List[Tuple[int, int, int, int]]) -> str:
     if rep[3] == 0:
-        return f"{name} · {len(members)} 色（左键选色，右键替换色族）"
+        return tr("{0} · {1} 色（左键选色，右键替换色族）").format(tr(name), len(members))
     return (
-        f"{name} · {len(members)} 色 · 代表 #{rep[0]:02x}{rep[1]:02x}{rep[2]:02x}"
-        "（左键选色，右键替换色族）"
+        tr("{0} · {1} 色 · 代表 #{2}（左键选色，右键替换色族）").format(
+            tr(name), len(members), f"{rep[0]:02x}{rep[1]:02x}{rep[2]:02x}"
+        )
     )
 
 
@@ -272,13 +273,16 @@ class PixelEditorWidget(QWidget):
         self._apply_side_collapsed()  # 初始为收起态（三角图标 + 隐藏图标列）
 
     def _icon_btn(self, kind: str, tip: str, checkable: bool = False) -> QToolButton:
-        """右侧图标按钮：QPainter 自绘 16px 扁平线条图标（DSH 风格统一）。"""
+        """右侧图标按钮：QPainter 自绘 16px 扁平线条图标（DSH 风格统一）。
+
+        tip 为中文原文（i18n ID），经 T() 注册，语言切换时自动重译。
+        """
         from ui.icons import editor_icon
 
         btn = QToolButton()
         btn.setIcon(editor_icon(kind, "#9aa0a8", size=16))
         btn.setIconSize(QSize(scaled(16), scaled(16)))
-        btn.setToolTip(tip)
+        T(btn, tip, attr="tooltip")
         btn.setCheckable(checkable)
         btn.setFixedSize(scaled(34), scaled(34))
         return btn
@@ -303,7 +307,7 @@ class PixelEditorWidget(QWidget):
 
         self._color_swatch = QLabel()
         self._color_swatch.setFixedSize(scaled(30), scaled(30))
-        self._color_swatch.setToolTip("当前颜色")
+        T(self._color_swatch, "当前颜色", attr="tooltip")
         self._color_swatch.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._update_swatch()
         self._side_buttons.append(self._color_swatch)
@@ -405,14 +409,14 @@ class PixelEditorWidget(QWidget):
         self._palette_more_btn = QToolButton()
         self._palette_more_btn.setText("…")
         self._palette_more_btn.setFixedSize(scaled(22), scaled(22))
-        self._palette_more_btn.setToolTip("查看完整色族调色板")
+        T(self._palette_more_btn, "查看完整色族调色板", attr="tooltip")
         self._palette_more_btn.clicked.connect(self._on_palette_dialog)
         h.addWidget(self._palette_more_btn)
         h.addStretch(1)
         self._palette_bar_collapse_btn = QToolButton()
         self._palette_bar_collapse_btn.setText("▼")
         self._palette_bar_collapse_btn.setFixedSize(scaled(20), scaled(20))
-        self._palette_bar_collapse_btn.setToolTip("收起调色板")
+        T(self._palette_bar_collapse_btn, "收起调色板", attr="tooltip")
         self._palette_bar_collapse_btn.clicked.connect(self._on_collapse_palette)
         h.addWidget(self._palette_bar_collapse_btn)
         return bar
@@ -434,7 +438,7 @@ class PixelEditorWidget(QWidget):
         self._side_panel.setFixedWidth(scaled(SIDE_MIN) if self._side_collapsed else scaled(SIDE_W))
         kind = "chevron_left" if self._side_collapsed else "chevron_right"
         self._toggle_side_btn.setIcon(editor_icon(kind, "#9aa0a8", size=16))
-        self._toggle_side_btn.setToolTip("展开控制面板" if self._side_collapsed else "收起控制面板")
+        T(self._toggle_side_btn, "展开控制面板" if self._side_collapsed else "收起控制面板", attr="tooltip")
 
     def apply_ui_scale(self, scale: float) -> None:
         """按界面布局比例同步缩放编辑器全部固定尺寸（按钮/面板/调色板）。"""
@@ -466,7 +470,8 @@ class PixelEditorWidget(QWidget):
         idx = next((i for i, (k, _g, _n) in enumerate(BG_MODES) if k == self._bg_mode), 0)
         key, _glyph, label = BG_MODES[(idx + 1) % len(BG_MODES)]
         self._set_bg_mode(key)
-        self._bg_btn.setToolTip(f"背景：{label}（点击切换，右键选档）")
+        # 注册具体化 ID（如「背景：纯白（点击切换，右键选档）」），语言切换自动重译
+        T(self._bg_btn, "背景：{0}（点击切换，右键选档）".format(label), attr="tooltip")
 
     def _set_bg_mode(self, key: str) -> None:
         self._bg_mode = key if key in (k for k, _g, _n in BG_MODES) else "checker"
@@ -476,7 +481,7 @@ class PixelEditorWidget(QWidget):
         """右键背景按钮：直接选择背景档。"""
         menu = QMenu(self)
         for key, _glyph, label in BG_MODES:
-            act = menu.addAction(label)
+            act = menu.addAction(tr(label))
             act.setCheckable(True)
             act.setChecked(self._bg_mode == key)
             act.triggered.connect(lambda _=False, k=key: self._set_bg_mode(k))
@@ -799,7 +804,7 @@ class PixelEditorWidget(QWidget):
         )
 
     def _on_pick_custom(self) -> None:
-        c = QColorDialog.getColor(QColor(*self._color[:3]), self, "选择颜色")
+        c = QColorDialog.getColor(QColor(*self._color[:3]), self, tr("选择颜色"))
         if c.isValid():
             self.set_color((c.red(), c.green(), c.blue(), 255))
 
@@ -868,7 +873,7 @@ class PixelEditorWidget(QWidget):
             self._palette_swatches.append(sw)
             self._palette_row.insertWidget(1 + idx, sw)
         if not families:
-            hint = QLabel("（画布为空）")
+            hint = QLabel(tr("（画布为空）"))
             hint.setObjectName("HintLabel")
             self._palette_swatches.append(hint)
             self._palette_row.insertWidget(1, hint)
@@ -887,8 +892,8 @@ class PixelEditorWidget(QWidget):
     def _on_swatch_menu(self, family, pos: QPoint) -> None:
         rep, members = family
         menu = QMenu(self)
-        act_replace = menu.addAction(f"替换{color_family_name(rep)}…")
-        act_set = menu.addAction("设为当前颜色")
+        act_replace = menu.addAction(tr("替换{0}…").format(tr(color_family_name(rep))))
+        act_set = menu.addAction(tr("设为当前颜色"))
         chosen = menu.exec(self.sender().mapToGlobal(pos) if self.sender() else QPoint(0, 0))
         if chosen == act_replace:
             self._on_replace_family(family)
@@ -899,9 +904,9 @@ class PixelEditorWidget(QWidget):
         """右键整族替换：把该色族全部颜色整体换成新色，保留族内相对渐变。"""
         rep, members = family
         if rep[3] == 0:
-            QMessageBox.information(self, "提示", "透明色族不支持整体替换（可用橡皮擦除）")
+            QMessageBox.information(self, tr("提示"), tr("透明色族不支持整体替换（可用橡皮擦除）"))
             return
-        c = QColorDialog.getColor(QColor(*rep[:3]), self, f"替换{color_family_name(rep)}")
+        c = QColorDialog.getColor(QColor(*rep[:3]), self, tr("替换{0}").format(tr(color_family_name(rep))))
         if not c.isValid():
             return
         new_base = (c.red(), c.green(), c.blue(), 255)
@@ -914,7 +919,7 @@ class PixelEditorWidget(QWidget):
 
     def _log_replace(self, n: int, name: str, old_rep, new_base, n_colors: int) -> None:
         def _hex(rgba):
-            return "透明" if rgba[3] == 0 else f"#{rgba[0]:02x}{rgba[1]:02x}{rgba[2]:02x}"
+            return tr("透明") if rgba[3] == 0 else f"#{rgba[0]:02x}{rgba[1]:02x}{rgba[2]:02x}"
 
         try:
             from ui.pages.ide_page import IdePage
@@ -922,7 +927,7 @@ class PixelEditorWidget(QWidget):
             parent = self.window()
             if isinstance(parent, IdePage):
                 parent._log(
-                    f"已替换 {n} 像素：{name}（{n_colors} 色）{_hex(old_rep)} → {_hex(new_base)}",
+                    tr("已替换 {0} 像素：{1}（{2} 色）{3} → {4}").format(n, tr(name), n_colors, _hex(old_rep), _hex(new_base)),
                     "info",
                 )
         except Exception:  # noqa: BLE001
@@ -931,7 +936,7 @@ class PixelEditorWidget(QWidget):
     def _on_palette_dialog(self) -> None:
         families = self._families()
         if not families:
-            QMessageBox.information(self, "提示", "画布为空")
+            QMessageBox.information(self, tr("提示"), tr("画布为空"))
             return
         dialog = _PaletteDialog(families, self)
         dialog.color_selected.connect(self.set_color)
@@ -1172,37 +1177,63 @@ class PixelEditorWidget(QWidget):
         self._sel_border_segments = segs
 
     # ------------------------------------------------------------------ #
-    # 键盘快捷键
+    # 键盘快捷键（绑定可在 设置 → 快捷键 中自定义；像素编辑器固定使用 pixel 键位）
     # ------------------------------------------------------------------ #
     def keyPressEvent(self, event) -> None:  # noqa: N802
-        mods = event.modifiers()
-        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
-        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
-        key = event.key()
-        if ctrl and key == Qt.Key.Key_Z and shift:
-            self.redo()
-            event.accept()
-            return
-        if ctrl and key == Qt.Key.Key_Z:
+        from ui import shortcuts as sc
+
+        # 编辑类
+        if sc.match(event, sc.get("undo", "pixel")):
             self.undo()
             event.accept()
             return
-        if ctrl and key == Qt.Key.Key_C:
+        if sc.match(event, sc.get("redo", "pixel")):
+            self.redo()
+            event.accept()
+            return
+        if sc.match(event, sc.get("copy", "pixel")):
             self._copy_selection()
             event.accept()
             return
-        if ctrl and key == Qt.Key.Key_V:
+        if sc.match(event, sc.get("paste", "pixel")):
             self._paste_layer()
             event.accept()
             return
-        if ctrl and key == Qt.Key.Key_M:
+        if sc.match(event, sc.get("merge", "pixel")):
             self._merge_float_layer()
             event.accept()
             return
-        if key == Qt.Key.Key_Escape:
+        # 选择类
+        if sc.match(event, sc.get("select_all", "pixel")):
+            self._select_all()
+            event.accept()
+            return
+        if sc.match(event, sc.get("deselect", "pixel")):
             self._clear_selection()
             event.accept()
             return
+        # 视图类
+        if sc.match(event, sc.get("zoom_in", "pixel")):
+            self._set_zoom(self._zoom + 1)
+            event.accept()
+            return
+        if sc.match(event, sc.get("zoom_out", "pixel")):
+            self._set_zoom(self._zoom - 1)
+            event.accept()
+            return
+        # 工具类（仅当用户配置了快捷键时生效）
+        for aid, tool in (
+            ("tool_pencil", Tool.PENCIL),
+            ("tool_eraser", Tool.ERASER),
+            ("tool_eyedropper", Tool.EYEDROPPER),
+            ("tool_fill", Tool.FILL),
+            ("tool_select", Tool.SELECT),
+        ):
+            seq = sc.get(aid, "pixel")
+            if seq and sc.match(event, seq):
+                self.set_tool(tool)
+                event.accept()
+                return
         super().keyPressEvent(event)
 
     # ------------------------------------------------------------------ #
@@ -1242,12 +1273,12 @@ class _PaletteDialog(QDialog):
     def __init__(self, families, parent=None):
         """families: [(rep, total, members)] 色族列表。紧凑网格：只显示色块，族名悬停显示。"""
         super().__init__(parent)
-        self.setWindowTitle("色族调色板")
+        self.setWindowTitle(tr("色族调色板"))
         self.setMinimumSize(340, 220)
         layout = QVBoxLayout(self)
 
         header = QLabel(
-            f"共 {len(families)} 个色族 · 悬停看族名 · 左键选色 · 右键替换整个色族（保留族内渐变）"
+            tr("共 {0} 个色族 · 悬停看族名 · 左键选色 · 右键替换整个色族（保留族内渐变）").format(len(families))
         )
         header.setObjectName("HintLabel")
         layout.addWidget(header)
@@ -1260,7 +1291,7 @@ class _PaletteDialog(QDialog):
             name = color_family_name(rep)
             sw = QToolButton()
             sw.setFixedSize(24, 24)
-            sw.setToolTip(f"{name} · {len(members)} 色 · {total} 像素")
+            sw.setToolTip(tr("{0} · {1} 色 · {2} 像素").format(tr(name), len(members), total))
             sw.setStyleSheet(_swatch_style(rep))
             sw.clicked.connect(lambda _=False, c=rep: self._on_select(c))
             sw.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -1271,10 +1302,10 @@ class _PaletteDialog(QDialog):
         layout.addWidget(grid_host, 1)
 
         btn_row = QHBoxLayout()
-        custom = QPushButton("自定义颜色…")
+        custom = QPushButton(tr("自定义颜色…"))
         custom.clicked.connect(self._on_custom)
         btn_row.addWidget(custom)
-        close_btn = QPushButton("关闭")
+        close_btn = QPushButton(tr("关闭"))
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)
@@ -1285,12 +1316,12 @@ class _PaletteDialog(QDialog):
     def _on_context(self, family, pos: QPoint) -> None:
         rep, _members = family
         menu = QMenu(self)
-        act = menu.addAction(f"替换{color_family_name(rep)}…")
+        act = menu.addAction(tr("替换{0}…").format(tr(color_family_name(rep))))
         if menu.exec(self.sender().mapToGlobal(pos) if self.sender() else QPoint(0, 0)) == act:
             self.color_replaced.emit(family)
 
     def _on_custom(self) -> None:
-        c = QColorDialog.getColor(QColor(0, 0, 0), self, "选择颜色")
+        c = QColorDialog.getColor(QColor(0, 0, 0), self, tr("选择颜色"))
         if c.isValid():
             self.color_selected.emit((c.red(), c.green(), c.blue(), 255))
 

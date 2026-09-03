@@ -209,6 +209,105 @@ def test_sample_frames_preserve_ends_count_three():
     assert out[-1] is frames[-1]
 
 
+def test_sample_frames_preserve_ends_diverse_picks_distinct():
+    """内容感知抽帧：中间有静态重复帧时，跳过重复、选差异最大的姿态。"""
+    # 帧 0/11 为端点；帧 1..4 是 4 帧完全相同的静态姿势；帧 5..10 是 6 种不同姿势
+    poses = [Image.new("RGB", (16, 16), (c, c, c)) for c in (10, 30, 60, 90, 120, 150)]
+    frames = [Image.new("RGB", (16, 16), (200, 0, 0))] + [poses[0]] * 4 + poses[1:] + [
+        Image.new("RGB", (16, 16), (0, 200, 0))
+    ]
+
+    def uniq(seq):
+        return {tuple(f.resize((4, 4)).getdata()) for f in seq}
+
+    even = fu.sample_frames_preserve_ends(frames, 6, diverse=False)
+    diverse = fu.sample_frames_preserve_ends(frames, 6, diverse=True)
+    assert len(even) == 6 and len(diverse) == 6
+    # 均匀采样会重复选中静态姿势；内容感知采样挑出的不同帧更多
+    assert len(uniq(diverse)) > len(uniq(even))
+    # 首尾帧始终保留
+    assert diverse[0] is frames[0] and diverse[-1] is frames[-1]
+
+
+def test_dedupe_frames():
+    """去除完全相同的连续帧（保留每组第一帧）。"""
+    a = Image.new("RGB", (8, 8), (255, 0, 0))
+    b = Image.new("RGB", (8, 8), (0, 255, 0))
+    frames = [a, a, b, b, b, a]
+    assert fu.dedupe_frames(frames, threshold=0.01) == [a, b, a]
+    assert fu.dedupe_frames([a, a], threshold=0.01) == [a]
+    assert fu.dedupe_frames([a], threshold=0.01) == [a]
+    # 默认阈值保守：几乎相同但确有差异的帧保留，完全相同的帧去重
+    a2 = Image.new("RGB", (8, 8), (0, 255, 0))
+    near = Image.new("RGB", (8, 8), (0, 254, 0))  # 绿通道差 1（灰度可分辨）
+    assert fu.dedupe_frames([a2, near]) == [a2, near]
+    assert fu.dedupe_frames([a2, a2]) == [a2]
+    # threshold=0 时只有完全相同的帧被去重
+    assert fu.dedupe_frames([a2, near], threshold=0.0) == [a2, near]
+    assert fu.dedupe_frames([a2, near], threshold=0.01) == [a2]
+
+
+def test_crop_sprite_sheet_inset():
+    """裁切内缩：去掉格子边缘黑框。"""
+    sheet = Image.new("RGB", (40, 40), (255, 0, 0))
+    frames = fu.crop_sprite_sheet(sheet, 2, 2, inset=2)
+    assert len(frames) == 4
+    assert frames[0].size == (16, 16)  # 20 - 2*2
+    # inset 过大时被钳制，不产生空帧
+    frames2 = fu.crop_sprite_sheet(sheet, 2, 2, inset=100)
+    assert frames2[0].size[0] >= 1
+    # inset=0 保持原行为
+    assert fu.crop_sprite_sheet(sheet, 2, 2, inset=0)[0].size == (20, 20)
+
+
+def test_compose_sprite_sheet_index():
+    """雪碧图合成 + FrameRonin 风格索引 JSON（坐标、尺寸、时间戳）。"""
+    frames = make_frames(5)
+    sheet, index = fu.compose_sprite_sheet(
+        frames, columns=2, spacing=2, timestamps=[0.0, 0.125, 0.25, 0.375, 0.5]
+    )
+    assert sheet.size == (16 * 2 + 2, 16 * 3 + 2 * 2)  # (34, 52)
+    assert index["version"] == "1.0"
+    assert index["frame_size"] == {"w": 16, "h": 16}
+    assert index["sheet_size"] == {"w": 34, "h": 52}
+    assert index["spacing"] == 2
+    assert len(index["frames"]) == 5
+    f0 = index["frames"][0]
+    assert (f0["x"], f0["y"], f0["w"], f0["h"]) == (0, 0, 16, 16)
+    assert f0["t"] == 0.0
+    assert (index["frames"][2]["x"], index["frames"][2]["y"]) == (0, 18)  # 第二行
+    # 单行默认布局
+    sheet1, index1 = fu.compose_sprite_sheet(frames)
+    assert sheet1.size == (16 * 5, 16)
+    assert index1["sheet_size"] == {"w": 80, "h": 16}
+    # 自动方形布局（列数 ≈ √N）
+    _, indexA = fu.compose_sprite_sheet(frames, auto_square=True)
+    assert indexA["sheet_size"]["w"] >= indexA["sheet_size"]["h"]
+    # 纵向排列（先填满列）
+    _, indexC = fu.compose_sprite_sheet(frames, columns=2, orientation="columns")
+    f2 = indexC["frames"][2]
+    assert (f2["x"], f2["y"]) == (16, 0)  # 第二列第一行
+
+
+def test_crop_to_content():
+    """内容包围盒裁剪：透明图按 Alpha、不透明图按颜色差异。"""
+    img = Image.new("RGBA", (20, 20), (0, 0, 0, 0))
+    for y in range(5, 10):
+        for x in range(3, 8):
+            img.putpixel((x, y), (255, 255, 255, 255))
+    assert fu.crop_to_content(img).size == (5, 5)
+    assert fu.crop_to_content(img, margin=2).size == (9, 9)
+    # 不透明图：按与四角颜色的差异
+    solid = Image.new("RGB", (10, 10), (255, 255, 255))
+    for y in range(2, 8):
+        for x in range(4, 6):
+            solid.putpixel((x, y), (0, 0, 0))
+    assert fu.crop_to_content(solid).size == (2, 6)
+    # 整图一色：无内容，原样返回
+    flat = Image.new("RGB", (8, 8), (7, 7, 7))
+    assert fu.crop_to_content(flat).size == (8, 8)
+
+
 def test_strip_audio_remux_silent(tmp_out):
     """strip_audio 用 ffmpeg 去除音轨（remux），返回可用视频路径。"""
     import numpy as np

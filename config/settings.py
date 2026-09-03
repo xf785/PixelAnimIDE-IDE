@@ -14,9 +14,16 @@ APP_DISPLAY_NAME = "PixelAnimIDE"
 # ---------------------------------------------------------------------------
 
 
+def bundle_root() -> Path:
+    """资源根目录：PyInstaller 冻结时为 _MEIPASS（内含 assets/、ui/ 等），否则为源码根。"""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    return Path(__file__).resolve().parent.parent
+
+
 def app_root() -> Path:
     """项目源码根目录（含 main.py、core/、ui/ 等）。"""
-    return Path(__file__).resolve().parent.parent
+    return bundle_root()
 
 
 def app_data_dir() -> Path:

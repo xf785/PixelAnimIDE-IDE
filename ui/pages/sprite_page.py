@@ -1,11 +1,16 @@
-﻿"""精灵图模式页：仅用文生图生成网格精灵图（不涉及视频抽帧）。
+"""精灵图模式页：仅用文生图生成网格精灵图（不涉及视频抽帧）。
 
 链路：文生对象底图 → 以底图为参考图生成 i×j 网格精灵图 → 算法裁切帧序列
-      → 一键抠除纯色背景 → 导出 GIF / PNG 序列 / 抠图后精灵图。
+      → 完美像素双分辨率 → 一键抠除纯色背景 → 导出 GIF / PNG 序列 / 拼接网格图。
+
+执行方式：
+- 自动：无干涉跑完全流程；
+- 手动：逐步执行，每步完成后可「重跑本步」或「继续下一步」。
 """
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -33,29 +38,58 @@ from PySide6.QtWidgets import (
 )
 
 from config.settings import DEFAULT_FPS, DEFAULT_MAX_COLORS, DEFAULT_OUTPUT_DIR, PIXEL_SIZES
-from core.processing.prompt_utils import preset_names
-from core.workflow import SpriteParams, SpriteResult
+from core.workflow import STEP_ORDER, SpriteParams, SpriteResult, SpriteWorkflow, WorkflowError
 from ui.app_context import AppContext
 from ui.i18n import T, tr
+from ui.widgets.action_combo import populate_action_combo
 from ui.widgets.image_viewer import ImageViewer
-from ui.workers import SpriteWorker
+from ui.workers import SPRITE_API_KINDS, IdeStepWorker, SpriteWorker, create_api_clients
 
 logger = logging.getLogger("PixelAnimIDE.ui.sprite_page")
 
 _LOG_COLORS = {"info": "#adb2b8", "warn": "#f59e0b", "error": "#f25a5a"}
 FORM_WIDTH = 380
 
+# 步骤名（zh 为 i18n ID）
+SPRITE_STEP_LABELS = {
+    "prompts": "生成提示词",
+    "base": "生成对象底图",
+    "sheet": "生成网格精灵图",
+    "crop": "裁切帧序列",
+    "pixelize": "完美像素化",
+    "key": "抠图",
+    "export": "导出",
+}
+
 
 class SpritePage(QWidget):
     sync_to_ide = Signal(object)  # 把精灵图结果同步到 IDE 模式编辑
+    base_ready = Signal(str)      # 对象底图路径（手动模式跨线程预览）
+    sheet_ready = Signal(str)     # 精灵图路径（手动模式跨线程预览）
+    manual_log = Signal(str, str)  # 手动模式工作线程日志（level, message）
+    running_changed = Signal(bool)  # 生成中状态变化（主窗口据此禁用/启用执行方式开关）
 
     def __init__(self, ctx: AppContext, parent=None):
         super().__init__(parent)
         self._ctx = ctx
         self._worker: SpriteWorker | None = None
         self._result: SpriteResult | None = None
+        self._manual_mode = False  # 由主窗口侧栏开关驱动：False=自动，True=手动
+        # 手动模式状态
+        self._manual_active = False
+        self._manual_step_idx = 0
+        self._manual_workflow: SpriteWorkflow | None = None
+        self._manual_session = None
+        self._manual_params: SpriteParams | None = None
+        self._manual_cancel = threading.Event()
+        self._manual_clients: list = []
+        self._step_worker: IdeStepWorker | None = None
+        self._last_param_error: str = ""
         self._build_ui()
         self._restore_settings()
+        self.base_ready.connect(self._on_base_ready)
+        self.sheet_ready.connect(self._on_sheet_ready)
+        self.manual_log.connect(self._on_log)
 
     # ------------------------------------------------------------------ #
     def _build_ui(self) -> None:
@@ -94,9 +128,7 @@ class SpritePage(QWidget):
         self._action_combo = QComboBox()
         self._action_combo.setEditable(True)
         self._action_combo.setPlaceholderText(T(None, "选择或输入动作（每帧的动作循环）…"))
-        self._action_combo.addItem("")
-        for name in preset_names():
-            self._action_combo.addItem(tr(name), userData=name)
+        populate_action_combo(self._action_combo)
         f.addRow(T(QLabel(), "动作(可选)"), self._action_combo)
 
         self._frames_spin = QSpinBox()
@@ -167,6 +199,7 @@ class SpritePage(QWidget):
         scroll.setWidget(host)
         lp.addWidget(scroll, 1)
 
+        # 执行方式由主窗口侧栏开关控制（向左=自动，向右=手动），此处不再放置按钮
         ctrl = QHBoxLayout()
         ctrl.setSpacing(8)
         self._btn_start = T(QPushButton(), "生成精灵图")
@@ -178,6 +211,14 @@ class SpritePage(QWidget):
         self._btn_cancel.setEnabled(False)
         self._btn_cancel.clicked.connect(self._on_cancel)
         ctrl.addWidget(self._btn_cancel)
+        self._btn_rerun = T(QPushButton(), "重跑本步")
+        self._btn_rerun.setVisible(False)
+        self._btn_rerun.clicked.connect(self._on_rerun)
+        ctrl.addWidget(self._btn_rerun)
+        self._btn_next = T(QPushButton(), "继续下一步")
+        self._btn_next.setVisible(False)
+        self._btn_next.clicked.connect(self._on_next)
+        ctrl.addWidget(self._btn_next)
         self._btn_sync = T(QPushButton(), "同步到 IDE")
         self._btn_sync.setEnabled(False)
         T(self._btn_sync, "把精灵图帧序列同步到 IDE 模式继续编辑", attr="tooltip")
@@ -224,7 +265,7 @@ class SpritePage(QWidget):
 
     # ------------------------------------------------------------------ #
     def _on_browse_output(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "选择输出目录", self._output_edit.text())
+        path = QFileDialog.getExistingDirectory(self, tr("选择输出目录"), self._output_edit.text())
         if path:
             self._output_edit.setText(path)
 
@@ -232,17 +273,27 @@ class SpritePage(QWidget):
         if self._result:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._result.output_dir)))
 
-    def _on_start(self) -> None:
+    def set_manual_mode(self, manual: bool) -> None:
+        """设置执行方式（由主窗口侧栏开关驱动）：False=自动，True=手动。"""
+        self._manual_mode = bool(manual)
+        self._log(
+            tr("精灵图执行方式：{0}").format(tr("手动（逐步执行）") if manual else tr("自动（无干涉跑完全流程）")),
+            "info",
+        )
+
+    def _collect_params(self) -> SpriteParams | None:
+        """从表单收集参数；校验失败返回 None（原因记录在 self._last_param_error）。"""
         desc = self._desc_edit.toPlainText().strip()
         if not desc:
-            QMessageBox.warning(self, "提示", "请先输入文本描述")
-            return
+            self._last_param_error = tr("请先输入文本描述")
+            return None
         rows, cols = self._rows_spin.value(), self._cols_spin.value()
         frames = self._frames_spin.value()
         if frames > rows * cols:
-            QMessageBox.warning(self, "提示", f"帧数（{frames}）不能大于网格总数（{rows}×{cols}={rows * cols}）")
-            return
-
+            self._last_param_error = tr("帧数（{0}）不能大于网格总数（{1}×{2}={3}）").format(
+                frames, rows, cols, rows * cols
+            )
+            return None
         params = SpriteParams(
             description=desc,
             action=self._action_combo.currentData() or self._action_combo.currentText().strip(),
@@ -256,29 +307,173 @@ class SpritePage(QWidget):
             loop_close=self._loop_chk.isChecked(),
             output_dir=self._run_dir(),
         )
+        return params
+
+    def _on_start(self) -> None:
+        params = self._collect_params()
+        if params is None:
+            QMessageBox.warning(self, tr("提示"), self._last_param_error)
+            return
         self._ctx.ui_settings.set("output_dir", self._output_edit.text().strip())
 
-        self._worker = SpriteWorker(self._ctx.api, params)
-        self._worker.log.connect(self._on_log)
-        self._worker.base_ready.connect(self._on_base_ready)
-        self._worker.sheet_ready.connect(self._on_sheet_ready)
-        self._worker.succeeded.connect(self._on_success)
-        self._worker.failed.connect(self._on_failed)
-
-        self._set_running(True)
-        self._progress.setValue(0)
         self._log_view.clear()
         self._base_viewer.clear()
         self._sheet_viewer.clear()
         self._frames_viewer.clear()
         self._result = None
         self._btn_sync.setEnabled(False)
-        self._log(f"开始生成精灵图：{rows}×{cols} 网格 / {frames} 帧")
+        self._progress.setValue(0)
+        self._log(
+            tr("开始生成精灵图：{0}×{1} 网格 / {2} 帧").format(
+                params.grid_rows, params.grid_cols, params.frame_count
+            )
+        )
+
+        if self._manual_mode:
+            self._manual_start(params)
+        else:
+            self._auto_start(params)
+
+    def _auto_start(self, params: SpriteParams) -> None:
+        """自动模式：无干涉跑完全流程。"""
+        self._worker = SpriteWorker(self._ctx.api, params)
+        self._worker.log.connect(self._on_log)
+        self._worker.base_ready.connect(self._on_base_ready)
+        self._worker.sheet_ready.connect(self._on_sheet_ready)
+        self._worker.succeeded.connect(self._on_success)
+        self._worker.failed.connect(self._on_failed)
+        self._set_running(True)
         self._worker.start()
 
+    # ------------------------------------------------------------------ #
+    # 手动模式：逐步执行
+    # ------------------------------------------------------------------ #
+    def _manual_start(self, params: SpriteParams) -> None:
+        """手动模式：创建会话与客户端，从第 1 步开始执行。"""
+        try:
+            clients, opened = create_api_clients(self._ctx.api, SPRITE_API_KINDS)
+        except WorkflowError as exc:
+            QMessageBox.warning(self, tr("提示"), str(exc))
+            return
+        self._manual_clients = opened
+        self._manual_cancel = threading.Event()
+        self._manual_workflow = SpriteWorkflow(
+            clients["llm"],
+            clients["image"],
+            log=self.manual_log.emit,  # 信号转发：工作线程不能直接操作 Qt 控件
+            cancel=self._manual_cancel,
+            on_base=lambda p: self.base_ready.emit(str(p)),
+            on_sheet=lambda p: self.sheet_ready.emit(str(p)),
+        )
+        self._manual_session = self._manual_workflow.new_session(params)
+        self._manual_step_idx = 0
+        self._manual_active = True
+        self._set_running(True)
+        self._run_manual_step()
+
+    def _run_manual_step(self) -> None:
+        """在线程中执行当前步骤；完成后由按钮决定重跑或继续。
+
+        参数在 GUI 线程收集后缓存（工作线程禁止访问 Qt 控件）。
+        """
+        params = self._collect_params()
+        if params is None:
+            QMessageBox.warning(self, tr("提示"), self._last_param_error)
+            self._btn_rerun.setEnabled(True)
+            return
+        self._manual_params = params
+        name = STEP_ORDER[self._manual_step_idx]
+        label = tr(SPRITE_STEP_LABELS[name])
+        self._step_label.setText(tr("步骤 {0}/{1}：{2}…").format(self._manual_step_idx + 1, len(STEP_ORDER), label))
+        self._btn_rerun.setEnabled(False)
+        self._btn_next.setEnabled(False)
+        self._btn_rerun.setVisible(True)
+        self._btn_next.setVisible(True)
+        worker = IdeStepWorker(lambda log_cb: self._run_manual_step_in_thread(name))
+        worker.log.connect(self._on_log)
+        worker.succeeded.connect(self._on_manual_step_done)
+        worker.failed.connect(self._on_manual_step_failed)
+        self._step_worker = worker
+        worker.start()
+
+    def _run_manual_step_in_thread(self, name: str) -> str:
+        """线程内执行单个步骤（使用 GUI 线程缓存的参数）。"""
+        params = self._manual_params
+        self._manual_session.params = params
+        self._manual_workflow.step(name, params, self._manual_session)
+        return name
+
+    def _on_manual_step_done(self, name: str) -> None:
+        self._step_worker = None
+        if name == "export":
+            # 最后一步完成：整个流程结束
+            self._manual_active = False
+            self._manual_finish()
+            self._on_success(self._manual_session.result)
+            return
+        self._manual_step_idx = STEP_ORDER.index(name)
+        self._progress.setValue(int((self._manual_step_idx + 1) / len(STEP_ORDER) * 100))
+        label = tr(SPRITE_STEP_LABELS[name])
+        self._step_label.setText(
+            tr("步骤 {0}/{1}：{2} 完成 — 可重跑本步或继续").format(
+                self._manual_step_idx + 1, len(STEP_ORDER), label
+            )
+        )
+        self._btn_rerun.setEnabled(True)
+        self._btn_next.setEnabled(True)
+        self._log(
+            tr("步骤 {0}/{1}：{2} 完成 — 可重跑本步或继续").format(
+                self._manual_step_idx + 1, len(STEP_ORDER), label
+            ),
+            "info",
+        )
+
+    def _on_manual_step_failed(self, message: str) -> None:
+        self._step_worker = None
+        if self._manual_cancel.is_set():
+            # 用户取消：终止手动流程
+            self._manual_active = False
+            self._manual_finish()
+            self._step_label.setText(tr("已取消"))
+            self._log(message, "warn")
+            self._set_running(False)
+            return
+        self._btn_rerun.setEnabled(True)
+        self._btn_next.setEnabled(False)
+        self._step_label.setText(tr("步骤失败"))
+        self._log(message, "error")
+
+    def _manual_finish(self) -> None:
+        """关闭手动模式占用的 API 客户端。"""
+        for c in self._manual_clients:
+            try:
+                c.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._manual_clients = []
+        self._manual_workflow = None
+
+    def _on_rerun(self) -> None:
+        if not self._manual_active:
+            return
+        self._run_manual_step()
+
+    def _on_next(self) -> None:
+        if not self._manual_active:
+            return
+        self._manual_step_idx += 1
+        if self._manual_step_idx >= len(STEP_ORDER):
+            return
+        self._run_manual_step()
+
     def _on_cancel(self) -> None:
+        if self._manual_active:
+            self._log(tr("正在取消…"))
+            self._manual_cancel.set()
+            self._step_label.setText(tr("正在取消…"))
+            return
         if self._worker:
-            self._log("正在取消…")
+            self._log(tr("正在取消…"))
             self._worker.cancel()
 
     def _on_log(self, level: str, message: str) -> None:
@@ -289,20 +484,20 @@ class SpritePage(QWidget):
     def _on_base_ready(self, path: str) -> None:
         self._base_viewer.show_path(path)
         self._tabs.setCurrentIndex(0)
-        self._log(f"对象底图已生成：{path}", "info")
+        self._log(tr("对象底图已生成：{0}").format(path), "info")
 
     def _on_sheet_ready(self, path: str) -> None:
         self._sheet_viewer.show_path(path)
         self._tabs.setCurrentIndex(1)
-        self._log(f"精灵图已生成：{path}", "info")
+        self._log(tr("精灵图已生成：{0}").format(path), "info")
 
     def _on_success(self, result: SpriteResult) -> None:
         self._result = result
         self._set_running(False)
         self._progress.setValue(100)
-        self._step_label.setText("完成")
+        self._step_label.setText(tr("完成"))
         self._log(
-            f"精灵图完成：{result.frame_count} 帧 @ {result.width}x{result.height}",
+            tr("精灵图完成：{0} 帧 @ {1}x{2}").format(result.frame_count, result.width, result.height),
             "info",
         )
         if result.gif_path:
@@ -311,7 +506,7 @@ class SpritePage(QWidget):
         self._btn_open_out.setEnabled(True)
         self._btn_sync.setEnabled(True)
         QMessageBox.information(
-            self, "完成", f"精灵图已生成！\n{result.frame_count} 帧\nGIF: {result.gif_path}\n抠图精灵图: {result.sheet_path}"
+            self, tr("完成"), tr("精灵图已生成！\n{0} 帧\nGIF: {1}\n抠图精灵图: {2}").format(result.frame_count, result.gif_path, result.sheet_path)
         )
 
     def _on_sync(self) -> None:
@@ -321,15 +516,19 @@ class SpritePage(QWidget):
 
     def _on_failed(self, message: str) -> None:
         self._set_running(False)
-        self._step_label.setText("失败")
+        self._step_label.setText(tr("失败"))
         self._log(message, "error")
-        QMessageBox.critical(self, "生成失败", message)
+        QMessageBox.critical(self, tr("生成失败"), message)
 
     # ------------------------------------------------------------------ #
     def _set_running(self, running: bool) -> None:
         self._btn_start.setEnabled(not running)
         self._btn_cancel.setEnabled(running)
         self._desc_edit.setEnabled(not running)
+        self.running_changed.emit(running)
+        if not running:
+            self._btn_rerun.setVisible(False)
+            self._btn_next.setVisible(False)
 
     def _run_dir(self) -> Path:
         base = Path(self._output_edit.text().strip() or str(DEFAULT_OUTPUT_DIR))
@@ -341,7 +540,23 @@ class SpritePage(QWidget):
         safe = message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         self._log_view.appendHtml(f'<span style="color:{color};">[{level.upper()}] {safe}</span>')
 
+    # ------------------------------------------------------------------ #
+    # 键盘快捷键（设置 → 快捷键 → 精灵图可自定义；固定使用 sprite 键位）
+    # ------------------------------------------------------------------ #
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        from ui import shortcuts as sc
+
+        if sc.match(event, sc.get("preview_play", "sprite")):
+            self._frames_viewer.toggle_play()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def apply_ui_scale(self, scale: float) -> None:
         """按界面比例调整左侧表单宽度。"""
         if hasattr(self, "_form_scroll"):
             self._form_scroll.setFixedWidth(max(240, int(FORM_WIDTH * scale)))
+
+    def retranslate_ui(self) -> None:
+        """语言切换：刷新动作预设分组下拉。"""
+        populate_action_combo(self._action_combo)

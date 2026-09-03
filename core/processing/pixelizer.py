@@ -1,4 +1,4 @@
-﻿"""严格像素化算法（确定性，不依赖 AI）。
+"""严格像素化算法（确定性，不依赖 AI）。
 
 阶段1 实现（对应文档 10.1 的简化版）：
 1. 像素网格对齐：居中裁剪到目标宽高比后，最近邻缩放到目标尺寸。
@@ -45,19 +45,32 @@ class PixelizeParams:
 # --------------------------------------------------------------------------- #
 # 像素网格对齐
 # --------------------------------------------------------------------------- #
+def center_crop_box(
+    width: int, height: int, target_w: int, target_h: int
+) -> Tuple[int, int, int, int]:
+    """返回将 (width,height) 图像居中裁剪到 target_w:target_h 比例的 (l, t, r, b)。
+
+    源图与目标比例一致（或差值 <1e-6）时返回整幅 (0, 0, width, height)。
+    center_crop_to_ratio 与像素化管线（含 alpha 通道）共用该函数，
+    保证 RGB 与 alpha 使用同一裁剪框、不错位。
+    """
+    target_ratio = target_w / max(1, target_h)
+    src_ratio = width / max(1, height)
+    if abs(src_ratio - target_ratio) < 1e-6:
+        return (0, 0, width, height)
+    if src_ratio > target_ratio:  # 太宽 -> 裁宽
+        new_w = int(height * target_ratio)
+        x0 = (width - new_w) // 2
+        return (x0, 0, x0 + new_w, height)
+    new_h = int(width / target_ratio)
+    y0 = (height - new_h) // 2
+    return (0, y0, width, y0 + new_h)
+
+
 def center_crop_to_ratio(img: Image.Image, ratio: Tuple[float, float]) -> Image.Image:
     """按目标宽高比居中裁剪，保证像素为正方形（不拉伸）。"""
-    target_ratio = ratio[0] / ratio[1]
-    src_ratio = img.width / max(1, img.height)
-    if abs(src_ratio - target_ratio) < 1e-6:
-        return img
-    if src_ratio > target_ratio:  # 太宽 -> 裁宽
-        new_w = int(img.height * target_ratio)
-        x0 = (img.width - new_w) // 2
-        return img.crop((x0, 0, x0 + new_w, img.height))
-    new_h = int(img.width / target_ratio)
-    y0 = (img.height - new_h) // 2
-    return img.crop((0, y0, img.width, y0 + new_h))
+    box = center_crop_box(img.width, img.height, ratio[0], ratio[1])
+    return img.crop(box)
 
 
 def resize_nearest(img: Image.Image, size: Tuple[int, int]) -> Image.Image:
@@ -147,11 +160,13 @@ def pixelize_image(img: Image.Image, params: PixelizeParams) -> Image.Image:
     if has_alpha:
         alpha = img.convert("RGBA").getchannel("A")
 
-    # 2) 像素网格对齐
+    # 2) 像素网格对齐：RGB 与 alpha 共用同一居中裁剪框（否则带透明区域的
+    #    源图在宽高比裁剪后，alpha 会与画面内容错位）
     size = params.resolve_target_size(rgb_src)
+    crop_box: Optional[Tuple[int, int, int, int]] = None
     if params.target_size or params.scale_factor:
-        ratio = (size[0] / max(1, size[1]), 1.0)
-        rgb_src = center_crop_to_ratio(rgb_src, (size[0], size[1]))
+        crop_box = center_crop_box(rgb_src.width, rgb_src.height, size[0], size[1])
+        rgb_src = rgb_src.crop(crop_box)
         rgb_src = resize_nearest(rgb_src, size)
 
     # 3) 色彩量化
@@ -166,6 +181,9 @@ def pixelize_image(img: Image.Image, params: PixelizeParams) -> Image.Image:
 
     result = quantized.convert("RGBA")
     if alpha is not None:
+        if crop_box is not None:
+            # 与 RGB 同一居中裁剪框，再缩放，保证 alpha 与画面逐像素对齐
+            alpha = alpha.crop(crop_box)
         # 用原点对齐的最近邻缩放 alpha，避免 PIL 中心采样丢失边缘像素
         result.putalpha(resize_nearest(alpha, result.size))
     return result

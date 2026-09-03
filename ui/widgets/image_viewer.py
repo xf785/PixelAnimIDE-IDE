@@ -165,6 +165,16 @@ class ImageViewer(QWidget):
         if self._movie is not None:
             self._movie.setSpeed(max(10, int(float(speed) * 100)))
 
+    def toggle_play(self) -> bool:
+        """播放/暂停 GIF（无动画时返回 False）。"""
+        if self._movie is None:
+            return False
+        if self._movie.state() == QMovie.MovieState.Running:
+            self._movie.setPaused(True)
+        else:
+            self._movie.setPaused(False)
+        return True
+
     def clear(self) -> None:
         self._clear_movie()
         self._source_pixmap = None

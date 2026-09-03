@@ -1,10 +1,9 @@
-﻿"""设置弹窗：点击按钮弹出；左侧分类导航（三类 API + 常规），右侧对应配置表单。"""
+"""设置弹窗：点击按钮弹出；左侧分类导航（三类 API + 常规），右侧对应配置表单。"""
 from __future__ import annotations
 
 import logging
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -26,11 +25,14 @@ from PySide6.QtWidgets import (
 )
 
 from config.settings import DATA_DIR, DEFAULT_OUTPUT_DIR, API_KIND_LABELS
+from ui import shortcuts as sc
 from ui.app_context import AppContext
 from ui.i18n import tr
 from ui.icons import category_icon, theme_fg
 from ui.styles import apply_theme
 from ui.widgets.api_config_widget import ApiConfigWidget
+from ui.widgets.shortcuts_panel import ShortcutSettingsPanel
+from ui.widgets.switch_button import SwitchButton
 
 logger = logging.getLogger("PixelAnimIDE.ui.settings_dialog")
 
@@ -39,7 +41,13 @@ _CATEGORIES = [
     ("image", "图片生成 API"),
     ("video", "图转视频 API"),
     ("general", "常规设置"),
+    ("shortcuts", "快捷键"),
 ]
+
+_CATEGORIES_INDEX = {key: i for i, (key, _label) in enumerate(_CATEGORIES)}
+
+# 模式 -> 名称（zh ID，已有词条）
+MODE_NAMES = {"solo": "Solo", "ide": "IDE", "sprite": "精灵图", "pixel": "像素"}
 
 
 class SettingsDialog(QDialog):
@@ -48,8 +56,10 @@ class SettingsDialog(QDialog):
     def __init__(self, ctx: AppContext, parent=None):
         super().__init__(parent)
         self._ctx = ctx
-        self.setWindowTitle("设置")
+        self.setWindowTitle(tr("设置"))
         self.setMinimumSize(920, 700)
+        # 载入已保存的快捷键配置（面板显示与运行期一致）
+        sc.set_shortcuts(ctx.ui_settings.get("shortcuts"))
         self._build_ui()
         self._on_cat_changed(0)
 
@@ -68,12 +78,27 @@ class SettingsDialog(QDialog):
         self._cat_list = QListWidget()
         self._cat_list.setObjectName("SettingsCatList")
         self._cat_list.setFixedWidth(200)
+        self._shortcut_mode_items: dict = {}
+        self._shortcuts_expanded = False  # 快捷键分类的二级子菜单展开状态
         for key, label in _CATEGORIES:
-            item = QListWidgetItem(category_icon(key, fg), tr(label))
+            text = tr(label) + (" ▸" if key == "shortcuts" else "")  # 快捷键分类收起态箭头
+            item = QListWidgetItem(category_icon(key, fg), text)
             item.setData(Qt.ItemDataRole.UserRole, key)
             item.setSizeHint(QSize(180, 38))
             self._cat_list.addItem(item)
+            if key == "shortcuts":
+                # 「快捷键」分类项正下方展开第二级子菜单：各模式键位范围（默认收起）
+                item.setToolTip(tr("点击进入；再次点击展开/收起模式子菜单"))
+                for mode in sc.MODES:
+                    mi = QListWidgetItem("    " + tr(MODE_NAMES[mode]))
+                    mi.setData(Qt.ItemDataRole.UserRole, ("shortcut-mode", mode))
+                    mi.setSizeHint(QSize(180, 30))
+                    row = self._cat_list.count()  # addItem 后的行号
+                    self._cat_list.addItem(mi)
+                    self._cat_list.setRowHidden(row, True)
+                    self._shortcut_mode_items[mode] = (row, mi)
         self._cat_list.currentRowChanged.connect(self._on_cat_changed)
+        self._cat_list.itemClicked.connect(self._on_cat_item_clicked)
         body.addWidget(self._cat_list)
 
         # ---------- 右：分类内容（滚动，防止字段过多溢出） ----------
@@ -89,6 +114,8 @@ class SettingsDialog(QDialog):
             self._stack.addWidget(scroll)
         self._general_panel = self._build_general_panel()
         self._stack.addWidget(self._general_panel)
+        self._shortcuts_panel = self._build_shortcuts_panel()
+        self._stack.addWidget(self._shortcuts_panel)
         body.addWidget(self._stack, 1)
 
         root.addLayout(body, 1)
@@ -121,13 +148,12 @@ class SettingsDialog(QDialog):
         ui_box = QGroupBox(tr("界面"))
         f = QFormLayout(ui_box)
         f.setContentsMargins(12, 18, 12, 12)
-        self._theme_combo = QComboBox()
-        self._theme_combo.addItem(tr("深色"), userData="dark")
-        self._theme_combo.addItem(tr("浅色"), userData="light")
+        # 深色模式（iOS 风格开关；暗色主题下开关自身用暗色变体）
         theme = self._ctx.ui_settings.get("theme", "dark")
-        idx = self._theme_combo.findData(theme)
-        self._theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
-        f.addRow(tr("主题"), self._theme_combo)
+        self._dark_switch = SwitchButton(dark=(theme == "dark"))
+        self._dark_switch.setChecked(theme == "dark", animate=False)
+        self._dark_switch.toggled.connect(self._on_dark_toggled)
+        f.addRow(tr("深色模式"), self._dark_switch)
         # 语言（中/英，切换后立即生效）
         from ui.i18n import available_languages
 
@@ -172,6 +198,72 @@ class SettingsDialog(QDialog):
         return panel
 
     # ------------------------------------------------------------------ #
+    # 快捷键分类：复用 ShortcutSettingsPanel（像素编辑器键位范围）
+    # ------------------------------------------------------------------ #
+    def _build_shortcuts_panel(self) -> QWidget:
+        panel = QWidget()
+        v = QVBoxLayout(panel)
+        v.setContentsMargins(8, 8, 8, 8)
+        v.setSpacing(0)
+        self._shortcuts_panel_widget = ShortcutSettingsPanel(mode="pixel")
+        self._shortcuts_panel_widget.status_changed.connect(
+            lambda msg: self._status.setText(msg)  # 延迟取 _status（构建时尚未创建）
+        )
+        v.addWidget(self._shortcuts_panel_widget)
+        return panel
+
+    # ------------------------------------------------------------------ #
+    # 分类导航：两级交互（「快捷键」分类：点击进入 / 再点展开模式子菜单）
+    # ------------------------------------------------------------------ #
+    def _on_cat_changed(self, row: int) -> None:
+        item = self._cat_list.item(row)
+        data = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        if isinstance(data, tuple) and data and data[0] == "shortcut-mode":
+            # 第二级子菜单项：只切换快捷键面板的模式，右侧不切分类
+            mode = data[1]
+            self._shortcuts_panel_widget.set_mode(mode)
+            self._highlight_shortcut_mode(mode)
+            self._status.setText(tr("当前键位范围：{0}").format(tr(MODE_NAMES[mode])))
+            return
+        if data == "shortcuts":
+            self._stack.setCurrentIndex(4)
+            self._highlight_shortcut_mode(self._shortcuts_panel_widget.mode())
+        elif data in ("llm", "image", "video", "general"):
+            self._stack.setCurrentIndex({"llm": 0, "image": 1, "video": 2, "general": 3}[data])
+        self._status.setText("")
+
+    def _on_cat_item_clicked(self, item) -> None:
+        """再次点击已选中的「快捷键」分类：展开/收起模式子菜单（右侧表单停留）。"""
+        data = item.data(Qt.ItemDataRole.UserRole)
+        if data != "shortcuts":
+            return
+        self._toggle_shortcuts_submenu()
+
+    def _toggle_shortcuts_submenu(self) -> None:
+        self._shortcuts_expanded = not self._shortcuts_expanded
+        for row, _mi in self._shortcut_mode_items.values():
+            self._cat_list.setRowHidden(row, not self._shortcuts_expanded)
+        # 展开指示箭头 ▸ / ▾
+        item = self._cat_list.item(_CATEGORIES_INDEX["shortcuts"])
+        item.setText(tr("快捷键") + (" ▾" if self._shortcuts_expanded else " ▸"))
+        if self._shortcuts_expanded:
+            self._highlight_shortcut_mode(self._shortcuts_panel_widget.mode())
+
+    def _highlight_shortcut_mode(self, mode: str) -> None:
+        """子菜单中当前编辑的模式高亮（选中态）。"""
+        if mode in self._shortcut_mode_items:
+            self._shortcut_mode_items[mode][1].setSelected(True)
+
+    # ------------------------------------------------------------------ #
+    def _on_dark_toggled(self, checked: bool) -> None:
+        """深色模式开关：立即预览主题（保存按钮落盘）。"""
+        theme = "dark" if checked else "light"
+        apply_theme(QApplication.instance(), theme)
+        self._dark_switch.setDark(checked)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_apply_theme"):
+            parent._apply_theme(theme)
+
     def _on_cat_changed(self, row: int) -> None:
         if 0 <= row < self._stack.count():
             self._stack.setCurrentIndex(row)
@@ -183,14 +275,14 @@ class SettingsDialog(QDialog):
             self._output_edit.setText(path)
 
     def _save_settings(self) -> None:
-        """保存常规设置：输出目录 / 界面比例 / 语言 / 主题（语言立即生效并同步主窗口）。"""
+        """保存常规设置：输出目录 / 界面比例 / 语言 / 主题 / 快捷键（语言立即生效并同步主窗口）。"""
         out = self._output_edit.text().strip()
         if out:
             self._ctx.ui_settings.set("output_dir", out)
         self._ctx.ui_settings.set("ui_scale", float(self._scale_combo.currentData() or 1.0))
         lang = str(self._lang_combo.currentData() or "zh")
         self._ctx.ui_settings.set("language", lang)
-        theme = self._theme_combo.currentData()
+        theme = "dark" if self._dark_switch.isChecked() else "light"
         current = self._ctx.ui_settings.get("theme", "dark")
         if theme != current:
             self._ctx.ui_settings.set("theme", theme)
@@ -198,6 +290,8 @@ class SettingsDialog(QDialog):
             parent = self.parent()
             if parent is not None and hasattr(parent, "_apply_theme"):
                 parent._apply_theme(theme)
+        # 快捷键持久化（模块缓存已即时生效，这里落盘）
+        self._ctx.ui_settings.set("shortcuts", sc.to_settings())
         # 语言与布局立即生效
         from ui.i18n import set_language
 

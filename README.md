@@ -96,21 +96,21 @@ A dedicated pixel canvas (reusing the full editor):
 |--------|-------------|
 | API config management | Multiple configs per API type: CRUD, default, connectivity test, JSON import/export |
 | Encrypted keys | `cryptography` Fernet, no plaintext on disk |
-| LLM / Image / Video APIs | OpenAI-compatible httpx wrapper, unified timeout/retry/error handling, configurable endpoints, video polling task model |
+| LLM / Image / Video APIs | OpenAI-compatible httpx wrapper, unified timeout/retry/error handling, configurable endpoints, video polling task model; **fully custom mode** (JSON request-body templates with `$prompt/$model/$image/$size/$frames`… placeholders, custom response field paths, request method, extra headers, multi-line editors) — connect any non-OpenAI-compatible service |
 | Solo workflow | Full auto pipeline + progress/log/cancel; local fallback prompts when the LLM fails |
 | Perfect pixelization | Frame-0 grid detection (FFT + purity/boundary candidate search), exact per-cell sampling on all frames, frequency-based palette; non-pixel art auto-skipped; graceful fallback |
 | Pixel-style image gen | Pixel keywords force a preset pixel resolution (long edge max(pixel_size, 256)) |
 | i2i reference image | Solo & IDE text-to-image support a reference card (Doubao/Jimeng style); `image_field` / `image_mode` (data URI vs multipart, gpt.ge auto); unsupported sizes auto-retry at 512/768/1024/1536 |
 | IDE reference / first frame | Import your own image and jump straight to Animation (as first frame) or Image (i2i) |
 | LLM auto-tuning | LLM suggests `frame_count`/`fps` from the action; applied only when the user hasn't customized |
-| Loop close | Extraction keeps first+last frames with even middle sampling; last frame forced = first; `last_frame` passes the first frame as the last to the API |
+| Loop close | Extraction keeps first+last frames with **content-aware middle sampling** (greedy farthest-point — skips static holds, keeps the most distinct poses); consecutive identical frames auto-deduped; last frame forced = first; `last_frame` passes the first frame as the last to the API |
 | Playback speed | 0.5x–3x, calibrated to actual video duration |
 | Silent video | Audio stripped with ffmpeg `-c copy` (no re-encode) |
 | Background stability | Animation prompts force a stable pure-white background; `last_frame` stabilizes the endpoints |
 | Subject integrity | Prompts force the subject fully visible, centered, with clear margins — never cropped or touching edges |
 | Forced solid background | Prompt + adaptive background normalization (pale subject → black, else white); precise mask keying |
-| Background removal | Color key + tolerance + shrink (removes white fringe) + feather; IDE **live keying preview** dialog (tolerance/shrink/feather) applied to all frames |
-| Export | GIF (transparent), **APNG**, PNG sequence, **sprite sheet**, JSON metadata, project files |
+| Background removal | Color key + tolerance + shrink (removes white fringe) + feather; **tiered tolerance modes** (inspired by FrameRonin): `contiguous` (only border-connected bg removed — protects interior white pixels), `hybrid` (big tolerance on connected bg, small tolerance inside the subject), `adaptive` (large disconnected regions get a tolerance bonus); IDE **live keying preview** dialog applied to all frames |
+| Export | GIF (transparent), **APNG**, PNG sequence, **sprite sheet + FrameRonin-style index JSON** (per-frame x/y/w/h + timestamps, spacing/orientation/auto-square layout), JSON metadata, project files |
 | Dual-resolution export | Pixel-art output exports both the native grid resolution and the user preset, sharing one palette (identical colors) |
 | IDE workspace | Step nav / center preview+edit+prompts / right step-aware params (collapsible) / bottom timeline + collapsible log |
 | Timeline | Frame thumbnails, click-select, drag-reorder, insert/duplicate/delete/append blank frame |
@@ -127,10 +127,12 @@ A dedicated pixel canvas (reusing the full editor):
 | Palette lock | Drawing/filling snaps to the nearest locked color; one-click extract palette from the current frame |
 | Project persistence | IDE workspace save/load (`frames/` + `ide_project.json`) |
 | UI scale | Settings → General → UI scale (0.8×/1.0×/1.25×/1.5×) — fonts **and** all fixed UI sizes scale together |
+| Custom shortcuts | Settings → **Shortcuts** with **two-level navigation in the left category list** (click to open the form, click the item again to expand the Solo/IDE/Sprites/Pixel submenu right below it, ▸/▾ arrow, current mode highlighted; click again to collapse while the form stays): two-level dropdown (category → action), press-to-record, conflict warning, reset per-action / all; each mode has its own key set (IDE: play/pause, fit, timeline insert/duplicate/delete; Solo/Sprites: play/pause, fit; Pixel editor: undo/redo/copy/paste/merge, selection, zoom, tools) — applies immediately |
+| Dark mode switch | Settings → General: **iOS-style toggle switch** (pill track + white knob, click to toggle, 150ms eased slide, #007AFF on / #D0D0D0 off, dark-theme variant) replaces the theme dropdown |
 | Solo → IDE sync | First frame + final frame sequence imported into the IDE workspace in one click |
-| Sprite generation | Text-only grid sheet: base image → one-call i×j sheet (strong built-in prompt: uniform cells, first/last pose identical, character never mutates) → crop (row-major, auto `cell_inset` removes AI black borders) → loop close → keying; frames always scaled to the exact cell size (NEAREST) |
+| Sprite generation | Text-only grid sheet with **Auto / Manual toggle in the left rail** (slide left = auto, right = manual; manual: 7 steps, each step can be rerun or continued): **high-res base image (1024×1024) used as-is for i2i** → one-call i×j sheet (strong built-in prompt: uniform cells, first/last pose identical, character never mutates) → crop (row-major, auto `cell_inset` removes AI black borders) → **Perfect-Pixel dual resolution** (native grid size + user size, NEAREST upscale, shared palette) → loop close → keying; exports **both** resolutions in three formats: PNG sequence / **algorithmically re-composited grid sheet** (+ index JSON) / GIF |
 | Sprite → IDE sync | Base image (as first frame) + cropped frames imported for pixel polish, then IDE export |
-| Standalone pixel board | 4th mode: resolution settings, IDE sync both ways, video-first-frame handoff, PNG export |
+| Standalone pixel board | 4th mode: resolution settings (**collapsible settings panel** for a bigger canvas, **draggable splitter** to resize the panel), IDE sync both ways, video-first-frame handoff, PNG export |
 | i18n | Chinese/English UI (Settings → General → Language); `ui/i18n.py` translation table |
 | Token savings | First-frame images ≤ `video_image_max_side` (512) before upload; LLM `max_tokens` 800; image size prefers the API default; minimal GET polling |
 

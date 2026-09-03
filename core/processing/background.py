@@ -1,4 +1,4 @@
-﻿"""背景去除：颜色键抠图（默认白色背景），输出带 Alpha 通道的图像。
+"""背景去除：颜色键抠图（默认白色背景），输出带 Alpha 通道的图像。
 
 步骤（对应文档 10.2）：
 1. 转 RGBA。
@@ -27,19 +27,56 @@ def remove_background(
     feather: int = 0,
     edge_clean: bool = True,
     erode: int = 0,
+    mode: str = "global",
+    non_contiguous_tolerance: Optional[int] = None,
+    large_region_threshold: int = 256,
+    large_region_bonus: int = 24,
 ) -> Image.Image:
     """把接近 key_color 的像素设为透明，返回 RGBA 图像。
 
     erode>0 时对前景掩膜做「内缩」（形态学腐蚀）N 像素，消掉对象边缘
     残留的白边/白晕（halo）。
+
+    mode 抠图策略（借鉴 FrameRonin 的色度键分级容差思路）：
+    - "global"：全局容差（默认，原行为）。主体内部接近背景色的像素也会被删。
+    - "contiguous"：只删除与图像边缘连通的背景区域（flood-fill），
+      主体内部被包围的同色像素（如白眼球、白色高光）不受影响。
+    - "hybrid"：连通背景用 tolerance，非连通区域用更小的
+      non_contiguous_tolerance（默认 tolerance//2，下限 4）——大块背景容差大、
+      主体内部同色像素容差小，兼顾干净去背与细节保护。
+    - "adaptive"：hybrid 基础上，非连通候选区域按连通域大小分级——
+      像素数 > large_region_threshold 的大区域（如背景里的色块/水印）额外获得
+      large_region_bonus 容差，小区域维持小容差。
     """
+    if mode not in ("global", "contiguous", "hybrid", "adaptive"):
+        raise ValueError(f"未知抠图模式: {mode!r}")
     rgba = img.convert("RGBA")
     arr = np.array(rgba).astype(np.int16)
     rgb = arr[..., :3]
     key = np.array(key_color, dtype=np.int16)
     dist = np.abs(rgb - key).sum(axis=-1)  # L1 颜色距离
 
+    tol_eff = np.full(dist.shape, tolerance, dtype=np.int16)
     mask = dist <= tolerance
+
+    if mode != "global":
+        tol2 = max(4, tolerance // 2) if non_contiguous_tolerance is None else int(non_contiguous_tolerance)
+        conn = _flood_from_border(mask)
+        if mode == "contiguous":
+            mask = conn
+        elif mode == "hybrid":
+            mask = conn | (dist <= tol2)
+            tol_eff = np.where(conn, tolerance, tol2)
+        else:  # adaptive
+            cand = (dist <= tolerance + large_region_bonus) & ~conn
+            labels, sizes = _label_region_sizes(cand)
+            eff = np.where(conn, tolerance, tol2).astype(np.int16)
+            for region_id, size in enumerate(sizes):
+                if size > large_region_threshold:
+                    eff[labels == region_id] = tolerance + large_region_bonus
+            tol_eff = eff
+            mask = conn | (dist <= eff)
+
     if edge_clean:
         mask_img = Image.fromarray((mask * 255).astype(np.uint8))
         # 开运算：腐蚀->膨胀，去掉背景掩膜中的孤立噪点
@@ -56,13 +93,50 @@ def remove_background(
     alpha[mask] = 0
 
     if feather > 0:
-        # 边界过渡带：距离在 (tolerance, tolerance+feather] 的像素做半透明
-        band = (dist > tolerance) & (dist <= tolerance + feather)
-        frac = 1.0 - (dist[band] - tolerance) / float(feather)
+        # 边界过渡带：距离在 (tol_eff, tol_eff+feather] 的像素做半透明；
+        # 非全局模式下只在被删除掩膜的邻域内羽化（不羽化主体内部同色像素）
+        band = (dist > tol_eff) & (dist <= tol_eff + feather)
+        if mode != "global":
+            band = band & _dilate_mask(mask)
+        frac = 1.0 - (dist[band] - tol_eff[band]) / float(feather)
         alpha[band] = (frac * 255).astype(np.uint8)
 
     out = np.dstack([rgb.astype(np.uint8), alpha])
     return Image.fromarray(out, "RGBA")
+
+
+def _label_region_sizes(cand: np.ndarray) -> Tuple[np.ndarray, List[int]]:
+    """4 邻域连通域标记候选掩膜，返回 (区域 id 图, 各区域像素数)。
+
+    区域 id 从 0 起；非候选像素为 -1。用于 adaptive 抠图的分级容差。
+    """
+    h, w = cand.shape
+    labels = np.full((h, w), -1, dtype=np.int32)
+    sizes: List[int] = []
+    lab = 0
+    ys, xs = np.nonzero(cand)
+    for y, x in zip(ys.tolist(), xs.tolist()):
+        if labels[y, x] != -1:
+            continue
+        stack = [(y, x)]
+        labels[y, x] = lab
+        cnt = 0
+        while stack:
+            cy, cx = stack.pop()
+            cnt += 1
+            for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
+                if 0 <= ny < h and 0 <= nx < w and cand[ny, nx] and labels[ny, nx] == -1:
+                    labels[ny, nx] = lab
+                    stack.append((ny, nx))
+        sizes.append(cnt)
+        lab += 1
+    return labels, sizes
+
+
+def _dilate_mask(mask: np.ndarray) -> np.ndarray:
+    """3x3 膨胀掩膜（用于羽毛边界限制在删除区域邻域）。"""
+    m = Image.fromarray((mask * 255).astype(np.uint8))
+    return np.array(m.filter(ImageFilter.MaxFilter(3))) > 127
 
 
 def _erode_fg(mask: np.ndarray, erode: int) -> np.ndarray:
@@ -170,20 +244,24 @@ def normalize_background(
 def apply_background_mask(img: Image.Image, mask: np.ndarray, feather: int = 8, erode: int = 0) -> Image.Image:
     """按背景掩膜设透明（比颜色键抠图更精确，不误伤同色主体/描边）。
 
-    feather>0 时对掩膜边缘做半透明过渡；erode>0 时前景内缩 N 像素去白边。
+    feather>0 时对掩膜边缘做「渐晕过渡」：前景 alpha 做半径为 feather/2 的
+    BoxBlur，得到约 feather 像素宽的平滑渐变带（feather 数值真正生效，
+    而非固定半透明值）；erode>0 时前景内缩 N 像素去白边。
     """
     rgba = img.convert("RGBA")
     arr = np.array(rgba)
     alpha = arr[..., 3].astype(np.int16)
     if erode > 0:
         mask = ~_erode_fg(mask, erode)
-    alpha[mask] = 0
+    # 前景保留原 alpha，背景置 0
+    fg = ~mask
+    base = np.where(fg, alpha, 0).astype(np.uint8)
     if feather > 0:
-        m = Image.fromarray((mask * 255).astype(np.uint8))
-        dilated = np.array(m.filter(ImageFilter.MaxFilter(3))) > 127
-        band = dilated & ~mask
-        alpha[band] = 140  # 边缘带半透明
-    arr[..., 3] = np.clip(alpha, 0, 255).astype(np.uint8)
+        r = max(1, int(round(feather / 2.0)))
+        # 限制半径：避免半径接近图像尺寸时整图被羽化掉
+        r = min(r, max(1, min(img.width, img.height) // 4))
+        base = np.array(Image.fromarray(base).filter(ImageFilter.BoxBlur(r))).astype(np.uint8)
+    arr[..., 3] = base
     return Image.fromarray(arr, "RGBA")
 
 
@@ -191,3 +269,84 @@ def whiten_background(img: Image.Image, **kwargs) -> Image.Image:
     """兼容入口：自适应背景归一化（主体浅色时自动黑底），返回图像。"""
     out, _, _ = normalize_background(img, **kwargs)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# 统一背景处理入口（solo / ide / sprite 共用）
+# --------------------------------------------------------------------------- #
+def border_key_color(img: Image.Image) -> Optional[RGB]:
+    """从图像四周边缘主色推断背景键色（中位数抗噪，忽略全透明边缘像素）。
+
+    用于背景归一化无法给出精确掩膜时的颜色键回退：对 AI 生成图常见的浅灰/
+    米白背景，键色贴合实际背景比固定纯白抠得更干净、白边残留更少。
+    图像过小或边缘全部透明时返回 None。
+    """
+    rgba = img.convert("RGBA")
+    arr = np.asarray(rgba)
+    h, w = arr.shape[:2]
+    if h < 2 or w < 2:
+        return None
+    rgb = arr[..., :3].astype(np.int16)
+    alpha = arr[..., 3]
+    if int(alpha.min()) < 255:
+        # 已含透明：只统计不透明边缘像素，避免透明区颜色干扰键色估计
+        parts = [
+            rgb[0, :][alpha[0, :] > 0],
+            rgb[-1, :][alpha[-1, :] > 0],
+            rgb[:, 0][alpha[:, 0] > 0],
+            rgb[:, -1][alpha[:, -1] > 0],
+        ]
+        border = np.concatenate(parts) if parts else np.empty((0, 3), dtype=np.int16)
+    else:
+        border = np.concatenate([rgb[0, :], rgb[-1, :], rgb[:, 0], rgb[:, -1]])
+    if border.shape[0] == 0:
+        return None
+    med = np.median(border, axis=0)
+    return int(med[0]), int(med[1]), int(med[2])
+
+
+def process_background(
+    img: Image.Image,
+    *,
+    force_pure_bg: bool = False,
+    remove_bg: bool = False,
+    key_color: Optional[RGB] = None,
+    tolerance: int = 30,
+    feather: int = 8,
+    erode: int = 0,
+) -> Tuple[Image.Image, bool]:
+    """统一背景处理入口（solo / ide / sprite 共用），逐帧调用。
+
+    - force_pure_bg：自适应背景归一化（主体浅色→黑底、否则白底），
+      成功时得到精确背景掩膜，返回 normalized=True；
+    - remove_bg：
+        * 有精确掩膜 -> apply_background_mask 抠图（feather/erode 生效，
+          不误伤主体内部同色像素）；
+        * 无掩膜（归一化失败或未开启）-> 颜色键抠图：键色取 key_color，
+          未指定时由 border_key_color 按图像边缘主色自动推断（贴合 AI 生成
+          的发灰/米白背景，白边残留更少），并统一 hybrid 模式——连通背景大
+          容差、主体内部同色像素小容差保护；feather/erode 同样生效。
+
+    返回 (处理后的图像, 是否完成了背景归一化)。
+    """
+    out = img
+    normalized = False
+    mask: Optional[np.ndarray] = None
+    if force_pure_bg:
+        out, _fill, mask = normalize_background(out)
+        normalized = mask is not None
+    if remove_bg:
+        if mask is not None:
+            out = apply_background_mask(out, mask, feather=feather, erode=erode)
+        else:
+            key = key_color if key_color is not None else (border_key_color(out) or (255, 255, 255))
+            out = remove_background(
+                out,
+                key_color=key,
+                tolerance=tolerance,
+                non_contiguous_tolerance=None,
+                feather=feather,
+                erode=erode,
+                mode="hybrid",
+            )
+    return out, normalized

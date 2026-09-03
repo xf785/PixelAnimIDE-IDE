@@ -185,3 +185,111 @@ def test_apply_background_mask_erode():
     # 前景边缘向内缩 2px：原本前景的最外 2 圈像素变为背景（透明）
     assert arr[7, 10, 3] == 0      # 内缩后边缘处透明
     assert arr[10, 10, 3] == 255   # 中心仍不透明
+
+
+def test_remove_background_contiguous_protects_interior():
+    """contiguous 模式只删与边缘连通的背景，主体内部同色像素保留。
+
+    场景：白底 + 黑色主体，主体内部有一个白色"眼睛"（被黑包围）。
+    全局模式会误删内部白色；contiguous 模式保留它。
+    """
+    img = Image.new("RGB", (12, 12), (255, 255, 255))
+    for y in range(3, 9):
+        for x in range(2, 10):
+            img.putpixel((x, y), (0, 0, 0))
+    for y in range(4, 8):
+        for x in range(3, 5):
+            img.putpixel((x, y), (255, 255, 255))  # 主体内部白色（不是背景）
+
+    out = bg.remove_background(
+        img, key_color=(255, 255, 255), tolerance=10, mode="contiguous", edge_clean=False
+    )
+    assert out.getpixel((0, 0))[3] == 0    # 角落背景透明
+    assert out.getpixel((3, 4))[3] == 255  # 内部白色保留
+
+    g = bg.remove_background(
+        img, key_color=(255, 255, 255), tolerance=10, mode="global", edge_clean=False
+    )
+    assert g.getpixel((3, 4))[3] == 0      # 对照组：全局模式误删内部白色
+
+
+def test_remove_background_hybrid_tolerance():
+    """hybrid 模式：连通背景大容差，主体内部同色像素小容差保护。"""
+    img = Image.new("RGB", (12, 12), (255, 255, 255))
+    for y in range(3, 9):
+        for x in range(2, 10):
+            img.putpixel((x, y), (0, 0, 0))
+    for y in range(4, 8):
+        for x in range(3, 5):
+            img.putpixel((x, y), (240, 240, 240))  # 与白色 L1 距离 45
+
+    out = bg.remove_background(
+        img, key_color=(255, 255, 255), tolerance=60, mode="hybrid", edge_clean=False
+    )
+    assert out.getpixel((3, 4))[3] == 255  # 非连通容差 30 < 45，保留
+
+    g = bg.remove_background(
+        img, key_color=(255, 255, 255), tolerance=60, mode="global", edge_clean=False
+    )
+    assert g.getpixel((3, 4))[3] == 0      # 对照组：全局容差 60 误删
+
+
+def test_remove_background_adaptive_region_bonus():
+    """adaptive 模式：大面积非连通背景区域获得容差加成，小区域保持小容差。"""
+    img = Image.new("RGB", (30, 30), (255, 255, 255))
+    for y in range(4, 26):
+        for x in range(4, 26):
+            img.putpixel((x, y), (0, 0, 0))
+    # 浅灰大岛：8x12 = 96 像素（> 阈值 16），与白色 L1 距离 60
+    for y in range(6, 18):
+        for x in range(6, 14):
+            img.putpixel((x, y), (235, 235, 235))
+    # 浅灰小岛：2x2 = 4 像素，同样距离 60
+    for y in (20, 21):
+        for x in (20, 21):
+            img.putpixel((x, y), (235, 235, 235))
+
+    out = bg.remove_background(
+        img, key_color=(255, 255, 255), tolerance=40, mode="adaptive",
+        large_region_threshold=16, large_region_bonus=25,
+    )
+    assert out.getpixel((8, 10))[3] == 0      # 大区域：40+25=65 ≥ 60 → 移除
+    assert out.getpixel((20, 20))[3] == 255   # 小区域：容差 20 < 60 → 保留
+
+
+def test_remove_background_unknown_mode_raises():
+    import pytest
+
+    img = Image.new("RGB", (4, 4), (255, 255, 255))
+    with pytest.raises(ValueError):
+        bg.remove_background(img, mode="magic")
+
+
+def test_apply_background_mask_feather_gradient():
+    """掩膜抠图 + 羽化：边界带是渐晕过渡（alpha 介于 0-255），羽化数值真正生效。
+
+    回归：旧实现把羽化带固定为 alpha=140 且只有 1px，UI 羽化值不产生差异。
+    """
+    img = Image.new("RGB", (48, 48), (255, 255, 255))
+    for y in range(12, 36):
+        for x in range(12, 36):
+            img.putpixel((x, y), (80, 80, 200))
+    mask = np.zeros((48, 48), dtype=bool)
+    mask[:] = True
+    mask[12:36, 12:36] = False  # 前景（非背景）
+
+    out = bg.apply_background_mask(img, mask, feather=8)
+    arr = np.array(out)
+    alphas = set(arr[..., 3].flatten().tolist())
+    # 渐晕：存在多种中间 alpha（而非固定单一半透明值）
+    mids = [a for a in alphas if 0 < a < 255]
+    assert len(mids) >= 3, mids
+    # 前景核心不透明、远处背景全透明
+    assert arr[24, 24, 3] == 255
+    assert arr[2, 2, 3] == 0
+    # 距前景边界 4px（掩膜边界 y=12 之外）处 alpha 介于 0-255（过渡带内）
+    assert 0 < arr[8, 24, 3] < 255
+    # 关闭羽化：边界一刀切（无中间 alpha）
+    out0 = bg.apply_background_mask(img, mask, feather=0)
+    arr0 = np.array(out0)
+    assert set(arr0[..., 3].flatten().tolist()) <= {0, 255}
