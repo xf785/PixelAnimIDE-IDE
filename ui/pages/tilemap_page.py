@@ -242,7 +242,9 @@ class TilemapPage(QWidget):
         self._edit_btn.setEnabled(False)
         self._map_btn = T(QPushButton(), "地图预览")
         self._map_btn.clicked.connect(self._on_map_preview)
-        self._map_btn.setEnabled(False)
+        # 预览无需先生成：直接进入后用「添加瓦片包」加载内容
+        self._map_btn.setEnabled(True)
+        self._map_btn.setToolTip(tr("无需先生成瓦片集：进入后可用「添加瓦片包」加载地块/建筑/素材包"))
         actions2.addWidget(self._edit_btn)
         actions2.addWidget(self._map_btn)
         self._pack_btn = T(QPushButton(), "保存瓦片包")
@@ -603,24 +605,33 @@ class TilemapPage(QWidget):
             return
         self._status.setText(tr("瓦片包已保存：{0}").format(saved))
 
+    def scratch_map_model(self) -> TileMapModel:
+        """未生成瓦片集时用的空白预览模型（尺寸/瓦片大小取当前参数）。"""
+        return TileMapModel(
+            int(self._map_w_spin.value()), int(self._map_h_spin.value()),
+            tile_size=int(self._tile_spin.value()),
+        )
+
     def _on_map_preview(self) -> None:
-        if self._session is None or self._session.map_model is None:
-            QMessageBox.information(self, tr("地图预览"), tr("请先生成瓦片集"))
-            return
+        """打开地图预览：**无需先生成**，可直接进入并用「添加瓦片包」加载素材/地形/建筑包。"""
         session = self._session
-        pieces = session.pieces["pieces"] if session.pieces else None
-        # 带上拼件注册表：建筑 overlay 按名称恢复（此前从 dict 重建会丢失全部拼件）
-        model = TileMapModel.from_dict(session.map_model.to_dict(), pieces=pieces)
-        if session.map_model.terrain_sets:
-            for tid, tset in session.terrain_sets.items():
-                model.set_terrain(tid, tset)
-            model.base_terrain = session.map_model.base_terrain
+        has_session = session is not None and session.map_model is not None
+        pieces = session.pieces["pieces"] if has_session and session.pieces else None
+        if has_session:
+            # 带上拼件注册表：建筑 overlay 按名称恢复（此前从 dict 重建会丢失全部拼件）
+            model = TileMapModel.from_dict(session.map_model.to_dict(), pieces=pieces)
+            if session.map_model.terrain_sets:
+                for tid, tset in session.terrain_sets.items():
+                    model.set_terrain(tid, tset)
+                model.base_terrain = session.map_model.base_terrain
+        else:
+            model = self.scratch_map_model()
         dialog = QDialog(self)
         dialog.setWindowTitle(tr("地图预览（左键铺设 / 右键擦除 / Ctrl+左键平移 / 滚轮缩放）"))
         dialog.resize(900, 680)
         layout = QVBoxLayout(dialog)
         center = None
-        if not model.terrain_sets and session.processed is not None:
+        if has_session and not model.terrain_sets and session.processed is not None:
             center = session.processed.center  # 仅经典单地形程序化渲染需要
         view = TilemapView(
             model,
@@ -628,7 +639,7 @@ class TilemapPage(QWidget):
             line_color=(0, 0, 0),
             line_width=1,
             atlas_mode="47",
-            terrain_labels=self._terrain_labels(),
+            terrain_labels=self._terrain_labels() if has_session else {},
             pieces=pieces,
         )
         layout.addWidget(view, 1)
@@ -733,12 +744,15 @@ class TilemapPage(QWidget):
         row.addWidget(save_btn)
         row.addWidget(big_btn)
         row.addStretch(1)
-        close_btn = T(QPushButton(), "应用到会话")
+        close_btn = T(QPushButton(), "应用到会话" if has_session else "关闭")
+        close_btn.setEnabled(has_session)
+        hint = T(QLabel(), tr("提示：点「添加瓦片包」加载地块/建筑/素材包后即可直接铺设"))
+        row.addWidget(hint)
         row.addWidget(close_btn)
         layout.addLayout(row)
         close_btn.clicked.connect(dialog.accept)
         code = dialog.exec()
-        if code == QDialog.DialogCode.Accepted:
+        if code == QDialog.DialogCode.Accepted and has_session:
             session.map_model = model
             try:
                 self._local_wf.step("export", session.params, session)

@@ -220,3 +220,38 @@ def test_view_accepts_pack_added_later_with_scale(qtbot, ctx, tmp_path):
     view._paint_cell(__import__("PySide6.QtCore", fromlist=["QPoint"]).QPoint(32, 0))
     item = next(iter(model.overlay.values()))
     assert item[3] == 2.0, item
+
+
+def test_map_preview_available_without_generating(qtbot, ctx, tmp_path):
+    """预览无需先生成：按钮一开始可用；空白模型可直接加载瓦片包并铺设。"""
+    import numpy as np
+    from PIL import Image
+
+    from core.tilemap import TileMapModel
+    from core.tilemap.pack import TilePack
+    from core.tilemap.tiles import EDGE_NAMES, BaseTileSet
+    from ui.pages.tilemap_page import TilemapPage
+    from ui.widgets.tilemap_view import TilemapView
+
+    page = TilemapPage(ctx)
+    qtbot.addWidget(page)
+    assert page._map_btn.isEnabled(), "未生成时也应能进入地图预览"
+    model = page.scratch_map_model()
+    assert model.width == page._map_w_spin.value() and model.height == page._map_h_spin.value()
+    assert not np.asarray(model.grid).any()
+
+    tex = Image.new("RGBA", (32, 32), (90, 140, 80, 255))
+    ground = Image.new("RGBA", (32, 32), (236, 240, 246, 255))
+    art = BaseTileSet(size=32, center=tex, edges={n: tex for n in EDGE_NAMES},
+                      corners={n: tex for n in ("tl", "tr", "bl", "br")},
+                      line_color=(0, 0, 0), line_width=1, band=8, radius=8, base_texture=ground)
+    pack = TilePack(name="草地包", category="ground", tile_size=32, terrains={1: art},
+                    terrain_names={1: "草地"}, base_terrain=1)
+    view = TilemapView(model)
+    qtbot.addWidget(view)
+    view.add_pack(pack)
+    # 空地图铺上该包的基础地形，画笔切到它，且可以直接画
+    assert np.asarray(model.grid).any(), "加载地块包后应自动铺满基础地形"
+    assert view._paint_terrain == 1
+    view._paint_cell(__import__("PySide6.QtCore", fromlist=["QPoint"]).QPoint(0, 0))
+    assert int(model.grid[0, 0]) == 1

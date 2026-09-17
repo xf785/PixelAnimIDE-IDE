@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, Tuple
 
+import numpy as np
 from PIL import Image
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
@@ -192,6 +193,11 @@ class TilemapView(QWidget):
             used.add(new_id)
         for name, piece in (pack.pieces or {}).items():
             self._pieces[f"{prefix}·{name}"] = piece
+        # 空地图 + 地块包：直接把整张图铺上该包的基础地形，并切到该地形画笔
+        if pack.terrains and not np.asarray(self._model.grid).any():
+            base_id = self._model.base_terrain or next(iter(sorted(pack.terrains)))
+            self._model.fill_rect(0, 0, self._model.width - 1, self._model.height - 1, int(base_id))
+            self._paint_terrain = int(base_id)
         self._refresh_toolbar()
         self._rebuild()
         self.changed.emit()
