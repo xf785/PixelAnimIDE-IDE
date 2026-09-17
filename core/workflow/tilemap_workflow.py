@@ -108,6 +108,7 @@ class TilemapParams:
     sea_level: float = 0.38          # 程序化地形：海平面（FrameRonin 原值 0.42，演示取更均衡的 0.38）
     mountain_threshold: float = 0.55  # 程序化地形：山地阈值（FrameRonin 原值 0.48，演示取 0.55）
     line_width: int = 1              # 边界线宽（像素）
+    edge_noise: float = 0.09         # 边缘噪声幅度（占瓦片尺寸比例，0=完全平直）
     detail_keep: float = 0.3         # AI 转角内部细节混合比例（0~1）
     map_width: int = 14              # 演示地图宽度（格）
     map_height: int = 10             # 演示地图高度（格）
@@ -523,6 +524,7 @@ class TilemapWorkflow:
                 arts[tid] = align_terrain_set(
                     tset, base_texture=base_tex, tile_size=params.tile_size,
                     ground_rgb=ground_rgb, plain=(tid == 1),
+                    edge_noise_frac=params.edge_noise,
                 )
             session.terrain_sets = arts
             meta = arts[1].art_meta
@@ -553,6 +555,7 @@ class TilemapWorkflow:
             session.processed = align_terrain_set(
                 session.base, base_texture=border_tex, tile_size=params.tile_size,
                 ground_rgb=np.array(border_rgb, dtype=np.float32),
+                edge_noise_frac=params.edge_noise,
             )
             meta = session.processed.art_meta
             self._log_msg(

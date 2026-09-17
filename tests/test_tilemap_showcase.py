@@ -111,3 +111,42 @@ def test_edge_noise_makes_boundary_organic_without_breaking_seams():
     left = np.asarray(compose_art_tile(noisy_art, sides & ~T & ~L))
     right = np.asarray(compose_art_tile(noisy_art, sides & ~T & ~R))
     assert (left[:, S - 1] == right[:, 0]).all(), "边缘噪声不得破坏共享边一致性"
+
+
+def test_edge_noise_coefficient_is_adjustable():
+    """界面可调：系数 0 = 完全平直，系数越大起伏越大（共享边一致性不受影响）。"""
+    from core.tilemap.seamless import align_terrain_set
+    from core.tilemap.tiles import crop_blocks, ecosystem_from_blocks
+
+    sides = T | B | L | R | TL | TR | BL | BR
+    top_exposed = sides & ~T
+
+    def wobble_amp(px: int) -> int:
+        art = _art()
+        art.art_meta["edge_noise_px"] = px
+        tile = np.asarray(compose_art_tile(art, top_exposed))
+        ground = np.asarray(art.base_texture)
+        depths = []
+        for x in range(S):
+            col, g = tile[:, x, :3], ground[:, x, :3]
+            hit = np.nonzero(~((col == g).all(axis=-1)))[0]
+            depths.append(int(hit[0]) if hit.size else -1)
+        return max(depths) - min(depths)
+
+    assert wobble_amp(0) == 0, "系数 0 时边界必须平直"
+    assert 0 < wobble_amp(2) <= wobble_amp(4), "系数越大起伏越大"
+
+    # 工作流参数贯通：edge_noise_frac 写进 art_meta.edge_noise_px
+    def built_px(frac: float) -> int:
+        from tests.test_tilemap_cleanup import _framed_sheet
+
+        blocks, _ = crop_blocks(_framed_sheet(frame=False))
+        eco = ecosystem_from_blocks(blocks, tile_size=S, feature_names=["f"])
+        raw_sets = eco.terrain_sets()
+        base_tex = raw_sets[1].center.resize((S, S), Image.Resampling.NEAREST)
+        art = align_terrain_set(raw_sets[2], base_texture=base_tex, tile_size=S,
+                                edge_noise_frac=frac)
+        return int(art.art_meta["edge_noise_px"])
+
+    assert built_px(0.0) == 0
+    assert built_px(0.20) > 0

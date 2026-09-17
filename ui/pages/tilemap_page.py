@@ -165,6 +165,18 @@ class TilemapPage(QWidget):
         self._line_spin.setValue(1)
         f.addRow(self._line_label, self._line_spin)
 
+        # 边缘噪声（手绘感）：占瓦片尺寸的百分比，0 = 边界完全平直
+        self._noise_label = T(QLabel(), "边缘噪声")
+        self._noise_spin = QSpinBox()
+        self._noise_spin.setRange(0, 25)
+        self._noise_spin.setSingleStep(1)
+        self._noise_spin.setValue(9)
+        self._noise_spin.setSuffix(" %")
+        self._noise_spin.setToolTip(
+            tr("非内部瓦片边缘的不规则起伏幅度（占瓦片尺寸百分比；0=平直，越大越像手绘）")
+        )
+        f.addRow(self._noise_label, self._noise_spin)
+
         self._mode_label = T(QLabel(), "瓦片集模式")
         self._mode_combo = QComboBox()
         self._mode_combo.addItem(T(None, "47-tile 瓦片集"), "47")
@@ -298,6 +310,7 @@ class TilemapPage(QWidget):
             atlas_mode=self._mode_combo.currentData(),
             map_source=self._map_src_combo.currentData() or "hand",
             line_width=self._line_spin.value(),
+            edge_noise=self._noise_spin.value() / 100.0,
             map_width=self._map_w_spin.value(),
             map_height=self._map_h_spin.value(),
             output_dir=Path(DEFAULT_OUTPUT_DIR) / "tilemap",

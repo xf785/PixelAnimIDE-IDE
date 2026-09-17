@@ -469,6 +469,7 @@ def align_terrain_set(
     ground_rgb: Optional[np.ndarray] = None,
     max_colors: int = 64,
     plain: bool = False,
+    edge_noise_frac: float = 0.09,
 ) -> BaseTileSet:
     """把 AI 九宫格艺术「对齐化」成一套可构造性无缝拼接的地形艺术。
 
@@ -524,8 +525,11 @@ def align_terrain_set(
         ]
     outline = outline[: max(1, band - 1)]
     bevel = list(profile["bevel"])
-    # 边缘噪声幅度：留出手绘般的起伏，同时保证描边/阴影不会顶到瓦片边缘
-    edge_noise = max(0, min(max(1, int(round(tile_size * 0.09))), band - len(outline) - 2, tile_size // 6))
+    # 边缘噪声幅度：留出手绘般的起伏，同时保证描边/阴影不会顶到瓦片边缘。
+    # `edge_noise_frac` 由界面给出（占瓦片尺寸的比例，0 = 完全平直）。
+    frac = max(0.0, min(0.30, float(edge_noise_frac)))
+    want = 0 if frac <= 0 else max(1, int(round(tile_size * frac)))
+    edge_noise = max(0, min(want, band - len(outline) - 2, tile_size // 4))
     return BaseTileSet(
         size=texture.size[0],
         center=texture,
