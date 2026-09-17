@@ -383,7 +383,7 @@ def test_compose_aligned_edges_and_corners():
     assert (inner[0, 0, :3] == ground[0, 0, :3]).all(), "内角角点应是另一方地形"
     assert tuple(inner[band, band, :3]) == tuple(center[band, band, :3]), "凹口外仍是特征"
     assert _lum(inner[band - 1, 0, :3]) < 130, "凹口边界是描边"
-    assert (inner[band + 1, 0, :3] == center[band + 1, 0, :3]).all(), "凹口沿边长度 = band（下一行回到特征）"
+    assert (inner[band + 3, 0, :3] == center[band + 3, 0, :3]).all(), "凹口沿边长度 = band（往外回到特征）"
 
 
 def test_measured_band_and_rim_from_ai_block():

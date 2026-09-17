@@ -524,6 +524,8 @@ def align_terrain_set(
         ]
     outline = outline[: max(1, band - 1)]
     bevel = list(profile["bevel"])
+    # 边缘噪声幅度：留出手绘般的起伏，同时保证描边/阴影不会顶到瓦片边缘
+    edge_noise = max(0, min(max(1, int(round(tile_size * 0.09))), band - len(outline) - 2, tile_size // 6))
     return BaseTileSet(
         size=texture.size[0],
         center=texture,
@@ -543,6 +545,7 @@ def align_terrain_set(
             bevel=[list(c) for c in bevel],
             outline_px=len(outline),
             bevel_px=len(bevel),
+            edge_noise_px=edge_noise,
         ),
     )
 

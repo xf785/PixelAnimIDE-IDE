@@ -83,3 +83,31 @@ def test_thin_strip_keeps_feature_core():
     core = tile[art.band if art.band < S // 2 else 4:S - 4, S // 2, :3]
     feat = np.asarray(art.center)[0, 0, :3]
     assert (core == feat).any(), "细条瓦片必须保留地形核心"
+
+
+def test_edge_noise_makes_boundary_organic_without_breaking_seams():
+    """边缘噪声：边界沿边起伏（不再笔直），但共享边仍逐像素相等。"""
+    sides = T | B | L | R | TL | TR | BL | BR
+    flat_art = _art()
+    noisy_art = _art()
+    noisy_art.art_meta["edge_noise_px"] = 3
+
+    def boundary_depth(tile, x):
+        """第一条不再是「纯地面纹理」的行 = 边界深度（随噪声起伏）。"""
+        g = np.asarray(noisy_art.base_texture)[:, x, :3]
+        col = tile[:, x, :3]
+        same = (col == g).all(axis=-1)
+        idx = np.nonzero(~same)[0]
+        return int(idx[0]) if idx.size else -1
+
+    top_exposed = sides & ~T
+    flat = np.asarray(compose_art_tile(flat_art, top_exposed))
+    noisy = np.asarray(compose_art_tile(noisy_art, top_exposed))
+    assert not (flat == noisy).all(), "开启边缘噪声后瓦片应有变化"
+    depths = [boundary_depth(noisy, x) for x in (0, 8, 16, 24, S - 1)]
+    assert len(set(depths)) > 1, f"边界应沿边起伏: {depths}"
+
+    # 相邻两块（掩码不同 -> 噪声相位不同）在共享边上必须完全一致
+    left = np.asarray(compose_art_tile(noisy_art, sides & ~T & ~L))
+    right = np.asarray(compose_art_tile(noisy_art, sides & ~T & ~R))
+    assert (left[:, S - 1] == right[:, 0]).all(), "边缘噪声不得破坏共享边一致性"

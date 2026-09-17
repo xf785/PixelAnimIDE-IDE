@@ -49,15 +49,25 @@ def strip_grid_frames(
     cell: Optional[int] = None,
     rows: int = 6,
     cols: int = 6,
-    max_width: int = 4,
-    darkness: float = 0.80,
+    max_width: int = 6,
+    darkness: float = 0.82,
+    tolerance: Optional[int] = None,
+    passes: int = 2,
 ) -> Tuple[Image.Image, Dict]:
     """抹除沿格线画的深色线框，返回 (清理后图像, 报告)。
 
     cell: 单格像素（None 时按 rows/cols 由短边推算，取偶，与裁切一致）。
-    判定：候选格线处「线带亮度中位数」显著低于紧邻两侧参考带（< darkness 倍）
-    才判为线框；逐条线独立判定，因此只影响真的画了线框的底图。
-    抹除：线带像素用它左右（上下）相邻像素的平均值填回，其余像素不动。
+
+    三轮判定，覆盖「线框不在预期格线上 / 有残留」的真实情况：
+    1. **预期格线 ± 容差窗口**：AI 的网格常与我们的裁切网格差 1~3px，因此不再只
+       测 `k*cell` 这一个位置，而是在 ±tolerance 内逐列（行）找**最暗且明显暗于
+       两侧**的那条窄带；
+    2. **残留长线扫描**：整图逐列（行）求亮度中位数，凡比其局部背景暗 `darkness`
+       倍、且超过一半长度都暗的窄带一律判为线框（捕捉与格线无关的框线/表格线）；
+    3. 整个流程重复 `passes` 遍（抹除会改变亮度剖面，第二遍能清掉上次漏掉的）。
+
+    判定都要求「比它所分隔的两侧都暗」，因此深色地形本身不会被误删；
+    抹除用带外最近两像素的下中位数填回（取真实像素、不平均，不留涂抹带）。
     """
     rgba = img.convert("RGBA")
     arr = np.asarray(rgba).astype(np.float32)
@@ -66,78 +76,128 @@ def strip_grid_frames(
         cell = max(4, int(min(w // max(1, cols), h // max(1, rows))) & ~1)
     if cell < 8:
         return rgba, {"vertical": [], "horizontal": [], "cell": cell}
-    lum = _luma(arr)
+    tol = max(1, int(tolerance)) if tolerance is not None else max(1, cell // 12)
     out = arr.copy()
-    report: Dict = {"cell": int(cell), "vertical": [], "horizontal": []}
+    report: Dict = {"cell": int(cell), "tolerance": int(tol), "vertical": [], "horizontal": []}
 
-    def process(axis: int, positions: Sequence[int]) -> List[Dict]:
-        found: List[Dict] = []
+    def _remove(axis: int, x0: int, x1: int) -> None:
         n = w if axis == 1 else h
-        for pos in positions:
-            window = range(max(0, pos - max_width - 2), min(n, pos + max_width + 3))
-            prof = np.median(lum[:, list(window)], axis=0) if axis == 1 else np.median(lum[list(window), :], axis=1)
-            lo = max(0, pos - max_width - 2)
-            center = pos - lo
-            left_idx = [i for i in range(len(prof)) if (i + lo) <= pos - max_width - 1]
-            right_idx = [i for i in range(len(prof)) if (i + lo) >= pos + max_width + 1]
-            if not left_idx and not right_idx:
-                continue
-            refs = [
-                float(np.median(prof[idx]))
-                for idx in (left_idx, right_idx) if idx
-            ]
-            # 参考亮度取两侧中较暗的一侧：线框必须比它所分隔的两侧都暗，
-            # 否则「深色地形贴着一个线的另一侧」会被误判成更宽的线（实测 bug）。
-            ref = min(refs)
+        if axis == 1:
+            if x0 <= 0:
+                out[:, 0:x1, :] = out[:, x1:x1 + 1, :]
+            elif x1 >= n:
+                out[:, x0:n, :] = out[:, x0 - 1:x0, :]
+            else:
+                s = np.stack([out[:, x0 - 1, :], out[:, max(0, x0 - 2), :],
+                              out[:, x1, :], out[:, min(n - 1, x1 + 1), :]], axis=0)
+                s.sort(axis=0)
+                out[:, x0:x1, :] = s[1][:, None, :]
+        else:
+            if x0 <= 0:
+                out[0:x1, :, :] = out[x1:x1 + 1, :, :]
+            elif x1 >= n:
+                out[x0:n, :, :] = out[x0 - 1:x0, :, :]
+            else:
+                s = np.stack([out[x0 - 1, :, :], out[max(0, x0 - 2), :, :],
+                              out[x1, :, :], out[min(n - 1, x1 + 1), :, :]], axis=0)
+                s.sort(axis=0)
+                out[x0:x1, :, :] = s[1][None, :, :]
+
+    def _try_line(axis: int, pos: int) -> Optional[Dict]:
+        """在 pos 附近找最暗的窄带；命中则抹除并返回记录。"""
+        n = w if axis == 1 else h
+        lo = max(0, pos - tol - max_width)
+        hi = min(n, pos + tol + max_width + 1)
+        if hi - lo < 3:
+            return None
+        idx = list(range(lo, hi))
+        lum_now = _luma(out)
+        prof = np.median(lum_now[:, idx], axis=0) if axis == 1 else np.median(lum_now[idx, :], axis=1)
+
+        def ref_at(center_i: int) -> float:
+            left = [i for i in range(len(idx)) if idx[i] <= idx[center_i] - 3]
+            right = [i for i in range(len(idx)) if idx[i] >= idx[center_i] + 3]
+            vals = [float(np.median(prof[a])) for a in (left, right) if a]
+            return min(vals) if vals else 0.0
+
+        best: Optional[Tuple[float, int, int]] = None
+        for i in range(len(idx)):
+            ref = ref_at(i)
             if ref <= 1.0:
                 continue
-            thresh = ref * darkness
-            run_lo, run_hi = _line_run_at(prof, center, thresh, max_width)
+            run_lo, run_hi = _line_run_at(prof, i, ref * darkness, max_width)
             if run_lo < 0:
                 continue
-            x0 = run_lo + lo
-            x1 = run_hi + 1 + lo
-            if x1 - x0 < 1 or x1 > n:
+            a = idx[run_lo]
+            b = idx[run_hi] + 1
+            if b - a < 1 or b > n or a >= n:
                 continue
-            line_vals = prof[run_lo:run_hi + 1]
-            if float(np.median(line_vals)) >= thresh:
+            line_lum = float(np.median(prof[run_lo:run_hi + 1]))
+            if line_lum >= ref * darkness:
                 continue
-            # 抹除：用带外最近两像素（共 4 个样本）的**下中位数**填回——取真实像素
-            # 而不做平均，避免在「地形色边界正好落在格线上」时留下一条中间色涂抹带；
-            # 图像外缘线只有一侧参考，直接复制该侧。
-            if axis == 1:
-                if x0 == 0:
-                    out[:, 0:x1, :] = out[:, x1:x1 + 1, :]
-                elif x1 >= n:
-                    out[:, x0:n, :] = out[:, x0 - 1:x0, :]
-                else:
-                    samples = np.stack([out[:, x0 - 1, :], out[:, max(0, x0 - 2), :],
-                                        out[:, x1, :], out[:, min(n - 1, x1 + 1), :]], axis=0)
-                    samples.sort(axis=0)
-                    out[:, x0:x1, :] = samples[1][:, None, :]
-            else:
-                if x0 == 0:
-                    out[0:x1, :, :] = out[x1:x1 + 1, :, :]
-                elif x1 >= n:
-                    out[x0:n, :, :] = out[x0 - 1:x0, :, :]
-                else:
-                    samples = np.stack([out[x0 - 1, :, :], out[max(0, x0 - 2), :, :],
-                                        out[x1, :, :], out[min(n - 1, x1 + 1), :, :]], axis=0)
-                    samples.sort(axis=0)
-                    out[x0:x1, :, :] = samples[1][None, :, :]
-            found.append({
-                "pos": int(pos), "x0": int(x0), "width": int(x1 - x0),
-                "contrast": round(1.0 - float(np.median(line_vals)) / ref, 3),
-            })
-        return found
+            if best is None or line_lum < best[0]:
+                best = (line_lum, a, b)
+        if best is None:
+            return None
+        _lum_val, x0, x1 = best
+        _remove(axis, x0, x1)
+        return {"pos": int(pos), "x0": int(x0), "width": int(x1 - x0)}
 
-    # 图像外缘（0 与末位）也可能是线框，一并检测：AI 画「表格」时四边都会加框
-    vert_positions = [0] + [k * cell for k in range(1, max(1, w // cell))] + [w - 1]
-    horz_positions = [0] + [k * cell for k in range(1, max(1, h // cell))] + [h - 1]
-    report["vertical"] = process(1, vert_positions)
-    # 抹除竖直线的结果会影响水平线的参考带，故重新取亮度
-    lum = _luma(out)
-    report["horizontal"] = process(0, horz_positions)
+    def _residual_lines(axis: int) -> List[Dict]:
+        """整图扫描：整条长度上偏暗、且**两侧都被更亮像素夹住**的窄带（残留框线）。
+
+        必须「夹在亮侧之间」——否则深色地形区块（整片暗）会被当成巨宽的线删掉。
+        """
+        lum_now = _luma(out)
+        prof = np.median(lum_now, axis=0) if axis == 1 else np.median(lum_now, axis=1)
+        n = prof.shape[0]
+        hits: List[Dict] = []
+        i = 1
+        while i < n - 1:
+            j = i
+            while j + 1 < n and (j + 1 - i) < max_width:
+                j += 1
+            left = prof[max(0, i - 3):i]
+            right = prof[j + 1:min(n, j + 4)]
+            if left.size and right.size:
+                l_ref = float(np.median(left))
+                r_ref = float(np.median(right))
+                ref = min(l_ref, r_ref)
+                band_lum = float(np.median(prof[i:j + 1]))
+                if ref > 1.0 and band_lum < ref * darkness:
+                    band = lum_now[:, i:j + 1] if axis == 1 else lum_now[i:j + 1, :]
+                    if float((band < ref * darkness).mean()) >= 0.5:
+                        _remove(axis, i, j + 1)
+                        hits.append({"pos": int(i), "x0": int(i), "width": int(j - i + 1)})
+                        i = j + 1
+                        continue
+            i += 1
+        return hits
+
+    for _ in range(max(1, int(passes))):
+        vert_positions = [0] + [k * cell for k in range(1, max(1, w // cell))] + [w - 1]
+        horz_positions = [0] + [k * cell for k in range(1, max(1, h // cell))] + [h - 1]
+        for pos in vert_positions:
+            got = _try_line(1, pos)
+            if got:
+                report["vertical"].append(got)
+        for pos in horz_positions:
+            got = _try_line(0, pos)
+            if got:
+                report["horizontal"].append(got)
+        for axis, key in ((1, "vertical"), (0, "horizontal")):
+            for got in _residual_lines(axis):
+                report[key].append(got)
+
+    # 去重计数（同一位置可能被多遍/两种策略命中）
+    def _dedup(items: List[Dict]) -> List[Dict]:
+        seen = {}
+        for d in items:
+            seen[(d["x0"], d["width"])] = d
+        return [seen[k] for k in sorted(seen)]
+
+    report["vertical"] = _dedup(report["vertical"])
+    report["horizontal"] = _dedup(report["horizontal"])
     report["count"] = len(report["vertical"]) + len(report["horizontal"])
     cleaned = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGBA")
     if report["count"]:

@@ -556,6 +556,32 @@ def _disc_dilate(mask: np.ndarray, radius: int) -> np.ndarray:
     return out
 
 
+def _wobble(n: int, seed: int, amp: int, taper: int, coarse: int = 4) -> np.ndarray:
+    """确定性一维起伏（0..amp，仅向内加深），两端渐变为 0。
+
+    手绘 47 图块的边界从来不是一条直线，而是带起伏/噪声的。这里给每条暴露边生成
+    一条平滑随机曲线：**只在中间起伏，靠近瓦片两端渐变为 0** —— 这样相邻瓦片在
+    共享边上的条带深度完全相同，逐像素相等的无缝不变量依旧成立，
+    而每条边/每个掩码的相位各不相同，地图上看起来就不再生硬。
+    """
+    if amp <= 0 or n <= 2:
+        return np.zeros(max(0, n), dtype=np.int32)
+    rng = np.random.default_rng(int(seed) & 0xFFFFFFFF)
+    knots = rng.random(n // max(1, coarse) + 3)
+    xs = np.arange(n, dtype=np.float64) / max(1, coarse)
+    i0 = np.floor(xs).astype(np.int64)
+    t = xs - i0
+    t = t * t * (3.0 - 2.0 * t)                       # smoothstep
+    vals = knots[i0] * (1.0 - t) + knots[i0 + 1] * t
+    edge = np.minimum(np.arange(n), n - 1 - np.arange(n)).astype(np.float64)
+    win = np.clip(edge / max(1.0, float(taper)), 0.0, 1.0)
+    return np.rint(vals * win * float(amp)).astype(np.int32)
+
+
+def _side_seed(mask: int, side: str, salt: int = 0) -> int:
+    return (int(mask) * 2654435761 + (ord(side[0]) << 8) + ord(side[-1]) + salt) & 0xFFFFFFFF
+
+
 def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
     """按位掩码合成一张瓦片：**AI 纹理 + 程序化几何**，共享边逐像素相等。
 
@@ -592,14 +618,29 @@ def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
 
     ys, xs = np.mgrid[0:s, 0:s]
     band_mask = np.zeros((s, s), dtype=bool)
-    if not (mask & BIT["T"]):
-        band_mask |= ys < band
-    if not (mask & BIT["B"]):
-        band_mask |= ys >= s - band
-    if not (mask & BIT["L"]):
-        band_mask |= xs < band
-    if not (mask & BIT["R"]):
-        band_mask |= xs >= s - band
+    # 边缘噪声（手绘感）：只向内加深、两端渐变到 0，因此共享边像素依旧完全一致。
+    meta0 = dict(getattr(base, "art_meta", {}) or {})
+    amp = int(meta0.get("edge_noise_px", 0) or 0)
+    amp = max(0, min(amp, band - rim_w - 2))
+    taper = max(2, s // 4)
+    if amp > 0:
+        if not (mask & BIT["T"]):
+            band_mask |= ys < (band + _wobble(s, _side_seed(mask, "T"), amp, taper))[None, :]
+        if not (mask & BIT["B"]):
+            band_mask |= ys >= (s - band - _wobble(s, _side_seed(mask, "B"), amp, taper))[None, :]
+        if not (mask & BIT["L"]):
+            band_mask |= xs < (band + _wobble(s, _side_seed(mask, "L"), amp, taper))[:, None]
+        if not (mask & BIT["R"]):
+            band_mask |= xs >= (s - band - _wobble(s, _side_seed(mask, "R"), amp, taper))[:, None]
+    else:
+        if not (mask & BIT["T"]):
+            band_mask |= ys < band
+        if not (mask & BIT["B"]):
+            band_mask |= ys >= s - band
+        if not (mask & BIT["L"]):
+            band_mask |= xs < band
+        if not (mask & BIT["R"]):
+            band_mask |= xs >= s - band
 
     for _name, sa, sb, diag, (fx, fy) in _CORNERS:
         a = bool(mask & BIT[sa])
@@ -654,7 +695,9 @@ def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
         return acc / ((2 * r + 1) ** 2)
 
     def _shift(arr: np.ndarray, dy: int, dx: int) -> np.ndarray:
-        return np.roll(np.roll(arr, dy, axis=0), dx, axis=1)
+        """边缘夹取式平移（不能用 np.roll：环绕会让边缘像素依赖瓦片对侧，破坏接缝一致）。"""
+        pad = np.pad(arr, 1, mode="edge")
+        return pad[1 + dy:1 + dy + arr.shape[0], 1 + dx:1 + dx + arr.shape[1]]
 
     # 描边层次：实测色调若过于单一，补一层「向地面过渡」的柔和外圈，
     # 避免出现一条生硬的等宽黑线（手绘 47 图块的边界通常有明暗过渡）。
@@ -701,15 +744,23 @@ def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
             col = np.asarray(tone, dtype=np.float32)[None, :] * (1.0 + 0.14 * var[ring])
             out[ring, :3] = np.clip(col, 0, 255).astype(np.uint8)
     else:
-        occ = _box_mean(band_mask, 1)
-        delta = _shift(occ, 1, 1) - _shift(occ, -1, -1)      # 正 = 地面在左上
-        ring = _depth_from(band_mask, 2) >= 1
-        lit = ring & (delta > 0.05)
-        dark = ring & (delta < -0.05)
+        # 方向性倒角：光源取左上 —— 朝上/朝左的边界内侧提亮、朝下/朝右的压暗。
+        # 方向只由**本瓦片暴露的边**决定（不看邻域），因此共享边像素不受邻块影响。
+        feat_depth = _depth_from(band_mask, 2)
+        ring = feat_depth >= 1
+        lit = dark = np.zeros_like(ring)
+        if not (mask & BIT["T"]):
+            lit |= ring & _disc_dilate(ys < band, 2)
+        if not (mask & BIT["L"]):
+            lit |= ring & _disc_dilate(xs < band, 2)
+        if not (mask & BIT["B"]):
+            dark |= ring & _disc_dilate(ys >= s - band, 2)
+        if not (mask & BIT["R"]):
+            dark |= ring & _disc_dilate(xs >= s - band, 2)
         if lit.any():
-            out[lit, :3] = np.clip(out[lit, :3].astype(np.float32) * (1.0 + 0.22 * delta[lit, None]), 0, 255).astype(np.uint8)
+            out[lit, :3] = np.clip(out[lit, :3].astype(np.float32) * 1.14, 0, 255).astype(np.uint8)
         if dark.any():
-            out[dark, :3] = np.clip(out[dark, :3].astype(np.float32) * (1.0 + 0.22 * delta[dark, None]), 0, 255).astype(np.uint8)
+            out[dark, :3] = np.clip(out[dark, :3].astype(np.float32) * 0.88, 0, 255).astype(np.uint8)
 
     out[band_mask] = base_px[band_mask]
     out[..., 3] = 255  # 地块瓦片一律不透明（无透明楔形/空边）
