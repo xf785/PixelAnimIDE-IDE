@@ -169,7 +169,15 @@ class TilemapPage(QWidget):
         self._mode_combo = QComboBox()
         self._mode_combo.addItem(T(None, "47-tile 瓦片集"), "47")
         self._mode_combo.addItem(T(None, "双网格地图"), "dual")
+        self._mode_combo.addItem(T(None, "FrameRonin 47（3×24 布局）"), "blob47")
+        self._mode_combo.addItem(T(None, "16 图块族（4×4）"), "tile16")
         f.addRow(self._mode_label, self._mode_combo)
+
+        self._map_src_label = T(QLabel(), "演示地图来源")
+        self._map_src_combo = QComboBox()
+        self._map_src_combo.addItem(T(None, "手绘示例"), "hand")
+        self._map_src_combo.addItem(T(None, "程序化地形（FrameRonin）"), "procedural")
+        f.addRow(self._map_src_label, self._map_src_combo)
 
         size_row = QHBoxLayout()
         self._map_w_spin = QSpinBox()
@@ -254,6 +262,8 @@ class TilemapPage(QWidget):
         self._base_pos_combo.setVisible(is_ground)
         self._mode_label.setVisible(cat != "building")
         self._mode_combo.setVisible(cat != "building")
+        self._map_src_label.setVisible(is_ground)
+        self._map_src_combo.setVisible(is_ground)
         self._desc_edit.setPlaceholderText(
             tr("例如：草地、沙漠、雪原……（生态基础地形）")
             if is_ground
@@ -285,6 +295,7 @@ class TilemapPage(QWidget):
             tile_size=self._tile_spin.value(),
             sheet_size=self._sheet_spin.value(),
             atlas_mode=self._mode_combo.currentData(),
+            map_source=self._map_src_combo.currentData() or "hand",
             line_width=self._line_spin.value(),
             map_width=self._map_w_spin.value(),
             map_height=self._map_h_spin.value(),

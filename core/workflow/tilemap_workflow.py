@@ -30,6 +30,8 @@ from core.tilemap import (
     align_terrain_set,
     build_47_sheet,
     build_47_sheet_art,
+    build_blob47_atlas,
+    build_tile16_atlas,
     build_dual_pieces_sheet_art,
     building_from_blocks,
     crop_base_3x3,
@@ -101,7 +103,10 @@ class TilemapParams:
     base_block: str = "auto"         # 基础地形块位置：auto/tl/tr/bl/br（AI 常不守位置要求）
     tile_size: int = 32              # 目标单格像素（偶数）
     sheet_size: int = 768            # 生图请求边长（3 格总边长）
-    atlas_mode: str = "47"           # "47" | "dual"
+    atlas_mode: str = "47"           # "47" | "dual" | "blob47"（FrameRonin 3×24 布局）| "tile16"
+    map_source: str = "hand"         # 演示地图来源："hand" 手绘示例 | "procedural"（FrameRonin 程序化地形）
+    sea_level: float = 0.38          # 程序化地形：海平面（FrameRonin 原值 0.42，演示取更均衡的 0.38）
+    mountain_threshold: float = 0.55  # 程序化地形：山地阈值（FrameRonin 原值 0.48，演示取 0.55）
     line_width: int = 1              # 边界线宽（像素）
     detail_keep: float = 0.3         # AI 转角内部细节混合比例（0~1）
     map_width: int = 14              # 演示地图宽度（格）
@@ -156,9 +161,30 @@ class TilemapResult:
     step_log: List[str] = field(default_factory=list)
 
 
-def _demo_map(model: TileMapModel) -> None:
-    """默认演示地形：整图铺满（地块类瓦片必须填充满，无透明空边）。"""
+def _demo_map(model: TileMapModel, params: Optional[TilemapParams] = None) -> None:
+    """默认演示地形：整图铺满（地块类瓦片必须填充满，无透明边）。
+
+    `map_source="procedural"` 时改用 FrameRonin 同款程序化地形（Perlin/FBM + 河谷 +
+    山地场），把「水 / 山 / 平原」三类映射到 特征1 / 特征2 / 基础地形。
+    """
     w, h = model.width, model.height
+    if params is not None and params.map_source == "procedural":
+        from core.tilemap.blob47 import ProceduralTerrain
+
+        terrain = ProceduralTerrain(
+            seed=params.description or "default",
+            sea_level=params.sea_level,
+            mountain_threshold=params.mountain_threshold,
+        )
+        kinds, _slots = terrain.grid(w, h, origin=(0, 0))
+        feature_ids = sorted(t for t in model.terrain_sets if t != (model.base_terrain or 1))
+        mapping = {0: feature_ids[0] if feature_ids else 1,
+                   1: model.base_terrain or 1,
+                   2: feature_ids[1] if len(feature_ids) > 1 else (feature_ids[0] if feature_ids else 1)}
+        for y in range(h):
+            for x in range(w):
+                model.set_cell(x, y, mapping[int(kinds[y, x])])
+        return
     model.fill_rect(0, 0, w - 1, h - 1, 1)
 
 
@@ -496,10 +522,18 @@ class TilemapWorkflow:
             for tid, tset in session.terrain_sets.items():
                 if params.atlas_mode == "dual":
                     sheet, meta = build_dual_pieces_sheet_art(tset)
+                elif params.atlas_mode == "blob47":
+                    sheet, meta = build_blob47_atlas(tset)
+                elif params.atlas_mode == "tile16":
+                    sheet, meta = build_tile16_atlas(tset)
                 else:
                     sheet, meta = build_47_sheet_art(tset)
                 session.terrain_sheets[tid] = (sheet, meta)
-            self._log_msg("info", tr("生态瓦片集已生成：{0} 套（艺术片构图，无程序化描边）").format(len(session.terrain_sheets)))
+            mode_zh = {"blob47": "FrameRonin 3×24 布局", "tile16": "16 图块族 4×4"}.get(params.atlas_mode, "9×6")
+            self._log_msg(
+                "info",
+                tr("生态瓦片集已生成：{0} 套（对齐式构图；布局 {1}）").format(len(session.terrain_sheets), mode_zh),
+            )
         elif params.category == "building":
             if session.pieces is None:
                 raise WorkflowError("尚未完成建筑拼件，请先执行上一步", step="atlas")
@@ -543,7 +577,7 @@ class TilemapWorkflow:
         meta_path = export_dir / f"tileset_{params.atlas_mode}.json"
         meta_path.write_text(json.dumps(session.atlas_meta, ensure_ascii=False, indent=2), encoding="utf-8")
         model = TileMapModel(params.map_width, params.map_height, tile_size=params.tile_size)
-        _demo_map(model)
+        _demo_map(model, params)
         # 地块类：注册地形瓦片组走艺术构图渲染（瓦片填充满、无透明楔形）
         model.set_terrain(1, session.processed)
         model.set_base_terrain(1)
