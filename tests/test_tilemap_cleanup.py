@@ -88,19 +88,43 @@ def test_strip_grid_frames_keeps_clean_sheet_untouched():
 # 2) 文字 / 水印检测与修补
 # --------------------------------------------------------------------------- #
 def _text_cell(text: str, size: int = 22, col=(60, 60, 60)) -> Image.Image:
+    """用系统字体渲染文字（找不到中文字体时退回 PIL 默认字体，CI 上仍可跑）。"""
     img = Image.new("RGB", (CELL, CELL), BASE_C)
     d = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", size)
-    except OSError:  # 无中文字体时退回默认字体（拉丁字母仍可测）
+    font = None
+    for path in ("C:/Windows/Fonts/msyh.ttc", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+        try:
+            font = ImageFont.truetype(path, size)
+            break
+        except OSError:
+            continue
+    if font is None:
+        # 默认位图字体（CI 上可能没有 truetype）：直接画在本格尺寸的画布上
         font = ImageFont.load_default()
+        d.text((30, 40), text, fill=col, font=font)
+        return img
     d.text((14, 34), text, fill=col, font=font)
     return img
 
 
-@pytest.mark.parametrize("text", ["草地", "GRASS", "water", "12"])
+def _stroke_text_cell(strokes=((10, 20, 3, 40), (10, 20, 30, 3), (10, 36, 30, 3),
+                              (46, 20, 3, 40), (46, 20, 30, 3), (46, 36, 30, 3))) -> Image.Image:
+    """与平台字体无关的「等宽笔画」文字样本（模拟汉字：多段同宽笔画排成一行）。"""
+    img = Image.new("RGB", (CELL, CELL), BASE_C)
+    d = ImageDraw.Draw(img)
+    for (x, y, w, h) in strokes:
+        d.rectangle((x, y, x + w - 1, y + h - 1), fill=(60, 60, 60))
+    return img
+
+
+@pytest.mark.parametrize("text", ["GRASS", "water", "12"])
 def test_detect_text_marks_finds_text(text):
     assert detect_text_marks(_text_cell(text)), f"应检测到文字: {text}"
+
+
+def test_detect_text_marks_finds_cjk_like_strokes():
+    """等宽笔画（汉字特征）必须命中——与平台字体无关，Linux CI 同样有效。"""
+    assert detect_text_marks(_stroke_text_cell())
 
 
 def test_detect_text_marks_ignores_art():
@@ -131,8 +155,9 @@ def test_detect_text_marks_ignores_art():
 
 
 def test_patch_marks_removes_text_pixels():
-    img = _text_cell("草地")
+    img = _stroke_text_cell()
     boxes = detect_text_marks(img)
+    assert boxes
     patched = np.asarray(patch_marks(img, boxes))[..., :3]
     original = np.asarray(img)
     assert (patched != original).any()

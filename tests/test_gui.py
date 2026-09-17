@@ -683,12 +683,14 @@ def test_ide_page_run_step_integration(qtbot, ctx):
     page.set_current_step(0)
     page._on_run_step()
     worker = page._worker
-    with qtbot.waitSignal(worker.succeeded, timeout=30_000):
-        pass
+    # 注意：不能在启动之后再 waitSignal —— mock 客户端可能在订阅前就把 succeeded
+    # 发完（CI 上因此稳定超时）。改为等待线程真正结束，并等待成功后写入表单。
+    assert worker is not None
+    qtbot.waitUntil(lambda: worker.isFinished(), timeout=60_000)
     assert page._session.prompts["image_prompt"]
     assert "EXACT 128x128 pixel grid" in page._session.prompts["image_prompt"]
     # 成功回调（队列连接）把提示词写入表单
-    qtbot.waitUntil(lambda: page._prompt_edits["image_prompt"].toPlainText() != "")
+    qtbot.waitUntil(lambda: page._prompt_edits["image_prompt"].toPlainText() != "", timeout=30_000)
 
 
 # --------------------------------------------------------------------------- #

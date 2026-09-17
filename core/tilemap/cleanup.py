@@ -289,7 +289,7 @@ def detect_text_marks(
     # 一行字至少要有一定「体量」：单根细线（如一根草）不算文字
     content_cols = int(within.any(axis=0).sum())
     content_rows = int(within.any(axis=1).sum())
-    if content_cols < max(6, 0.25 * bw) or content_rows < max(5, 0.25 * bh):
+    if content_cols < max(6, 0.25 * bw) or content_rows < max(4, 0.25 * bh):
         return []
     share, thin_runs = _stroke_signature(within, (x0, y0, x1, y1))
     if thin_runs >= 6 and share >= 0.35:
