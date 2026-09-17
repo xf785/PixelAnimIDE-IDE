@@ -470,6 +470,7 @@ def align_terrain_set(
     max_colors: int = 64,
     plain: bool = False,
     edge_noise_frac: float = 0.09,
+    edge_blend_frac: float = 0.0,
 ) -> BaseTileSet:
     """把 AI 九宫格艺术「对齐化」成一套可构造性无缝拼接的地形艺术。
 
@@ -552,6 +553,8 @@ def align_terrain_set(
             outline_px=len(outline),
             bevel_px=len(bevel),
             edge_noise_px=edge_noise,
+            # 交界融合强度：0=平滑边（描边线）；越大越像「渗透/咬合」的自然交界
+            edge_blend=round(max(0.0, min(1.0, float(edge_blend_frac))), 3),
         ),
     )
 

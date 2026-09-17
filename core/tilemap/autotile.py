@@ -790,7 +790,26 @@ def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
         if dark.any():
             out[dark, :3] = np.clip(out[dark, :3].astype(np.float32) * 0.88, 0, 255).astype(np.uint8)
 
-    out[band_mask] = base_px[band_mask]
+    out[band_mask] = base_px[band_mask]        # 地面带（描边/倒角已在其上画好）
+    # 交界渗透融合：在边界两侧用确定性噪声互相「咬合」，
+    # 让两种地形交界呈不规则渗透状，而不是一条硬边（噪声幅度在瓦片边缘衰减到 0，
+    # 因此相邻瓦片共享边依旧逐像素一致）。
+    blend = float(meta.get("edge_blend", 0.0) or 0.0)
+    if blend > 0.01:
+        ker = max(1, int(round(blend * max(2, band // 2))))
+        rng = np.random.default_rng((int(mask) * 2654435761 + 0x5EED) & 0xFFFFFFFF)
+        noise = rng.random((s, s))
+        # 边缘衰减窗口（两轴合成）
+        edge = np.minimum(np.minimum(ys, s - 1 - ys), np.minimum(xs, s - 1 - xs)).astype(np.float64)
+        win = np.clip(edge / max(1.0, s * 0.25), 0.0, 1.0)
+        thr = 0.5 - 0.45 * blend
+        eat_ground = (~band_mask) & (_depth_from(band_mask, ker) >= 1) & \
+            ((noise * win) > thr)                       # 地形「吃」进地面带
+        eat_feat = band_mask & (ground_depth <= ker) & \
+            (((1.0 - noise) * win) > thr)               # 地面「吃」进地形侧
+        out[eat_ground] = base_px[eat_ground]
+        out[eat_feat] = feat[eat_feat]
+        out[..., 3] = 255
     out[..., 3] = 255  # 地块瓦片一律不透明（无透明楔形/空边）
     return Image.fromarray(out, "RGBA")
 

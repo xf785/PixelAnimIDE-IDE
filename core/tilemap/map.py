@@ -43,6 +43,7 @@ class TileMapModel:
         self.grid = np.zeros((self.height, self.width), dtype=np.uint8)
         self.terrain_sets: Dict[int, BaseTileSet] = {}
         # 墙体层（建筑类实时自动拼接）：占用网格 + 16-tile 件注册表
+        self.dual_mode = False          # 地块类：双网格（4 分块）渲染
         self.wall_grid: Optional[np.ndarray] = None
         self.wall_pieces: Dict[str, Image.Image] = {}
         self.base_terrain: Optional[int] = None
@@ -130,7 +131,7 @@ class TileMapModel:
           时只画 overlay（建筑拼件预览）。
         """
         if self.terrain_sets:
-            canvas = self._render_terrains()
+            canvas = self._render_terrains_dual() if self.dual_mode else self._render_terrains()
         elif center is None:
             canvas = Image.new("RGBA", (self.width * self.tile_size, self.height * self.tile_size), (0, 0, 0, 0))
         elif mode == "dual":
@@ -217,6 +218,51 @@ class TileMapModel:
                 canvas.paste(tile, (x * s, y * s), tile)
         return canvas
 
+    def _render_terrains_dual(self) -> Image.Image:
+        """多地形**双网格**渲染：每格按 4 个四分之一块拼（同一套对齐式艺术）。"""
+        from .autotile import _quarter, compose_art_tile_cached
+
+        s = self.tile_size
+        half = s // 2
+        canvas = Image.new("RGBA", (self.width * s, self.height * s), (0, 0, 0, 0))
+        cache: Dict = {}
+        boxes = {(0, 0): (0, 0, half, half), (0, 1): (half, 0, s, half),
+                 (1, 0): (0, half, half, s), (1, 1): (half, half, s, s)}
+        for y in range(self.height):
+            for x in range(self.width):
+                tid = int(self.grid[y, x])
+                if not tid or tid not in self.terrain_sets:
+                    continue
+                mask = self.mask(x, y)
+                tset = self.terrain_sets[tid]
+                for qy in range(2):
+                    for qx in range(2):
+                        sa, sb = ("T", "L") if (qy, qx) == (0, 0) else \
+                            ("T", "R") if (qy, qx) == (0, 1) else \
+                            ("B", "L") if (qy, qx) == (1, 0) else ("B", "R")
+                        diag = {(0, 0): "TL", (0, 1): "TR", (1, 0): "BL", (1, 1): "BR"}[(qy, qx)]
+                        kind = _quarter(mask, sa, sb, diag)
+                        key = (id(tset), qy, qx, kind)
+                        piece = cache.get(key)
+                        if piece is None:
+                            all_sides = BIT["T"] | BIT["B"] | BIT["L"] | BIT["R"]
+                            diag_all = BIT["TL"] | BIT["TR"] | BIT["BL"] | BIT["BR"]
+                            if kind == 0:
+                                m = all_sides | diag_all
+                            elif kind == 1:
+                                m = (all_sides & ~(BIT["T"] if qy == 0 else BIT["B"])) | diag_all
+                            elif kind == 2:
+                                m = (all_sides & ~(BIT["L"] if qx == 0 else BIT["R"])) | diag_all
+                            else:
+                                m = all_sides | diag_all
+                                m &= ~(BIT["T"] if qy == 0 else BIT["B"])
+                                m &= ~(BIT["L"] if qx == 0 else BIT["R"])
+                            tile = compose_art_tile_cached(tset, m)
+                            piece = tile.crop(boxes[(qy, qx)])
+                            cache[key] = piece
+                        canvas.alpha_composite(piece, (x * s + qx * half, y * s + qy * half))
+        return canvas
+
     def _render_dual(self, center: Image.Image, line_color: Tuple[int, int, int], line_width: int) -> Image.Image:
         """双网格渲染：每格按 4 个四分之一块构图（总像素尺寸与 47 模式一致）。"""
         s = self.tile_size
@@ -274,6 +320,8 @@ class TileMapModel:
             data["base_terrain"] = int(self.base_terrain)
         if self.wall_grid is not None:
             data["wall_grid"] = self.wall_grid.astype(int).tolist()
+        if self.dual_mode:
+            data["dual_mode"] = True
         # 建筑 overlay：按拼件名 + 旋转序列化（恢复时用 pieces 注册表还原图像）
         overlays = [
             {"x": x, "y": y, "piece": item[2], "rot": item[1],
@@ -298,6 +346,8 @@ class TileMapModel:
                 model.grid[y, x] = int(v) if v else EMPTY
         if data.get("base_terrain") is not None:
             model.base_terrain = int(data["base_terrain"])
+        if data.get("dual_mode"):
+            model.dual_mode = True
         if data.get("wall_grid") is not None and pieces:
             walls = data["wall_grid"]
             model.enable_wall_layer(pieces)

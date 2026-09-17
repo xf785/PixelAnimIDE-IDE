@@ -19,8 +19,23 @@ from core.processing import background as bg
 
 logger = logging.getLogger("PixelAnimIDE.tilemap.props")
 
+#: 主体可能含浅色/白色的关键词 —— 这类素材必须用**纯黑底**（否则白底会把主体一起删掉）
+LIGHT_SUBJECT_KEYWORDS = (
+    "雪", "白", "冰", "云", "雾", "霜", "骨", "纸", "奶", "光", "银", "棉", "花", "羊", "蛋", "石", "晶", "月",
+    "snow", "white", "ice", "cloud", "fog", "frost", "bone", "paper", "milk", "light", "silver",
+    "cotton", "sheep", "egg", "crystal", "moon", "ghost", "skull", "pearl", "chrome",
+)
+
+
+def subject_is_light(description: str) -> bool:
+    """从描述/提示词粗判主体是否可能含浅色（雪、云、白骨…）→ 决定用黑底还是白底。"""
+    text = (description or "").lower()
+    return any(k.lower() in text for k in LIGHT_SUBJECT_KEYWORDS)
+
+
 PROP_BACKGROUNDS = {
     "white": (255, 255, 255),
+    "black": (0, 0, 0),
     "magenta": (255, 0, 255),
     "green": (0, 255, 0),
 }
@@ -32,7 +47,7 @@ def build_prop_prompts(
     variants: int = 4,
     tile_size: Optional[int] = None,
     cell_px: Optional[int] = None,
-    background: str = "white",
+    background: str = "auto",
 ) -> dict:
     """素材（道具）提示词：N 个变体排成网格，纯色底、格内完整、像素硬边、不要文字。"""
     desc = (description or "").strip() or "a tree"
@@ -40,8 +55,12 @@ def build_prop_prompts(
     variants = max(1, min(16, int(variants)))
     cols = 2 if variants <= 4 else (3 if variants <= 9 else 4)
     rows = int(np.ceil(variants / cols))
+    if background in ("auto", "", None):
+        # 主体可能含浅色 -> 纯黑底（黑底不会误删主体）；否则纯白底
+        background = "black" if subject_is_light(description) else "white"
     bg_rgb = PROP_BACKGROUNDS.get(background, PROP_BACKGROUNDS["white"])
-    bg_name = {"white": "SOLID PURE WHITE", "magenta": "SOLID PURE MAGENTA",
+    bg_name = {"white": "SOLID PURE WHITE", "black": "SOLID PURE BLACK",
+               "magenta": "SOLID PURE MAGENTA",
                "green": "SOLID PURE GREEN"}.get(background, "SOLID PURE WHITE")
     cell_note = (
         f" Each cell is exactly {int(cell_px)}x{int(cell_px)} pixels "
@@ -127,6 +146,29 @@ def _harden_alpha(img: Image.Image) -> Image.Image:
     return Image.fromarray(arr, "RGBA")
 
 
+def key_background_range(tile: Image.Image, background: str = "white", hard: int = 240, soft: int = 214) -> Image.Image:
+    """按底色**直接删除特定范围内的像素**（用户建议的算法）：
+
+    - 白底（主体不含浅色）：删除所有通道都 ≥ `soft` 的近白像素（≥`hard` 必然删）；
+      这样即使 AI 画了带噪点/渐变的"纯白"底也能彻底清干净；
+    - 黑底（主体可能含浅色）：删除所有通道都 ≤ `255 - soft` 的近黑像素。
+    之后再叠加 flood-fill 兜底（去掉与边缘连通的中间调底色）。
+    """
+    arr = np.asarray(tile.convert("RGBA"))
+    out = np.array(arr)
+    rgb = out[..., :3].astype(np.int16)
+    if background == "black":
+        near = rgb.max(axis=2) <= (255 - soft)
+        strong = rgb.max(axis=2) <= (255 - hard)
+    else:
+        near = rgb.min(axis=2) >= soft
+        strong = rgb.min(axis=2) >= hard
+    out[near] = (0, 0, 0, 0)
+    # 强判定再放宽一点（连边缘中间调也一起清掉）
+    out[strong] = (0, 0, 0, 0)
+    return _harden_alpha(Image.fromarray(out, "RGBA"))
+
+
 def key_background(
     tile: Image.Image,
     tolerance: float = 38,
@@ -195,6 +237,7 @@ def process_prop_sheet(
     tile_size: int = 32,
     tolerance: int = 38,
     bottom_align: bool = True,
+    background: str = "white",
 ) -> Dict[str, Image.Image]:
     """把素材底图切成 rows×cols 格，逐格抠底 + 裁紧 + 归一化，返回 {名字: RGBA}。"""
     rgba = img.convert("RGBA")
@@ -207,7 +250,8 @@ def process_prop_sheet(
             if idx >= len(names):
                 break
             cell = rgba.crop((c * cw, r * ch, (c + 1) * cw, (r + 1) * ch))
-            keyed = key_background(cell, tolerance=tolerance)
+            keyed = key_background_range(cell, background=background)
+            keyed = key_background(keyed, tolerance=tolerance)
             alpha = np.asarray(keyed)[..., 3]
             if not (alpha > 0).any():
                 idx += 1

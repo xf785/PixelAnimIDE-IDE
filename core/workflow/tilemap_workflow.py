@@ -111,11 +111,12 @@ class TilemapParams:
     tile_size: int = 32              # 目标单格像素（偶数）
     sheet_size: int = 768            # 生图请求边长（3 格总边长）
     atlas_mode: str = "47"           # "47" | "dual" | "blob47"（FrameRonin 3×24 布局）| "tile16"
-    map_source: str = "showcase"     # 演示地图："showcase" 覆盖 47 类 | "filled" 铺满 | "procedural" 程序化地形
+    map_source: str = "showcase"     # 演示地图："showcase" 覆盖 47 类 | "filled" 铺满
     sea_level: float = 0.38          # 程序化地形：海平面（FrameRonin 原值 0.42，演示取更均衡的 0.38）
     mountain_threshold: float = 0.55  # 程序化地形：山地阈值（FrameRonin 原值 0.48，演示取 0.55）
     line_width: int = 1              # 边界线宽（像素）
     edge_noise: float = 0.09         # 边缘噪声幅度（占瓦片尺寸比例，0=完全平直）
+    edge_blend: float = 0.5          # 地形交界融合强度（噪声渗透咬合，0=平滑硬边）
     wall_thickness: float = 0.56     # 建筑：墙体厚度（占瓦片边长比例）
     prop_variants: int = 4           # 素材：一次生成几个变体
     prop_name: str = "prop"          # 素材：命名前缀（导出为 名字_1.png …）
@@ -541,6 +542,7 @@ class TilemapWorkflow:
                 sheet, int(session.prompts.get("grid_rows", 2)),
                 int(session.prompts.get("grid_cols", 2)), names,
                 tile_size=params.tile_size,
+                background=str(session.prompts.get("background", "white")),
             )
             self._log_msg(
                 "info",
@@ -603,6 +605,7 @@ class TilemapWorkflow:
                     tset, base_texture=base_tex, tile_size=params.tile_size,
                     ground_rgb=ground_rgb, plain=(tid == 1),
                     edge_noise_frac=params.edge_noise,
+                    edge_blend_frac=params.edge_blend,
                 )
             session.terrain_sets = arts
             meta = arts[1].art_meta
@@ -621,6 +624,7 @@ class TilemapWorkflow:
                 tile_size=params.tile_size,
                 thickness_frac=params.wall_thickness,
                 edge_noise_frac=params.edge_noise,
+                edge_blend_frac=params.edge_blend,
             )
             pieces = build_piece_set(art)
             session.pieces = {"art": art, "pieces": pieces}
@@ -764,6 +768,14 @@ class TilemapWorkflow:
                 json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
             )
             terrain_paths[tid] = path
+        # 完整瓦片集目录导出（47 图集 + FrameRonin 布局 + 逐张瓦片 + 全部元信息；另附 zip）
+        try:
+            from core.tilemap.pack import export_tileset_dir, pack_from_session
+
+            export_tileset_dir(export_dir / "tileset", pack_from_session(session))
+            self._log_msg("info", tr("完整瓦片集已导出：{0}").format(export_dir / "tileset"))
+        except Exception as exc:  # noqa: BLE001
+            self._log_msg("warning", tr("瓦片集目录导出失败：{0}").format(exc))
         # 演示地图：基础地形铺底 + 特征水塘/岩石区域（多地形自动衔接）
         model = TileMapModel(params.map_width, params.map_height, tile_size=params.tile_size)
         for tid, tset in session.terrain_sets.items():
@@ -818,11 +830,14 @@ class TilemapWorkflow:
             category="prop", tile_size=params.tile_size, pieces=dict(session.props),
             meta={"description": params.description, "variants": len(session.props)},
         )
-        pack_path = save_tilepack(export_dir / f"{pack.name}.tilepack", pack)
+        from core.tilemap.pack import export_tileset_dir
+
+        paths = export_tileset_dir(export_dir / f"{pack.name}_props", pack)
+        pack_path = paths["dir"]
         manifest = export_dir / "props.json"
         manifest.write_text(
             json.dumps({"format": "pixel-anim-props", "tile_size": params.tile_size,
-                        "props": sorted(session.props.keys()), "pack": pack_path.name},
+                        "props": sorted(session.props.keys()), "tileset_dir": str(pack_path)},
                        ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
@@ -857,6 +872,13 @@ class TilemapWorkflow:
         # 地图 JSON（含 overlay 拼件名称，可在预览中恢复）
         map_json = export_dir / "map_demo.json"
         map_json.write_text(model.to_json(), encoding="utf-8")
+        try:
+            from core.tilemap.pack import export_tileset_dir, pack_from_session
+
+            export_tileset_dir(export_dir / "tileset", pack_from_session(session))
+            self._log_msg("info", tr("完整瓦片集已导出：{0}").format(export_dir / "tileset"))
+        except Exception as exc:  # noqa: BLE001
+            self._log_msg("warning", tr("瓦片集目录导出失败：{0}").format(exc))
         project = {
             "format": "pixel-anim-tilemap",
             "category": "building",

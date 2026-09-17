@@ -53,6 +53,8 @@ LANG_PACKS: dict = {
     "生图边长": "Sheet size",
     "边界线宽": "Outline width",
     "边缘噪声": "Edge noise",
+    "交界融合": "Edge blending",
+    "不同地形交界的渗透咬合强度：100% 最自然，0% 为平滑描边硬边": "Percolation strength where two terrains meet: 100% most natural, 0% smooth outlined edge",
     "非内部瓦片边缘的不规则起伏幅度（占瓦片尺寸百分比；0=平直，越大越像手绘）": "Irregularity of non-interior tile edges (percent of tile size; 0 = perfectly straight, higher = more hand-drawn)",
     "瓦片集模式": "Tileset mode",
     "47-tile 瓦片集": "47-tile set",

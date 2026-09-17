@@ -203,6 +203,7 @@ def wall_art_from_sheet(
     key_tolerance: int = 42,
     thickness_frac: float = 0.56,
     edge_noise_frac: float = 0.04,
+    edge_blend_frac: float = 0.0,
 ) -> WallArt:
     """AI 2×2×3 建筑图 → 墙体艺术（抠白底 + 无缝纹理 + 实测描边/厚度）。"""
     s = int(tile_size)
@@ -245,6 +246,7 @@ def wall_art_from_sheet(
             "outline": list(outline), "has_top": top is not None,
             "has_door": door is not None, "has_pillar": pillar is not None,
             "edge_noise_px": noise, "family": "wall-16",
+            "edge_blend": round(max(0.0, min(1.0, float(edge_blend_frac))), 3),
         },
     )
 

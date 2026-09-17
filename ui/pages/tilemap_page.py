@@ -41,7 +41,12 @@ from PIL import Image
 
 from config.settings import DEFAULT_OUTPUT_DIR
 from core.tilemap import TileMapModel
-from core.tilemap.pack import load_tilepack, pack_from_session, save_tilepack
+from core.tilemap.pack import (
+    export_tileset_dir,
+    load_tileset,
+    pack_from_session,
+    save_tilepack,
+)
 from core.workflow.tilemap_workflow import TilemapParams, TilemapWorkflow
 from core.workflow.solo_workflow import WorkflowError
 from ui.app_context import AppContext
@@ -194,6 +199,17 @@ class TilemapPage(QWidget):
         )
         f.addRow(self._noise_label, self._noise_spin)
 
+        self._blend_label = T(QLabel(), "交界融合")
+        self._blend_spin = QSpinBox()
+        self._blend_spin.setRange(0, 100)
+        self._blend_spin.setSingleStep(10)
+        self._blend_spin.setValue(50)
+        self._blend_spin.setSuffix(" %")
+        self._blend_spin.setToolTip(
+            tr("不同地形交界的渗透咬合强度：100% 最自然，0% 为平滑描边硬边")
+        )
+        f.addRow(self._blend_label, self._blend_spin)
+
         self._mode_label = T(QLabel(), "瓦片集模式")
         self._mode_combo = QComboBox()
         self._mode_combo.addItem(T(None, "47-tile 瓦片集"), "47")
@@ -206,7 +222,6 @@ class TilemapPage(QWidget):
         self._map_src_combo = QComboBox()
         self._map_src_combo.addItem(T(None, "展示地形（覆盖 47 类）"), "showcase")
         self._map_src_combo.addItem(T(None, "铺满示例"), "filled")
-        self._map_src_combo.addItem(T(None, "程序化地形（FrameRonin）"), "procedural")
         f.addRow(self._map_src_label, self._map_src_combo)
 
         size_row = QHBoxLayout()
@@ -247,7 +262,7 @@ class TilemapPage(QWidget):
         self._map_btn.setToolTip(tr("无需先生成瓦片集：进入后可用「添加瓦片包」加载地块/建筑/素材包"))
         actions2.addWidget(self._edit_btn)
         actions2.addWidget(self._map_btn)
-        self._pack_btn = T(QPushButton(), "保存瓦片包")
+        self._pack_btn = T(QPushButton(), "导出瓦片集")
         self._pack_btn.clicked.connect(self._on_save_pack)
         self._pack_btn.setEnabled(False)
         actions2.addWidget(self._pack_btn)
@@ -342,6 +357,7 @@ class TilemapPage(QWidget):
             prop_variants=self._prop_count_spin.value(),
             line_width=self._line_spin.value(),
             edge_noise=self._noise_spin.value() / 100.0,
+            edge_blend=self._blend_spin.value() / 100.0,
             map_width=self._map_w_spin.value(),
             map_height=self._map_h_spin.value(),
             output_dir=Path(DEFAULT_OUTPUT_DIR) / "tilemap",
@@ -592,18 +608,18 @@ class TilemapPage(QWidget):
                 return
             self._status.setText(tr("瓦片包已保存：{0}（素材 {1} 个）").format(saved, len(self._prop_pack.pieces)))
             return
-        default = Path(DEFAULT_OUTPUT_DIR) / "tilemap" / f"{self._session.params.description or 'tilepack'}.tilepack"
-        path, _f = QFileDialog.getSaveFileName(
-            self, tr("保存瓦片包"), str(default), tr("瓦片包 (*.tilepack)")
+        default = str(Path(DEFAULT_OUTPUT_DIR) / "tilemap")
+        name, ok = QInputDialog.getText(
+            self, tr("导出瓦片集"), tr("导出文件夹名"), text=self._session.params.description or "tileset"
         )
-        if not path:
+        if not ok or not name.strip():
             return
         try:
-            saved = save_tilepack(path, pack_from_session(self._session))
+            saved = export_tileset_dir(Path(default) / name.strip(), pack_from_session(self._session))["dir"]
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, tr("保存瓦片包失败"), str(exc))
             return
-        self._status.setText(tr("瓦片包已保存：{0}").format(saved))
+        self._status.setText(tr("瓦片集已导出：{0}（含 47 图集/逐张瓦片/元信息，另附 zip）").format(saved))
 
     def scratch_map_model(self) -> TileMapModel:
         """未生成瓦片集时用的空白预览模型（尺寸/瓦片大小取当前参数）。"""
@@ -645,14 +661,17 @@ class TilemapPage(QWidget):
         layout.addWidget(view, 1)
 
         def _add_pack() -> None:
+            start = str(Path(DEFAULT_OUTPUT_DIR) / "tilemap")
             path, _f = QFileDialog.getOpenFileName(
-                dialog, tr("添加瓦片包"), str(Path(DEFAULT_OUTPUT_DIR) / "tilemap"),
-                tr("瓦片包 (*.tilepack);;所有文件 (*)"),
+                dialog, tr("添加瓦片集（zip / tilepack，或先选文件夹按钮）"), start,
+                tr("瓦片集 (*.zip *.tilepack);;所有文件 (*)"),
             )
+            if not path:
+                path = QFileDialog.getExistingDirectory(dialog, tr("添加瓦片集文件夹"), start)
             if not path:
                 return
             try:
-                pack = load_tilepack(path)
+                pack = load_tileset(path)
                 view.add_pack(pack)
             except Exception as exc:  # noqa: BLE001
                 QMessageBox.warning(dialog, tr("加载瓦片包失败"), str(exc))

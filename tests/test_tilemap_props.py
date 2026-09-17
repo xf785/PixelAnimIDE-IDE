@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from core.tilemap.pack import load_tilepack, save_tilepack, TilePack
+from core.tilemap.pack import TilePack, load_tileset, load_tilepack, save_tilepack
 from core.tilemap.props import (
     build_prop_prompts,
     fit_to_tile,
@@ -102,8 +102,11 @@ def test_prop_workflow_end_to_end(tmp_path):
     session = result.session
     assert session.props, "应产出素材"
     assert result.pieces_dir.exists() and list(result.pieces_dir.glob("*.png"))
-    assert result.atlas_path is not None and result.atlas_path.suffix == ".tilepack"
-    pack = load_tilepack(result.atlas_path)
+    # 现在导出的是**完整瓦片集目录**（含 47 图集/逐张瓦片/元信息），可再次导入
+    assert result.atlas_path is not None and result.atlas_path.is_dir()
+    assert (result.atlas_path / "manifest.json").exists()
+    assert (result.atlas_path / "atlas" / "walls_16.png").exists() or (result.atlas_path / "atlas").exists()
+    pack = load_tileset(result.atlas_path)
     assert pack.category == "prop" and set(pack.pieces) == set(session.props)
     for img in session.props.values():
         alpha = np.asarray(img)[..., 3]
