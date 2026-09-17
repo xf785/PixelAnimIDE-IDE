@@ -582,6 +582,29 @@ def _side_seed(mask: int, side: str, salt: int = 0) -> int:
     return (int(mask) * 2654435761 + (ord(side[0]) << 8) + ord(side[-1]) + salt) & 0xFFFFFFFF
 
 
+_TILE_CACHE: Dict[Tuple[int, int, int, int, int], Image.Image] = {}
+_TILE_CACHE_MAX = 4096
+
+
+def compose_art_tile_cached(base, mask: int) -> Image.Image:
+    """带缓存的合成（同一套地形艺术 + 同一掩码 -> 复用同一张图）。
+
+    大地图预览（如柏林噪声 160×120 格）会重复用到同一批瓦片，缓存后渲染从
+    「每格一次 numpy 合成」降到「每种掩码一次」，几十万格也能秒开。
+    """
+    key = (id(base), int(mask) & 255, int(getattr(base, "band", 0) or 0),
+           int(getattr(base, "line_width", 0) or 0),
+           int((getattr(base, "art_meta", {}) or {}).get("edge_noise_px", 0) or 0))
+    got = _TILE_CACHE.get(key)
+    if got is not None:
+        return got
+    tile = compose_art_tile(base, mask)
+    if len(_TILE_CACHE) >= _TILE_CACHE_MAX:
+        _TILE_CACHE.clear()
+    _TILE_CACHE[key] = tile
+    return tile
+
+
 def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
     """按位掩码合成一张瓦片：**AI 纹理 + 程序化几何**，共享边逐像素相等。
 

@@ -17,7 +17,11 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QCheckBox,
     QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -35,6 +39,7 @@ from PySide6.QtWidgets import (
 
 from config.settings import DEFAULT_OUTPUT_DIR
 from core.tilemap import TileMapModel
+from core.tilemap.pack import load_tilepack, pack_from_session, save_tilepack
 from core.workflow.tilemap_workflow import TilemapParams, TilemapWorkflow
 from core.workflow.solo_workflow import WorkflowError
 from ui.app_context import AppContext
@@ -228,6 +233,10 @@ class TilemapPage(QWidget):
         self._map_btn.setEnabled(False)
         actions2.addWidget(self._edit_btn)
         actions2.addWidget(self._map_btn)
+        self._pack_btn = T(QPushButton(), "保存瓦片包")
+        self._pack_btn.clicked.connect(self._on_save_pack)
+        self._pack_btn.setEnabled(False)
+        actions2.addWidget(self._pack_btn)
         fl.addLayout(actions2)
 
         self._status = QLabel(tr("就绪"))
@@ -331,6 +340,7 @@ class TilemapPage(QWidget):
         self._accept_btn.setVisible(False)
         self._edit_btn.setEnabled(False)
         self._map_btn.setEnabled(False)
+        self._pack_btn.setEnabled(False)
         self._status.setText(tr("生成中…"))
         self._worker = TilemapWorker(self._ctx.api, params, parent=self, stages=self._stage)
         self._worker.succeeded.connect(self._on_worker_done)
@@ -353,6 +363,7 @@ class TilemapPage(QWidget):
         self._accept_btn.setEnabled(True)
         self._edit_btn.setEnabled(False)
         self._map_btn.setEnabled(False)
+        self._pack_btn.setEnabled(False)
         self._show_sheet(session.sheet_clean or session.sheet_image)
         frames = (session.frame_report or {}).get("count", 0)
         note = tr("（已抹除 {0} 条格线框）").format(frames) if frames else ""
@@ -401,6 +412,7 @@ class TilemapPage(QWidget):
         self._accept_btn.setVisible(False)
         self._edit_btn.setEnabled(True)
         self._map_btn.setEnabled(True)
+        self._pack_btn.setEnabled(True)
         self._show_preview()
         self._status.setText(tr("瓦片集已生成: {0}").format(result.output_dir / "export"))
 
@@ -517,6 +529,24 @@ class TilemapPage(QWidget):
             labels[i] = name
         return labels
 
+    def _on_save_pack(self) -> None:
+        """把当前会话保存成瓦片包（.tilepack），之后可在任意预览里叠加。"""
+        if self._session is None:
+            QMessageBox.information(self, tr("保存瓦片包"), tr("请先生成瓦片集"))
+            return
+        default = Path(DEFAULT_OUTPUT_DIR) / "tilemap" / f"{self._session.params.description or 'tilepack'}.tilepack"
+        path, _f = QFileDialog.getSaveFileName(
+            self, tr("保存瓦片包"), str(default), tr("瓦片包 (*.tilepack)")
+        )
+        if not path:
+            return
+        try:
+            saved = save_tilepack(path, pack_from_session(self._session))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, tr("保存瓦片包失败"), str(exc))
+            return
+        self._status.setText(tr("瓦片包已保存：{0}").format(saved))
+
     def _on_map_preview(self) -> None:
         if self._session is None or self._session.map_model is None:
             QMessageBox.information(self, tr("地图预览"), tr("请先生成瓦片集"))
@@ -530,7 +560,7 @@ class TilemapPage(QWidget):
                 model.set_terrain(tid, tset)
             model.base_terrain = session.map_model.base_terrain
         dialog = QDialog(self)
-        dialog.setWindowTitle(tr("地图预览（左键铺设 / 右键擦除 / 滚轮缩放）"))
+        dialog.setWindowTitle(tr("地图预览（左键铺设 / 右键擦除 / Ctrl+左键平移 / 滚轮缩放）"))
         dialog.resize(900, 680)
         layout = QVBoxLayout(dialog)
         center = None
@@ -546,7 +576,106 @@ class TilemapPage(QWidget):
             pieces=pieces,
         )
         layout.addWidget(view, 1)
+
+        def _add_pack() -> None:
+            path, _f = QFileDialog.getOpenFileName(
+                dialog, tr("添加瓦片包"), str(Path(DEFAULT_OUTPUT_DIR) / "tilemap"),
+                tr("瓦片包 (*.tilepack);;所有文件 (*)"),
+            )
+            if not path:
+                return
+            try:
+                pack = load_tilepack(path)
+                view.add_pack(pack)
+            except Exception as exc:  # noqa: BLE001
+                QMessageBox.warning(dialog, tr("加载瓦片包失败"), str(exc))
+                return
+            self._status.setText(tr("已添加瓦片包：{0}（地形 {1}、拼件 {2}）").format(
+                pack.name, len(pack.terrains), len(pack.pieces)))
+
+        def _save_pack() -> None:
+            if self._session is None:
+                return
+            path, _f = QFileDialog.getSaveFileName(
+                dialog, tr("保存瓦片包"),
+                str(Path(DEFAULT_OUTPUT_DIR) / "tilemap" / f"{session.params.description or 'tilepack'}.tilepack"),
+                tr("瓦片包 (*.tilepack)"),
+            )
+            if not path:
+                return
+            try:
+                saved = save_tilepack(path, pack_from_session(self._session))
+            except Exception as exc:  # noqa: BLE001
+                QMessageBox.warning(dialog, tr("保存瓦片包失败"), str(exc))
+                return
+            self._status.setText(tr("瓦片包已保存：{0}").format(saved))
+
+        def _big_map() -> None:
+            from core.tilemap.bigmap import generate_perlin_map, scatter_walls
+
+            dlg = QDialog(dialog)
+            dlg.setWindowTitle(tr("柏林噪声大地图"))
+            form = QFormLayout(dlg)
+            w_spin = QSpinBox(); w_spin.setRange(24, 400); w_spin.setValue(min(220, max(24, model.width * 8)))
+            h_spin = QSpinBox(); h_spin.setRange(16, 400); h_spin.setValue(min(160, max(16, model.height * 8)))
+            seed_edit = QLineEdit(session.params.description or "pixelgifide")
+            sea = QDoubleSpinBox(); sea.setRange(0.1, 0.9); sea.setSingleStep(0.02); sea.setValue(0.38)
+            mtn = QDoubleSpinBox(); mtn.setRange(0.1, 0.95); mtn.setSingleStep(0.02); mtn.setValue(0.55)
+            walls_check = QCheckBox(tr("散布建筑（需先添加建筑瓦片包）"))
+            walls_check.setEnabled(bool(view._pieces))
+            form.addRow(tr("宽度（格）"), w_spin)
+            form.addRow(tr("高度（格）"), h_spin)
+            form.addRow(tr("种子"), seed_edit)
+            form.addRow(tr("海平面"), sea)
+            form.addRow(tr("山地阈值"), mtn)
+            form.addRow("", walls_check)
+            btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            btns.accepted.connect(dlg.accept)
+            btns.rejected.connect(dlg.reject)
+            form.addRow(btns)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            big = TileMapModel(int(w_spin.value()), int(h_spin.value()), tile_size=model.tile_size)
+            for tid, tset in view._model.terrain_sets.items():
+                big.set_terrain(tid, tset)
+            big.base_terrain = view._model.base_terrain or 1
+            fids = sorted(t for t in big.terrain_sets if t != (big.base_terrain or 1))
+            kinds = generate_perlin_map(
+                big, seed=seed_edit.text().strip() or "pixelgifide",
+                sea_level=float(sea.value()), mountain_threshold=float(mtn.value()),
+                water_id=fids[0] if fids else (big.base_terrain or 1),
+                plain_id=big.base_terrain or 1,
+                mountain_id=fids[1] if len(fids) > 1 else None,
+            )
+            if walls_check.isChecked() and view._pieces:
+                scatter_walls(big, dict(view._pieces), kinds=kinds, every=11)
+            self._session.map_model = big
+            self._status.setText(tr("柏林噪声大地图已生成：{0}×{1} 格").format(big.width, big.height))
+            dlg2 = QDialog(dialog)
+            dlg2.setWindowTitle(tr("柏林噪声大地图预览（Ctrl+左键拖动平移 / 滚轮缩放）"))
+            dlg2.resize(1000, 720)
+            lay2 = QVBoxLayout(dlg2)
+            view2 = TilemapView(big, pieces=dict(view._pieces),
+                                terrain_labels=dict(view._terrain_labels))
+            lay2.addWidget(view2, 1)
+            ok = T(QPushButton(), "应用到会话")
+            row2 = QHBoxLayout(); row2.addStretch(1); row2.addWidget(ok)
+            lay2.addLayout(row2)
+            ok.clicked.connect(dlg2.accept)
+            if dlg2.exec() == QDialog.DialogCode.Accepted:
+                dialog.accept()
+            return
+
         row = QHBoxLayout()
+        pack_btn = T(QPushButton(), "添加瓦片包")
+        pack_btn.clicked.connect(_add_pack)
+        save_btn = T(QPushButton(), "保存瓦片包")
+        save_btn.clicked.connect(_save_pack)
+        big_btn = T(QPushButton(), "柏林噪声大地图")
+        big_btn.clicked.connect(_big_map)
+        row.addWidget(pack_btn)
+        row.addWidget(save_btn)
+        row.addWidget(big_btn)
         row.addStretch(1)
         close_btn = T(QPushButton(), "应用到会话")
         row.addWidget(close_btn)

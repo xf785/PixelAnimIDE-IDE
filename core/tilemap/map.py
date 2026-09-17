@@ -10,6 +10,7 @@ from PIL import Image
 from .autotile import (
     BIT,
     compose_art_tile,
+    compose_art_tile_cached,
     compose_tile,
     dual_grid_map,
     mask_for_terrain,
@@ -152,7 +153,7 @@ class TileMapModel:
                 tid = int(self.grid[y, x])
                 if not tid or tid not in self.terrain_sets:
                     continue
-                tile = compose_art_tile(self.terrain_sets[tid], self.mask(x, y), blend=1)
+                tile = compose_art_tile_cached(self.terrain_sets[tid], self.mask(x, y))
                 canvas.paste(tile, (x * s, y * s), tile)
         return canvas
 
