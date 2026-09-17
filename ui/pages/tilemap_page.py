@@ -37,6 +37,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from PIL import Image
+
 from config.settings import DEFAULT_OUTPUT_DIR
 from core.tilemap import TileMapModel
 from core.tilemap.pack import load_tilepack, pack_from_session, save_tilepack
@@ -460,8 +462,7 @@ class TilemapPage(QWidget):
             pieces = self._session.pieces["pieces"]
             names = list(pieces)
             s = self._session.params.tile_size
-            from PIL import Image
-
+            
             sheet = Image.new("RGBA", (s * len(names), s), (0, 0, 0, 0))
             for i, name in enumerate(names):
                 sheet.paste(pieces[name], (i * s, 0), pieces[name])
@@ -471,6 +472,21 @@ class TilemapPage(QWidget):
             caption = (
                 tr("47-tile（8×6）") if self._session.params.atlas_mode == "47" else tr("双网格（16 块）")
             )
+        if cat == "prop" and getattr(self._session, "props", None):
+            # 素材模式：把抠底后的素材横排展示（浅色底 + 棋盘格衬托透明区域）
+            props = list(self._session.props.items())
+            s = self._session.params.tile_size
+            sheet = Image.new("RGBA", (max(1, len(props)) * s, s), (0, 0, 0, 0))
+            bg = Image.new("RGBA", sheet.size, (236, 240, 246, 255))
+            for i in range(0, sheet.width, 8):
+                for j in range(0, sheet.height, 8):
+                    if (i // 8 + j // 8) % 2 == 0:
+                        bg.paste((214, 220, 228, 255), (i, j, min(i + 8, sheet.width), min(j + 8, sheet.height)))
+            for i, (_name, prop) in enumerate(props):
+                sheet.alpha_composite(prop.convert("RGBA"), (i * s, 0))
+            bg.alpha_composite(sheet)
+            sheet = bg
+            caption = tr("素材（已抠背景，共 {0} 个）").format(len(props))
         if sheet is None:
             return
         zoom = max(1, min(4, 1024 // max(sheet.size)))

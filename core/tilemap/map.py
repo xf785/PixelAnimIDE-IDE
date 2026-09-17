@@ -83,11 +83,17 @@ class TileMapModel:
         self.base_terrain = int(terrain_id)
 
     def set_overlay(
-        self, x: int, y: int, piece: Image.Image, rot: int = 0, name: Optional[str] = None
+        self, x: int, y: int, piece: Image.Image, rot: int = 0, name: Optional[str] = None,
+        scale: float = 1.0,
     ) -> None:
-        """在格子上叠放建筑拼件（name 用于序列化后按名称恢复）。"""
+        """在格子上叠放拼件/素材。
+
+        `scale` 为放置缩放（1.0 = 一格大小）；素材不都占一格，放大后以
+        **格子底部中心**为锚点向外扩张，因此始终「站」在该格地面上。
+        `name` 用于序列化后按名称恢复。
+        """
         if 0 <= x < self.width and 0 <= y < self.height:
-            self.overlay[(x, y)] = (piece, int(rot) % 4, name)
+            self.overlay[(x, y)] = (piece, int(rot) % 4, name, float(scale))
 
     def remove_overlay(self, x: int, y: int) -> None:
         self.overlay.pop((x, y), None)
@@ -188,9 +194,15 @@ class TileMapModel:
     def _paste_overlay(self, canvas: Image.Image) -> None:
         """把建筑 overlay 拼件按旋转叠放到画布上。"""
         s = self.tile_size
-        for (x, y), (piece, rot, _name) in self.overlay.items():
-            p = rotate_piece(piece, rot)
-            canvas.paste(p, (x * s, y * s), p)
+        for (x, y), item in self.overlay.items():
+            piece, rot = item[0], item[1]
+            scale = float(item[3]) if len(item) > 3 else 1.0
+            p = rotate_piece(piece, rot).convert("RGBA")
+            if abs(scale - 1.0) > 1e-3:
+                p = p.resize((max(1, int(round(p.width * scale))),
+                              max(1, int(round(p.height * scale)))), Image.Resampling.NEAREST)
+            # 底部中心锚点：放大的素材仍站在该格地面上
+            canvas.alpha_composite(p, (x * s + (s - p.width) // 2, y * s + s - p.height))
 
     def _render_terrains(self) -> Image.Image:
         """多地形艺术片渲染（overlay 由 render 统一叠加）。"""
@@ -264,9 +276,10 @@ class TileMapModel:
             data["wall_grid"] = self.wall_grid.astype(int).tolist()
         # 建筑 overlay：按拼件名 + 旋转序列化（恢复时用 pieces 注册表还原图像）
         overlays = [
-            {"x": x, "y": y, "piece": name, "rot": rot}
-            for (x, y), (_img, rot, name) in self.overlay.items()
-            if name
+            {"x": x, "y": y, "piece": item[2], "rot": item[1],
+             "scale": round(float(item[3]) if len(item) > 3 else 1.0, 3)}
+            for (x, y), item in self.overlay.items()
+            if item[2]
         ]
         if overlays:
             data["overlay"] = overlays
@@ -298,6 +311,7 @@ class TileMapModel:
                 model.set_overlay(
                     int(item.get("x", 0)), int(item.get("y", 0)),
                     pieces[name], int(item.get("rot", 0)), name=name,
+                    scale=float(item.get("scale", 1.0)),
                 )
         return model
 

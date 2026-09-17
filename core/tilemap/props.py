@@ -85,25 +85,23 @@ def build_prop_prompts(
 # --------------------------------------------------------------------------- #
 # 抠底与裁切
 # --------------------------------------------------------------------------- #
-def _border_color(arr: np.ndarray) -> np.ndarray:
-    """取四边像素的中位色作为背景色（比写死白/洋红稳）。"""
+def _border_color(arr: np.ndarray, patch: int = 6) -> np.ndarray:
+    """背景色估计：取**四角小块**的中位色（比整条边稳——物件压到边上也不会被带偏）。"""
     h, w = arr.shape[:2]
-    edge = np.concatenate([
-        arr[0, :, :3].reshape(-1, 3), arr[h - 1, :, :3].reshape(-1, 3),
-        arr[:, 0, :3].reshape(-1, 3), arr[:, w - 1, :3].reshape(-1, 3),
+    p = max(2, min(patch, h // 4, w // 4))
+    corners = np.concatenate([
+        arr[:p, :p, :3].reshape(-1, 3), arr[:p, w - p:, :3].reshape(-1, 3),
+        arr[h - p:, :p, :3].reshape(-1, 3), arr[h - p:, w - p:, :3].reshape(-1, 3),
     ], axis=0).astype(np.float32)
-    return np.median(edge, axis=0)
+    return np.median(corners, axis=0)
 
 
-def key_background(tile: Image.Image, tolerance: int = 38) -> Image.Image:
-    """抠背景：按四边中位色做 flood-fill 抠除（只删与边缘连通的背景，保留物件内部同色）。"""
-    rgba = tile.convert("RGBA")
-    arr = np.asarray(rgba).astype(np.int16)
-    bg_rgb = _border_color(np.asarray(rgba))
+def _flood_transparent(rgba: Image.Image, bg_rgb: np.ndarray, tolerance: float) -> Image.Image:
+    """把与图像边缘连通的、接近 bg_rgb 的像素变透明（不动物件内部的同色区域）。"""
+    arr = np.asarray(rgba.convert("RGBA")).astype(np.int16)
     dist = np.abs(arr[..., :3] - bg_rgb[None, None, :]).max(axis=2)
     near = dist <= tolerance
     h, w = near.shape
-    # 从四边洪泛：只有与边缘连通的背景像素才透明（避免挖空物件内部同色区域）
     mask = np.zeros((h, w), dtype=bool)
     stack = [(y, x) for y in (0, h - 1) for x in range(w) if near[y, x]]
     stack += [(y, x) for x in (0, w - 1) for y in range(h) if near[y, x]]
@@ -115,13 +113,51 @@ def key_background(tile: Image.Image, tolerance: int = 38) -> Image.Image:
             if 0 <= ny < h and 0 <= nx < w and near[ny, nx] and not mask[ny, nx]:
                 mask[ny, nx] = True
                 stack.append((ny, nx))
-    out = np.array(rgba)
+    out = np.array(rgba.convert("RGBA"))
     out[mask] = (0, 0, 0, 0)
-    # 硬边：alpha 只有 0/255（避免叠加到地块上出现灰边）
-    alpha = out[..., 3]
-    out[..., 3] = np.where(alpha >= 128, 255, 0).astype(np.uint8)
-    out[out[..., 3] == 0] = (0, 0, 0, 0)
     return Image.fromarray(out, "RGBA")
+
+
+def _harden_alpha(img: Image.Image) -> Image.Image:
+    """alpha 归一化到 0/255（像素画硬边；叠加到地块上不会出现灰边）。"""
+    arr = np.asarray(img.convert("RGBA")).copy()
+    alpha = arr[..., 3]
+    arr[..., 3] = np.where(alpha >= 128, 255, 0).astype(np.uint8)
+    arr[arr[..., 3] == 0] = (0, 0, 0, 0)
+    return Image.fromarray(arr, "RGBA")
+
+
+def key_background(
+    tile: Image.Image,
+    tolerance: float = 38,
+    max_opaque_ratio: float = 0.72,
+    tolerances: Sequence[float] = (38, 58, 84, 120),
+) -> Image.Image:
+    """抠除纯色背景（自动升级容差，保证「一定有背景被删掉」）。
+
+    1. 背景色取四角小块中位色；从图像四边**洪泛**，只删与边缘连通的同色像素
+       （物件内部同色区域不会被挖空）；
+    2. 容差从小到大自动重试：若抠完仍然「几乎整格不透明」，说明背景不是严格纯色
+       （AI 常见：轻微渐变/噪点），加大容差继续；
+    3. 最后仍然不透明（物件与背景同色、无法分离）时，做一次**全局**同色删除兜底，
+       宁可留下干净的剪影也不要整块底色。
+    """
+    rgba = tile.convert("RGBA")
+    bg_rgb = _border_color(np.asarray(rgba))
+    best: Optional[Image.Image] = None
+    for tol in tolerances:
+        keyed = _flood_transparent(rgba, bg_rgb, float(tol))
+        ratio = float((np.asarray(keyed)[..., 3] > 0).mean())
+        if best is None or ratio < float((np.asarray(best)[..., 3] > 0).mean()):
+            best = keyed
+        if ratio <= max_opaque_ratio:
+            return _harden_alpha(keyed)
+    # 兜底：全局删除接近背景色的像素
+    arr = np.asarray(rgba).astype(np.int16)
+    dist = np.abs(arr[..., :3] - bg_rgb[None, None, :]).max(axis=2)
+    out = np.array(rgba)
+    out[dist <= max(tolerances)] = (0, 0, 0, 0)
+    return _harden_alpha(Image.fromarray(out, "RGBA"))
 
 
 def trim_to_content(tile: Image.Image, pad: int = 0) -> Optional[Image.Image]:
@@ -172,9 +208,14 @@ def process_prop_sheet(
                 break
             cell = rgba.crop((c * cw, r * ch, (c + 1) * cw, (r + 1) * ch))
             keyed = key_background(cell, tolerance=tolerance)
-            if not (np.asarray(keyed)[..., 3] > 0).any():
+            alpha = np.asarray(keyed)[..., 3]
+            if not (alpha > 0).any():
                 idx += 1
                 continue                       # 空格子（AI 少画了）直接跳过
+            opaque = float((alpha > 0).mean())
+            if opaque > 0.85:
+                logger.warning("素材 %s 抠底后仍占 %.0f%% 格面积（背景可能与物件同色），已按剪影输出",
+                               names[idx], opaque * 100)
             props[str(names[idx])] = fit_to_tile(keyed, tile_size, bottom_align=bottom_align)
             idx += 1
     return props

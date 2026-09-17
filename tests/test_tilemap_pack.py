@@ -183,7 +183,7 @@ def test_scatter_walls_places_piece_family():
     placed = scatter_walls(model, pieces, kinds=kinds, every=11)
     assert placed > 0
     assert model.overlay, "应写入 overlay 层"
-    names = {name for (_piece, _rot, name) in model.overlay.values()}
+    names = {item[2] for item in model.overlay.values()}
     assert names, names
     # 用到的件必须来自 16 族（含门洞造成的端头/转角）
     from core.tilemap.walls import W16_SLOTS

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QCheckBox,
     QScrollArea,
+    QSpinBox,
 )
 
 from core.tilemap import TileMapModel
@@ -104,23 +105,29 @@ class TilemapView(QWidget):
             )
             self._toolbar.addWidget(self._terrain_combo)
         # 建筑拼件（overlay 层：选择 + 旋转）
+        # 拼件/素材画笔：**始终创建**（后加的瓦片包也能立即用），无拼件时禁用
         self._piece_combo = QComboBox()
         self._piece_combo.addItem(T(None, "（无拼件）"), None)
         for name in self._pieces:
             self._piece_combo.addItem(name, name)
+        self._piece_combo.currentIndexChanged.connect(self._on_piece_changed)
         self._rot_btn = T(QToolButton(), "旋转")
-        if self._pieces:
-            self._piece_combo.currentIndexChanged.connect(self._on_piece_changed)
-            self._rot_btn.clicked.connect(self._on_rotate)
-            self._toolbar.addWidget(self._piece_combo)
-            self._toolbar.addWidget(self._rot_btn)
+        self._rot_btn.clicked.connect(self._on_rotate)
+        self._scale_spin = QSpinBox()
+        self._scale_spin.setRange(25, 400)
+        self._scale_spin.setSingleStep(25)
+        self._scale_spin.setValue(100)
+        self._scale_spin.setSuffix(" %")
+        self._scale_spin.setToolTip(tr("放置缩放：素材不都占一格，放大后仍以格子底部中心为锚点"))
+        self._toolbar.addWidget(self._piece_combo)
+        self._toolbar.addWidget(self._rot_btn)
+        self._toolbar.addWidget(self._scale_spin)
         self._toolbar.addWidget(self._zoom_label)
 
         self._auto_wall_check = T(QCheckBox(), "自动墙")
         self._auto_wall_check.setToolTip(tr("开启后左键涂墙：按四邻域实时自动选 16-tile 件（无缝拼接）"))
         self._auto_wall_check.toggled.connect(self._on_auto_wall)
-        if any(n in self._pieces for n in ("nesw", "ns", "ew", "ne")):
-            self._toolbar.addWidget(self._auto_wall_check)
+        self._toolbar.addWidget(self._auto_wall_check)
         self._grid_check = T(QCheckBox(), "网格")
         self._grid_check.setChecked(True)
         self._grid_check.toggled.connect(self.set_grid_visible)
@@ -143,6 +150,7 @@ class TilemapView(QWidget):
         self._panning = False
         self._pan_origin = QPoint(0, 0)
         self._pan_scroll = (0, 0)
+        self._refresh_toolbar()
         self._rebuild()
 
     # ------------------------------------------------------------------ #
@@ -203,6 +211,12 @@ class TilemapView(QWidget):
         for name in self._pieces:
             self._piece_combo.addItem(name, name)
         self._piece_combo.blockSignals(False)
+        has_pieces = bool(self._pieces)
+        self._piece_combo.setEnabled(has_pieces)
+        self._rot_btn.setEnabled(has_pieces)
+        self._scale_spin.setEnabled(has_pieces)
+        self._auto_wall_check.setEnabled(bool(self._wall_pieces()))
+        self._terrain_combo.setEnabled(bool(self._terrain_labels))
 
     def _set_erase(self, erase: bool) -> None:
         self._erase = erase
@@ -304,7 +318,8 @@ class TilemapView(QWidget):
         elif self._current_piece:
             piece = self._pieces.get(self._current_piece)
             if piece is not None:
-                self._model.set_overlay(cell[0], cell[1], piece, self._piece_rot)
+                scale = self._scale_spin.value() / 100.0 if hasattr(self, "_scale_spin") else 1.0
+                self._model.set_overlay(cell[0], cell[1], piece, self._piece_rot, scale=scale)
         else:
             self._model.set_cell(cell[0], cell[1], self._paint_terrain)
         self._rebuild()

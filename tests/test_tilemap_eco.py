@@ -713,7 +713,7 @@ def test_overlay_serialization_and_overlay_only_render():
     piece = Image.new("RGBA", (S, S), (255, 0, 0, 255))
     model.set_overlay(1, 1, piece, rot=1, name="straight")
     data = model.to_dict()
-    assert data["overlay"] == [{"x": 1, "y": 1, "piece": "straight", "rot": 1}]
+    assert data["overlay"] == [{"x": 1, "y": 1, "piece": "straight", "rot": 1, "scale": 1.0}]
     # 无 center、无地形：仍应渲染出 overlay（修复前 overlay 被丢弃 → 全透明）
     img = np.asarray(model.render())
     assert img[S + S // 2, S + S // 2, 3] == 255
@@ -721,3 +721,30 @@ def test_overlay_serialization_and_overlay_only_render():
     restored = TileMapModel.from_dict(data, pieces={"straight": piece})
     assert (1, 1) in restored.overlay
     assert np.asarray(restored.render())[S + S // 2, S + S // 2, 3] == 255
+
+
+def test_overlay_scale_spans_multiple_tiles():
+    """素材不都占一格：放置缩放以格子底部中心为锚点，并能序列化恢复。"""
+    model = TileMapModel(4, 3, tile_size=S)
+    model.set_cell(1, 1, 1)
+    piece = Image.new("RGBA", (S, S), (255, 0, 0, 255))
+    model.set_overlay(1, 1, piece, 0, name="tree", scale=2.0)
+    img = np.asarray(model.render())
+    # 2 倍大小 => 覆盖 2x2 格，且底部与锚点格底边对齐
+    assert img[2 * S - 1, S, :3].tolist() == [255, 0, 0]
+    assert img[S + 1, S - 1, :3].tolist() == [255, 0, 0]      # 向左上扩张
+    assert img[0, 0, 3] == 0                                   # 2×2 覆盖范围之外仍透明
+    assert img[S - 1, S - 1, 3] == 255                         # 向左上扩张到锚点格左上
+    data = model.to_dict()
+    assert data["overlay"][0]["scale"] == 2.0
+    restored = TileMapModel.from_dict(data, pieces={"tree": piece})
+    assert (np.asarray(restored.render()) == img).all()
+    # 缩小的素材同样以底部中心为锚点
+    small = TileMapModel(4, 3, tile_size=S)
+    small.set_cell(1, 1, 1)
+    small.set_overlay(1, 1, piece, 0, name="tree", scale=0.5)
+    arr = np.asarray(small.render())
+    ys, xs = np.nonzero(arr[..., 0] > 200)
+    assert ys.max() == 2 * S - 1, "缩小后仍应底部对齐锚点格底边"
+    center = (int(xs.min()) + int(xs.max())) / 2
+    assert abs(center - (S + S // 2)) <= 1.5, f"应水平居中于锚点格：{center}"

@@ -88,6 +88,7 @@ LANG_PACKS: dict = {
     "开启后左键涂墙：按四邻域实时自动选 16-tile 件（无缝拼接）": "Left-drag to paint walls: the 16-tile piece is chosen automatically from the four neighbours (seamless stitching)",
     "素材（道具）": "Props / assets",
     "素材名称": "Asset name",
+    "素材（已抠背景，共 {0} 个）": "Props (background keyed, {0} total)",
     "例如：一棵松树、一丛野花、一块石头……（单个素材描述）": "e.g. a pine tree, a clump of wild flowers, a rock… (one prop per sheet)",
     "变体数": "Variants",
     "素材提示词已生成（{0} 个变体，{1}×{2} 格，单格 {3}px）": "Prop prompts ready ({0} variants, {1}x{2} cells, {3}px per cell)",

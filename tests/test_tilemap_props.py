@@ -108,3 +108,49 @@ def test_prop_workflow_end_to_end(tmp_path):
     for img in session.props.values():
         alpha = np.asarray(img)[..., 3]
         assert set(np.unique(alpha).tolist()) <= {0, 255}
+
+
+def _prop_sheet_custom(bg, noise=0, touch_top=False, cell=64, rows=2, cols=2):
+    img = Image.new("RGB", (cols * cell, rows * cell), bg)
+    d = ImageDraw.Draw(img)
+    if noise:
+        rng = np.random.default_rng(7)
+        a = np.asarray(img).astype(int)
+        a = np.clip(a + rng.integers(-noise, noise + 1, a.shape), 0, 255).astype(np.uint8)
+        img = Image.fromarray(a, "RGB")
+        d = ImageDraw.Draw(img)
+    for r in range(rows):
+        for c in range(cols):
+            x0, y0 = c * cell, r * cell
+            top = y0 + (0 if touch_top else 8)
+            d.polygon([(x0 + cell // 2, top), (x0 + cell // 2 - 16, y0 + 40),
+                       (x0 + cell // 2 + 16, y0 + 40)], fill=(60, 140, 70))
+            d.rectangle((x0 + cell // 2 - 4, y0 + 40, x0 + cell // 2 + 4, y0 + 56), fill=(110, 80, 50))
+    return img
+
+
+@pytest.mark.parametrize("kw", [
+    dict(bg=(255, 255, 255)),
+    dict(bg=(255, 0, 255)),
+    dict(bg=(255, 255, 255), noise=12),           # AI 常见的「接近纯色但有噪点」
+    dict(bg=(255, 255, 255), touch_top=True),     # 物件压到格子边缘
+])
+def test_key_background_handles_noisy_and_stubborn_backgrounds(kw):
+    """抠底后每格只应剩下物件本体（不透明占比明显小于半格）。"""
+    props = process_prop_sheet(_prop_sheet_custom(**kw), 2, 2, prop_names("tree", 4), tile_size=S)
+    assert len(props) == 4
+    for name, img in props.items():
+        alpha = np.asarray(img)[..., 3]
+        ratio = float((alpha > 0).mean())
+        assert ratio < 0.6, f"{name} 抠底不干净：不透明占比 {ratio:.2f}"
+        assert set(np.unique(alpha).tolist()) <= {0, 255}
+
+
+def test_key_background_global_fallback_when_object_matches_background():
+    """背景与物件几乎同色时也不能留下一整块底色（全局兜底）。"""
+    img = Image.new("RGB", (64, 64), (250, 250, 250))
+    d = ImageDraw.Draw(img)
+    d.rectangle((8, 8, 56, 56), fill=(248, 248, 248))     # 只差 2 的「物件」
+    keyed = key_background(img)
+    ratio = float((np.asarray(keyed)[..., 3] > 0).mean())
+    assert ratio < 0.95, f"仍未抠净：{ratio:.2f}"

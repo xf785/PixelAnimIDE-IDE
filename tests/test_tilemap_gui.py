@@ -189,3 +189,34 @@ def test_page_category_and_multiterrain_view(qtbot, ctx, tmp_path):
     bview._piece_combo.setCurrentIndex(1)   # straight
     bview._paint_cell(QPoint(2 * 32 * bview._zoom + 2, 2 * 32 * bview._zoom + 2))
     assert (2, 2) in bview.model().overlay
+
+
+def test_view_accepts_pack_added_later_with_scale(qtbot, ctx, tmp_path):
+    """预览里后加的瓦片包立即可用（拼件画笔/缩放/自动墙），缩放在放置时生效。"""
+    from PIL import Image
+
+    from core.tilemap import TileMapModel
+    from core.tilemap.pack import TilePack
+    from core.tilemap.walls import build_piece_set, wall_art_from_sheet
+    from core.tilemap.tiles import BaseTileSet, BuildingSheet
+    from ui.widgets.tilemap_view import TilemapView
+
+    model = TileMapModel(6, 4, tile_size=32)
+    model.set_cell(0, 0, 1)
+    view = TilemapView(model)
+    qtbot.addWidget(view)
+    assert not view._piece_combo.isEnabled()
+
+    wall = BaseTileSet(size=32, center=Image.new("RGBA", (32, 32), (150, 140, 128, 255)),
+                       edges={}, corners={})
+    art = wall_art_from_sheet(BuildingSheet(wall=wall, top=wall, opening=wall, pillar=wall))
+    pack = TilePack(name="墙包", category="building", tile_size=32, pieces=build_piece_set(art),
+                    wall_art=art)
+    view.add_pack(pack)
+    assert view._piece_combo.isEnabled() and view._piece_combo.count() > 1
+    assert view._auto_wall_check.isEnabled()
+    view._scale_spin.setValue(200)
+    view._piece_combo.setCurrentIndex(1)
+    view._paint_cell(__import__("PySide6.QtCore", fromlist=["QPoint"]).QPoint(32, 0))
+    item = next(iter(model.overlay.values()))
+    assert item[3] == 2.0, item
