@@ -175,7 +175,8 @@ class TilemapPage(QWidget):
 
         self._map_src_label = T(QLabel(), "演示地图来源")
         self._map_src_combo = QComboBox()
-        self._map_src_combo.addItem(T(None, "手绘示例"), "hand")
+        self._map_src_combo.addItem(T(None, "展示地形（覆盖 47 类）"), "showcase")
+        self._map_src_combo.addItem(T(None, "铺满示例"), "filled")
         self._map_src_combo.addItem(T(None, "程序化地形（FrameRonin）"), "procedural")
         f.addRow(self._map_src_label, self._map_src_combo)
 

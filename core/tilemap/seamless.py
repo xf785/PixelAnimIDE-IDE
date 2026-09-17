@@ -379,6 +379,89 @@ def measure_terrain_art(
     }
 
 
+def measure_edge_profile(
+    edges: Dict[str, Image.Image],
+    band_px: int,
+    ground_rgb: np.ndarray,
+    feat_rgb: np.ndarray,
+    max_outline: int = 5,
+    max_bevel: int = 3,
+) -> Dict:
+    """实测「边界剖面」：地面侧的**分层描边色调** + 特征侧的**倒角色调**。
+
+    手绘 47 图块之所以耐看，关键在边界不是一条平色线，而是由外向内的一组层次：
+    地面 → 描边暗色（可能 2~3 阶）→ 特征边的高光/暗部 → 特征纹理。这里把这组层次
+    从 AI 的边格上量出来（每一「离边界距离」取四侧三格的中位色），渲染时按
+    **到边界的像素距离**上色 —— 因此圆弧转角、直边、内凹角都自动得到等宽的层次，
+    相邻瓦片的共享边依旧逐像素一致（层次只依赖距离）。
+
+    返回 {"outline": [(rgb), ...]（下标 0 = 紧贴特征的一圈）,
+          "bevel": [(rgb), ...]（下标 0 = 紧贴边界的一圈特征侧）,
+          "outline_px": int, "bevel_px": int}
+    """
+    ground_rgb = np.asarray(ground_rgb, dtype=np.float32)
+    feat_rgb = np.asarray(feat_rgb, dtype=np.float32)
+    ground_lum = float(0.299 * ground_rgb[0] + 0.587 * ground_rgb[1] + 0.114 * ground_rgb[2])
+    feat_lum = float(0.299 * feat_rgb[0] + 0.587 * feat_rgb[1] + 0.114 * feat_rgb[2])
+    band = max(1, int(band_px))
+    outline_samples: List[List[np.ndarray]] = [[] for _ in range(max_outline)]
+    bevel_samples: List[List[np.ndarray]] = [[] for _ in range(max_bevel)]
+
+    def profiles(arr: np.ndarray, side: str):
+        h, w = arr.shape[:2]
+        if side == "top":
+            return [arr[:, x] for x in range(w)]
+        if side == "bottom":
+            return [arr[::-1, x] for x in range(w)]
+        if side == "left":
+            return [arr[y, :] for y in range(h)]
+        return [arr[y, ::-1] for y in range(h)]
+
+    for name in ("top", "bottom", "left", "right"):
+        tile = edges.get(name)
+        if tile is None:
+            continue
+        arr = np.asarray(tile.convert("RGB"), dtype=np.float32)
+        for prof in profiles(arr, name):
+            for k in range(1, max_outline + 1):
+                i = band - k                      # 地面侧：距边界 k 像素
+                if 0 <= i < prof.shape[0]:
+                    outline_samples[k - 1].append(prof[i])
+            for j in range(1, max_bevel + 1):
+                i = band - 1 + j                  # 特征侧：距边界 j 像素
+                if 0 <= i < prof.shape[0]:
+                    bevel_samples[j - 1].append(prof[i])
+
+    outline: List[Tuple[int, int, int]] = []
+    for samples in outline_samples:
+        if not samples:
+            break
+        tone = np.median(np.stack(samples, axis=0), axis=0)
+        lum = float(0.299 * tone[0] + 0.587 * tone[1] + 0.114 * tone[2])
+        if outline and lum > ground_lum * 0.94:
+            break                             # 已经回到地面亮度 -> 描边到此为止
+        if not outline and lum > ground_lum * 0.88:
+            break                             # 第一圈就不暗 -> 该底图没有描边
+        outline.append(tuple(int(c) for c in tone))
+
+    bevel: List[Tuple[int, int, int]] = []
+    for samples in bevel_samples:
+        if not samples:
+            break
+        tone = np.median(np.stack(samples, axis=0), axis=0)
+        lum = float(0.299 * tone[0] + 0.587 * tone[1] + 0.114 * tone[2])
+        if abs(lum - feat_lum) < 4.0:
+            break                             # 与特征纹理一致 -> 没有倒角
+        bevel.append(tuple(int(c) for c in tone))
+    return {"outline": outline, "bevel": bevel, "outline_px": len(outline), "bevel_px": len(bevel)}
+
+
+def _resized_edges(base: BaseTileSet, tile_size: int) -> Dict[str, Image.Image]:
+    from .tiles import resize_tile
+
+    return {n: resize_tile(base.edges[n], int(tile_size)) for n in EDGE_NAMES if n in base.edges}
+
+
 def align_terrain_set(
     base: BaseTileSet,
     base_texture: Optional[Image.Image] = None,
@@ -402,33 +485,65 @@ def align_terrain_set(
     texture = make_tile_texture(base.center, tile_size, max_colors=max_colors)
     if plain:
         darkest = _darkest_color(texture)
+        band_px = max(2, tile_size // 4)
+        soft = tuple(
+            int(c) for c in (np.asarray(darkest, np.float32) * 0.35 + np.asarray(texture.convert("RGB").getpixel((0, 0)), np.float32) * 0.65)
+        )
         return BaseTileSet(
             size=texture.size[0],
             center=texture,
             edges={n: texture for n in EDGE_NAMES},
             corners={n: texture for n in ("tl", "tr", "bl", "br")},
             line_color=darkest,
-            line_width=max(1, tile_size // 16),
-            band=max(2, tile_size // 4),
-            radius=max(2, tile_size // 4),
+            line_width=2,
+            band=band_px,
+            radius=band_px,
             base_texture=(base_texture or texture),
-            art_meta={"band_px": max(2, tile_size // 4), "rim_px": max(1, tile_size // 16),
-                      "plain": True, "tile_size": tile_size},
+            art_meta={"band_px": band_px, "rim_px": 2, "plain": True, "tile_size": tile_size,
+                      "outline": [list(darkest), list(soft)], "bevel": [],
+                      "outline_px": 2, "bevel_px": 0},
         )
     measured = measure_terrain_art(base, ground_rgb=ground_rgb)
     band = max(1, min(tile_size // 2, int(round(measured["band_frac"] * tile_size))))
-    rim_w = max(1, min(max(1, tile_size // 8), int(round(measured["rim_frac"] * tile_size))))
+    # 目标尺度上实测边界剖面（描边分层色调 + 特征侧倒角），渲染时按「到边界的距离」上色
+    profile = measure_edge_profile(
+        _resized_edges(base, tile_size),
+        band,
+        ground_rgb=np.asarray(
+            ground_rgb if ground_rgb is not None else measured["ground_rgb"], dtype=np.float32
+        ),
+        feat_rgb=np.asarray(measured["feature_rgb"], dtype=np.float32),
+    )
+    outline = list(profile["outline"])
+    if not outline:                     # 底图没有明显描边 -> 用「实测描边色 + 过渡色」两层兜底
+        lc = np.asarray(measured["rim_rgb"], dtype=np.float32)
+        gc = np.asarray(measured["ground_rgb"], dtype=np.float32)
+        outline = [
+            tuple(int(c) for c in lc),
+            tuple(int(c) for c in (lc * 0.35 + gc * 0.65)),
+        ]
+    outline = outline[: max(1, band - 1)]
+    bevel = list(profile["bevel"])
     return BaseTileSet(
         size=texture.size[0],
         center=texture,
         edges={n: texture for n in EDGE_NAMES},
         corners={n: texture for n in ("tl", "tr", "bl", "br")},
-        line_color=measured["rim_rgb"],
-        line_width=rim_w,
+        line_color=outline[0],
+        line_width=len(outline),
         band=band,
         radius=band,
         base_texture=(base_texture or texture),
-        art_meta=dict(measured, band_px=band, rim_px=rim_w, tile_size=tile_size),
+        art_meta=dict(
+            measured,
+            band_px=band,
+            rim_px=len(outline),
+            tile_size=tile_size,
+            outline=[list(c) for c in outline],
+            bevel=[list(c) for c in bevel],
+            outline_px=len(outline),
+            bevel_px=len(bevel),
+        ),
     )
 
 

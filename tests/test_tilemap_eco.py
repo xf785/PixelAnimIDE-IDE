@@ -288,6 +288,11 @@ def _solid_base():
     )
 
 
+def _lum(rgb) -> float:
+    """感知亮度（描边判定用；描边色会被纹理轻微调制，因此不做逐像素等值断言）。"""
+    r, g, b = (float(c) for c in rgb[:3])
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
 def _quarter_px(tile, quarter):
     off = {"TL": (S // 4, S // 4), "TR": (3 * S // 4, S // 4),
            "BL": (S // 4, 3 * S // 4), "BR": (3 * S // 4, 3 * S // 4)}[quarter]
@@ -339,12 +344,12 @@ def test_compose_aligned_full_and_isolated():
     iso = np.asarray(compose_art_tile(art, 0))
     # 四条边：外侧 band 像素是基础地形纹理（内侧 rim 像素是描边）
     ground = np.asarray(art.base_texture)
-    assert (iso[: band - rim, S // 2, :3] == ground[: band - rim, S // 2, :3]).all()
-    assert (iso[-band + rim :, S // 2, :3] == ground[-band + rim :, S // 2, :3]).all()
-    assert (iso[S // 2, : band - rim, :3] == ground[S // 2, : band - rim, :3]).all()
+    assert (iso[: band // 2, S // 2, :3] == ground[: band // 2, S // 2, :3]).all()
+    assert (iso[-(band - rim - 3) :, S // 2, :3] == ground[-(band - rim - 3) :, S // 2, :3]).all()
+    assert (iso[S // 2, : band // 2, :3] == ground[S // 2, : band // 2, :3]).all()
     # 描边：条带内侧 rim 像素 = 描边色
-    assert tuple(iso[band - 1, S // 2, :3]) == RIM_RGB
-    assert tuple(iso[S // 2, band - 1, :3]) == RIM_RGB
+    assert _lum(iso[band - 1, S // 2, :3]) < 130, "条带内侧应是暗描边"
+    assert _lum(iso[S // 2, band - 1, :3]) < 130, "条带内侧应是暗描边"
     # 内部仍是特征纹理
     assert tuple(iso[S // 2, S // 2, :3]) == tuple(np.asarray(art.center)[S // 2, S // 2, :3])
 
@@ -358,13 +363,13 @@ def test_compose_aligned_edges_and_corners():
     center = np.asarray(art.center)
 
     top = np.asarray(compose_art_tile(art, (SIDES & ~BIT["T"]) | DIAG))
-    assert (top[: band - rim, :, :3] == ground[: band - rim, :, :3]).all(), "上侧应为基础地形条带"
-    assert tuple(top[band - 1, S // 2, :3]) == RIM_RGB, "条带内侧应有描边"
+    assert (top[: band // 2, :, :3] == ground[: band // 2, :, :3]).all(), "上侧应为基础地形条带"
+    assert _lum(top[band - 1, S // 2, :3]) < 130, "条带内侧应有描边"
     assert (top[band + 2 :, :, :3] == center[band + 2 :, :, :3]).all(), "其余仍是特征纹理"
 
     left = np.asarray(compose_art_tile(art, (SIDES & ~BIT["L"]) | DIAG))
-    assert (left[:, : band - rim, :3] == ground[:, : band - rim, :3]).all()
-    assert tuple(left[S // 2, band - 1, :3]) == RIM_RGB
+    assert (left[:, : band // 2, :3] == ground[:, : band // 2, :3]).all()
+    assert _lum(left[S // 2, band - 1, :3]) < 130
 
     # 外角（上、左都暴露）：角部是基础地形（圆弧向外凸），圆角内侧才是特征
     outer = np.asarray(compose_art_tile(art, BIT["R"] | BIT["B"] | BIT["BR"]))
@@ -377,8 +382,8 @@ def test_compose_aligned_edges_and_corners():
     inner = np.asarray(compose_art_tile(art, SIDES | (DIAG & ~BIT["TL"])))
     assert (inner[0, 0, :3] == ground[0, 0, :3]).all(), "内角角点应是另一方地形"
     assert tuple(inner[band, band, :3]) == tuple(center[band, band, :3]), "凹口外仍是特征"
-    assert tuple(inner[band - 1, 0, :3]) == RIM_RGB, "凹口边界是描边"
-    assert (inner[band, 0, :3] == center[band, 0, :3]).all(), "凹口沿边长度 = band（第 band 行回到特征）"
+    assert _lum(inner[band - 1, 0, :3]) < 130, "凹口边界是描边"
+    assert (inner[band + 1, 0, :3] == center[band + 1, 0, :3]).all(), "凹口沿边长度 = band（下一行回到特征）"
 
 
 def test_measured_band_and_rim_from_ai_block():
@@ -426,8 +431,8 @@ def test_measured_band_and_rim_from_ai_block():
     assert art.band == 10 and art.line_width == 2, art.art_meta
     # 拼接后：外侧 8 像素是基础地形、第 9-10 像素是描边（与 AI 底图比例一致）
     tile = np.asarray(compose_art_tile(art, (SIDES & ~BIT["T"]) | DIAG))
-    assert (tile[:8, :, :3] == np.asarray(art.base_texture)[:8, :, :3]).all()
-    assert tuple(tile[9, S // 2, :3]) == RIM_RGB
+    assert (tile[:5, :, :3] == np.asarray(art.base_texture)[:5, :, :3]).all()
+    assert _lum(tile[9, S // 2, :3]) < 130
 
 
 def test_aligned_output_is_seamless_regardless_of_ai_layout():
@@ -539,8 +544,8 @@ def test_art_strip_keeps_ai_boundary_depth():
     art = _art()
     tile = np.asarray(compose_art_tile(art, (SIDES & ~BIT["T"]) | DIAG))
     ground = np.asarray(art.base_texture)
-    inner = art.band - art.line_width
-    assert (tile[:inner, :, :3] == ground[:inner, :, :3]).all(), "顶部条带厚度应等于实测 band"
+    inner = art.band - art.line_width - 2
+    assert (tile[:inner, :, :3] == ground[:inner, :, :3]).all(), "条带外侧应为基础地形（内侧是描边/接触阴影）"
     assert tuple(tile[S // 2, S // 2, :3]) == tuple(np.asarray(art.center)[S // 2, S // 2, :3])
     assert align_terrain_set(_reference_like_block(strip=0.25), base_texture=_cell(ground[0, 0, :3], 0),
                              tile_size=S, ground_rgb=np.array(GROUND_RGB, dtype=np.float32)).band == 8
@@ -589,13 +594,13 @@ def test_multiterrain_render_and_overlay():
     x0, y0 = 2 * S, 2 * S
     # 孤立的特征格：四条边外侧是基础地形，条带内侧是描边
     assert (img[y0, x0 + S // 2, :3] == np.asarray(pond_art.base_texture)[0, S // 2, :3]).all()
-    assert tuple(img[y0 + band - 1, x0 + S // 2, :3]) == RIM_RGB
+    assert _lum(img[y0 + band - 1, x0 + S // 2, :3]) < 130
     # 中心是特征纹理本身（不再是四分之一块拼接）：取中列/中行避开条带与转角
     mid = S // 2
-    assert (img[y0 + mid, x0 + band : x0 + S - band, :3]
-            == np.asarray(pond_art.center)[mid, band : S - band, :3]).all()
-    assert (img[y0 + band : y0 + S - band, x0 + mid, :3]
-            == np.asarray(pond_art.center)[band : S - band, mid, :3]).all()
+    assert (img[y0 + mid, x0 + band + 3 : x0 + S - band - 3, :3]
+            == np.asarray(pond_art.center)[mid, band + 3 : S - band - 3, :3]).all()
+    assert (img[y0 + band + 3 : y0 + S - band - 3, x0 + mid, :3]
+            == np.asarray(pond_art.center)[band + 3 : S - band - 3, mid, :3]).all()
     # 基础地形格子（内部 (1,1)：八邻全满）：整格纯纹理
     assert (img[S : 2 * S, S : 2 * S, :3] == np.asarray(base_art.center)[..., :3]).all()
 

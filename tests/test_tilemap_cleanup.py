@@ -286,7 +286,7 @@ def test_aligned_band_comes_from_measured_ai_layout():
     diag = BIT["TL"] | BIT["TR"] | BIT["BL"] | BIT["BR"]
     sides = BIT["T"] | BIT["B"] | BIT["L"] | BIT["R"]
     tile = np.asarray(compose_art_tile(art, (sides & ~BIT["T"]) | diag))
-    assert (tile[:8, :, :3] == np.asarray(art.base_texture)[:8, :, :3]).all()
+    assert (tile[:5, :, :3] == np.asarray(art.base_texture)[:5, :, :3]).all()
     assert tuple(tile[9, S // 2, :3]) == RIM_C
 
 

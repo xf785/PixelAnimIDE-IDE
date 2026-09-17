@@ -581,9 +581,13 @@ def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
         ground_img = ground_img.resize((s, s), Image.Resampling.NEAREST)
     ground = np.asarray(ground_img.convert("RGBA"))
     band = int(base.band or 0) or max(2, s // 4)
-    band = max(1, min(s // 2, band))
+    core_min = max(4, s // 5)                     # 细条/单行瓦片至少要留下的地形核心宽度
+    band = max(1, min(s // 2, band, max(1, (s - core_min) // 2)))
     radius = int(base.radius or 0) or band
-    radius = max(1, min(band, radius))
+    # 圆弧半径必须等于条带宽度：此时弧与两侧直边相切于 (band+radius, band) 且
+    # 圆盘边界正好落在 y=band，条带沿整条边**深度恒为 band**；一旦加大半径，
+    # 圆弧会在边的中段凸出 1px（条带变深），反而破坏共享边一致性。
+    radius = max(1, min(radius, band, max(1, s - band - 2)))
     rim_w = max(0, min(int(base.line_width or 0), max(1, band - 1)))
 
     ys, xs = np.mgrid[0:s, 0:s]
@@ -621,17 +625,93 @@ def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
             band_mask |= (xs - cx) ** 2 + (ys - cy) ** 2 <= r_pocket * r_pocket
 
     base_px = ground.copy()
-    rim_px = np.array([int(base.line_color[0]), int(base.line_color[1]), int(base.line_color[2]), 255], dtype=np.uint8)
-    if rim_w > 0:
-        # 描边 = 边界偏移带：圆盘膨胀保证任意方向等宽（方形膨胀在对角/圆弧方向会
-        # 多出 √2 倍宽度，转角处比相邻瓦片多 1-2 像素）。
-        rim_mask = band_mask & _disc_dilate(~band_mask, rim_w)
-    else:
-        rim_mask = np.zeros((s, s), dtype=bool)
+    meta = dict(getattr(base, "art_meta", {}) or {})
+    outline = [tuple(int(c) for c in t) for t in (meta.get("outline") or [])]
+    bevel = [tuple(int(c) for c in t) for t in (meta.get("bevel") or [])]
+    if not outline:
+        outline = [tuple(int(c) for c in base.line_color)]
+    outline = outline[: max(1, band - 1)]
+    bevel = bevel[:2]
 
+    def _depth_from(mask: np.ndarray, max_depth: int) -> np.ndarray:
+        """离 mask 区域的距离（1 = 紧邻），用于等宽分层上色。"""
+        depth = np.zeros(mask.shape, dtype=np.int16)
+        grown = mask.copy()
+        for k in range(1, max_depth + 1):
+            prev = grown
+            grown = _disc_dilate(prev, 1)
+            depth[grown & ~prev] = k
+        return depth
+
+    def _box_mean(mask: np.ndarray, r: int) -> np.ndarray:
+        """3×3/5×5 局部占空比（边界法线方向用）。"""
+        m = mask.astype(np.float32)
+        pad = np.pad(m, r, mode="edge")
+        acc = np.zeros_like(m)
+        for dy in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                acc += pad[r + dy:r + dy + m.shape[0], r + dx:r + dx + m.shape[1]]
+        return acc / ((2 * r + 1) ** 2)
+
+    def _shift(arr: np.ndarray, dy: int, dx: int) -> np.ndarray:
+        return np.roll(np.roll(arr, dy, axis=0), dx, axis=1)
+
+    # 描边层次：实测色调若过于单一，补一层「向地面过渡」的柔和外圈，
+    # 避免出现一条生硬的等宽黑线（手绘 47 图块的边界通常有明暗过渡）。
+    header = outline[0] if outline else tuple(int(c) for c in base.line_color)
+    if len(outline) >= 2 and len({tuple(t) for t in outline}) == 1 and band >= 6:
+        soft = tuple(int(c) for c in (np.asarray(header, np.float32) * 0.45 +
+                                     np.asarray(meta.get("ground_rgb", ground[0, 0, :3]), np.float32) * 0.55))
+        outline = [header, soft]
+    elif len(outline) == 1 and band >= 6:
+        soft = tuple(int(c) for c in (np.asarray(header, np.float32) * 0.45 +
+                                     np.asarray(meta.get("ground_rgb", ground[0, 0, :3]), np.float32) * 0.55))
+        outline = [header, soft]
+
+    feature_mask = ~band_mask
+    # 地面侧：离地形的距离 1..N 依次上实测的描边层次；更外侧叠加轻微接触阴影，
+    # 让地形「坐」在地面上（手绘 47 图块的层次感主要来自这里）。
+    ground_depth = _depth_from(feature_mask, len(outline) + 1)
+    # 描边像素用特征纹理的明暗做轻微调制 -> 边界自带颗粒感，而不是一条纯色带
+    feat_lum = 0.299 * feat[..., 0] + 0.587 * feat[..., 1] + 0.114 * feat[..., 2]
+    base_lum = float(np.mean(feat_lum)) or 1.0
+    var = np.clip((feat_lum - base_lum) / (base_lum + 1e-6), -1.0, 1.0)[..., None]
+    for k, tone in enumerate(outline, start=1):
+        ring = ground_depth == k
+        if not ring.any():
+            continue
+        col = np.asarray(tone, dtype=np.float32)[None, :] * (1.0 + 0.14 * var[ring])
+        base_px[ring, :3] = np.clip(col, 0, 255).astype(np.uint8)
+    shadow_ring = ground_depth == len(outline) + 1
+    if shadow_ring.any():
+        base_px[shadow_ring, :3] = np.clip(
+            base_px[shadow_ring, :3].astype(np.float32) * 0.93, 0, 255
+        ).astype(np.uint8)
+
+    # 特征侧：距边界 1..M 的倒角。有实测色调就用实测；否则用「方向性倒角」——
+    # 光照取左上，边界朝左上的一圈提亮、朝右下的一圈压暗（像素画经典斜角），
+    # 这条环完全在地形内部，不影响共享边像素（共享边在条带外侧）。
     out = feat.copy()
+    if bevel:
+        feat_depth = _depth_from(band_mask, len(bevel))
+        for j, tone in enumerate(bevel, start=1):
+            ring = feat_depth == j
+            if not ring.any():
+                continue
+            col = np.asarray(tone, dtype=np.float32)[None, :] * (1.0 + 0.14 * var[ring])
+            out[ring, :3] = np.clip(col, 0, 255).astype(np.uint8)
+    else:
+        occ = _box_mean(band_mask, 1)
+        delta = _shift(occ, 1, 1) - _shift(occ, -1, -1)      # 正 = 地面在左上
+        ring = _depth_from(band_mask, 2) >= 1
+        lit = ring & (delta > 0.05)
+        dark = ring & (delta < -0.05)
+        if lit.any():
+            out[lit, :3] = np.clip(out[lit, :3].astype(np.float32) * (1.0 + 0.22 * delta[lit, None]), 0, 255).astype(np.uint8)
+        if dark.any():
+            out[dark, :3] = np.clip(out[dark, :3].astype(np.float32) * (1.0 + 0.22 * delta[dark, None]), 0, 255).astype(np.uint8)
+
     out[band_mask] = base_px[band_mask]
-    out[rim_mask] = rim_px
     out[..., 3] = 255  # 地块瓦片一律不透明（无透明楔形/空边）
     return Image.fromarray(out, "RGBA")
 

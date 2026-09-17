@@ -104,7 +104,7 @@ class TilemapParams:
     tile_size: int = 32              # 目标单格像素（偶数）
     sheet_size: int = 768            # 生图请求边长（3 格总边长）
     atlas_mode: str = "47"           # "47" | "dual" | "blob47"（FrameRonin 3×24 布局）| "tile16"
-    map_source: str = "hand"         # 演示地图来源："hand" 手绘示例 | "procedural"（FrameRonin 程序化地形）
+    map_source: str = "showcase"     # 演示地图："showcase" 覆盖 47 类 | "filled" 铺满 | "procedural" 程序化地形
     sea_level: float = 0.38          # 程序化地形：海平面（FrameRonin 原值 0.42，演示取更均衡的 0.38）
     mountain_threshold: float = 0.55  # 程序化地形：山地阈值（FrameRonin 原值 0.48，演示取 0.55）
     line_width: int = 1              # 边界线宽（像素）
@@ -161,13 +161,61 @@ class TilemapResult:
     step_log: List[str] = field(default_factory=list)
 
 
+def _demo_showcase(model: TileMapModel, f1: int, f2: int, base: int) -> None:
+    """「展示地形」：把 47 类瓦片都会用到的结构都铺一遍。
+
+    之前默认演示图是把整张地图填满同一种地形——预览里只会看到「全填充」那**一张**
+    瓦片，于是外角/内角/单行/单列等瓦片在成品里根本看不到（用户反馈的直接原因）。
+    这里改成一张确定的展示图：孤立格、单行横条、单列竖条、2×2 块、带洞的大块
+    （内凹角）、L 形（外角+内角）、十字、斜向台阶、环形（四类内角）、细长条与端头。
+    """
+    w, h = model.width, model.height
+    model.fill_rect(0, 0, w - 1, h - 1, base)
+
+    def rect(x0: int, y0: int, x1: int, y1: int, value: int) -> None:
+        x0, x1 = sorted((max(0, x0), min(w - 1, x1)))
+        y0, y1 = sorted((max(0, y0), min(h - 1, y1)))
+        if x0 <= x1 and y0 <= y1:
+            model.fill_rect(x0, y0, x1, y1, value)
+
+    cx, cy = max(2, int(w * 0.22)), max(2, int(h * 0.30))
+    rect(cx, cy, cx, cy, f1)                                  # 孤立一格（四外角）
+    rect(cx - 2, cy + 2, min(w - 1, cx + max(4, w // 5)), cy + 2, f1)          # 单行横条
+    rect(cx + 5, cy + 4, cx + 5, cy + 4 + max(3, h // 3), f1)                  # 单列竖条
+
+    bx, by = max(2, int(w * 0.52)), max(2, int(h * 0.16))
+    rect(bx, by, bx + 1, by + 1, f2)                          # 2×2 块（四外角 + 直边）
+    rect(bx + 4, by, bx + 4 + max(4, w // 4), by + max(3, h // 3), f2)         # 大块
+    rect(bx + 6, by + 1, bx + 6 + max(1, w // 12), by + 1 + max(1, h // 8), base)  # 挖洞 -> 四内角
+
+    lx, ly = max(2, int(w * 0.30)), max(3, int(h * 0.62))
+    rect(lx, ly, lx + max(3, w // 6), ly + 1, f1)             # L 形横臂
+    rect(lx, ly, lx + 1, ly + max(3, h // 4), f1)             # L 形竖臂
+    rect(lx + max(5, w // 5), ly + 2, lx + max(5, w // 5) + 1,
+         ly + 2 + max(3, h // 4), f2)                         # 细竖条 + 端头
+    px, py = max(2, int(w * 0.74)), max(2, int(h * 0.66))
+    rect(px, py + 2, px + 4, py + 2, f1)                      # 十字
+    rect(px + 2, py, px + 2, py + 4, f1)
+    for i in range(4):                                        # 斜向台阶（对角外角）
+        rect(px + 6 + i, py + 6 - i, px + 6 + i, py + 6 - i, f2)
+    rx, ry = max(2, int(w * 0.60)), max(2, int(h * 0.78))
+    size = min(5, max(3, min(w, h) // 6))
+    rect(rx, ry, rx + size, ry + size, f1)                    # 环形：四类内角同时出现
+    rect(rx + 1, ry + 1, rx + size - 1, ry + size - 1, base)
+    rect(0, h - 2, w - 1, h - 2, f2)                          # 贴边的长条（含边缘端头）
+
+
 def _demo_map(model: TileMapModel, params: Optional[TilemapParams] = None) -> None:
-    """默认演示地形：整图铺满（地块类瓦片必须填充满，无透明边）。
+    """演示地图：默认「展示地形」（覆盖 47 类瓦片结构），可选铺满 / 程序化地形。
 
     `map_source="procedural"` 时改用 FrameRonin 同款程序化地形（Perlin/FBM + 河谷 +
     山地场），把「水 / 山 / 平原」三类映射到 特征1 / 特征2 / 基础地形。
     """
     w, h = model.width, model.height
+    base = model.base_terrain or 1
+    feature_ids = sorted(t for t in model.terrain_sets if t != base)
+    f1 = feature_ids[0] if feature_ids else base
+    f2 = feature_ids[1] if len(feature_ids) > 1 else f1
     if params is not None and params.map_source == "procedural":
         from core.tilemap.blob47 import ProceduralTerrain
 
@@ -177,15 +225,15 @@ def _demo_map(model: TileMapModel, params: Optional[TilemapParams] = None) -> No
             mountain_threshold=params.mountain_threshold,
         )
         kinds, _slots = terrain.grid(w, h, origin=(0, 0))
-        feature_ids = sorted(t for t in model.terrain_sets if t != (model.base_terrain or 1))
-        mapping = {0: feature_ids[0] if feature_ids else 1,
-                   1: model.base_terrain or 1,
-                   2: feature_ids[1] if len(feature_ids) > 1 else (feature_ids[0] if feature_ids else 1)}
+        mapping = {0: f1, 1: base, 2: f2}
         for y in range(h):
             for x in range(w):
                 model.set_cell(x, y, mapping[int(kinds[y, x])])
         return
-    model.fill_rect(0, 0, w - 1, h - 1, 1)
+    if params is not None and params.map_source == "filled":
+        model.fill_rect(0, 0, w - 1, h - 1, base)
+        return
+    _demo_showcase(model, f1, f2, base)
 
 
 class TilemapWorkflow:
