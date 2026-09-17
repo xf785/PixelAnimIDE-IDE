@@ -18,7 +18,7 @@ Turn the full "AI generation → pixelization → polish → game assets" flow i
 4. **Quality over quantity**: every feature ships at "pixel-grade" completion — no half-finished pile-ups.
 5. **Sustainable maintenance**: tests, CI, i18n, and docs evolve together with features.
 
-## 3. Current State (v0.1.0, released)
+## 3. Current State (v0.3.0)
 
 | Module | Status |
 |--------|--------|
@@ -27,34 +27,73 @@ Turn the full "AI generation → pixelization → polish → game assets" flow i
 | Pixel editor (4 tools + selection/layers, color families, color wheel, import/export) | ✅ Working |
 | Sprite workflow (grid sheet → crop → key → export, IDE sync) | ✅ Working |
 | Standalone pixel board (resolution settings, two-way sync, video first-frame) | ✅ Working |
+| **Tilemap mode (5th mode, v0.2–v0.3 main line)** | ✅ Working (see below) |
 | zh/en i18n + UI scaling + DSH-style icons | ✅ Working |
-| CI (GitHub Actions, Py3.11/3.13 × Win/Linux) | ✅ Running |
-| Windows packaging (PyInstaller) + GitHub Release | ✅ v0.1.0 |
+| CI (GitHub Actions, Py3.11/3.13 × Win/Linux), **527** tests | ✅ Running |
+| Windows packaging (PyInstaller onedir) + GitHub Release | ✅ v0.3.0 |
 
-Known tech debt: large onedir package (~260 MB), some workflow logs not yet i18n'd, `__pycache__` accidentally bundled, GUI details not fully covered by tests.
+### Tilemap mode (shipped)
+
+- **Terrain ecosystems**: one prompt → 2×2×3 sheet (base terrain + 3 features); automatic grid-frame
+  stripping, text detection (constant-stroke-width signature) and 9-cell median texture to kill one-off
+  text, offset-quilt splicing for **pixel-exact wrap equality**, then **aligned composition** per mask so
+  adjacent tiles are pixel-identical along shared edges; band depth / layered outline / bevel / AO measured
+  from the AI art; irregular inward noise on non-interior edges; **block-noise percolation** across
+  terrain — and across *different tile packs* — removes hard boundaries.
+- **Buildings**: wall **16-tile family** (straight / corner / inner+outer corner / tee / cross / end /
+  isolated) with fixed cross-section geometry, transparent exterior for overlay compositing, procedural
+  1px outline, top-face + front shading, AI-derived doors and pillars, plus a **live auto-stitching wall
+  layer** in the map view.
+- **Props**: variant-grid generation → background key chosen from the prompt (pure white, or pure black
+  for light subjects such as snow) with range deletion + border flood fill → alpha hardened to 0/255 →
+  trimmed and bottom-aligned; placement is scalable (25–400 %).
+- **Tile packs & export**: complete tileset folder + zip (47-tile atlas 8×6, FrameRonin 3×24 layout, every
+  single tile, textures/pieces/props, all metadata, README); import from folder / zip / `.tilepack`.
+- **Map preview**: usable **without generating first**; mix several packs (terrain / buildings / props),
+  grid toggle, Ctrl+left-drag pan, wheel zoom, brush / eraser / rotate / scale; **Perlin-noise big world**
+  (up to 400×400, optional scattered buildings, mask-cached tile composition).
+- **Layout compatibility**: 47-tile (FrameRonin mask convention), 16-tile, and **dual grid** for both
+  generation and preview.
+- 64 algorithmic invariants locked down by tests (shared-edge pixel equality, no text/frame residue,
+  47-class coverage, transparent exteriors, zero background residue, deterministic output).
+
+Known tech debt: large onedir package (~250 MB), some workflow logs not yet i18n'd, GUI details not fully
+covered by tests, no Tiled `.tmx/.tsx` import/export yet, map layering limited to terrain + overlay + wall.
 
 ## 4. Phase Plan
 
-### Phase A: Map Tile Generation + Tile-Map Editor (new feature line)
+### Phase A: Map Tile Generation + Tile-Map Editor (main body done in v0.2–v0.3 ✅)
 
-**A1 Tile-set generation** (reuses the sprite pipeline)
-- Text-to-image for an i×j tile set (terrain / objects / decorations) with a strong built-in prompt: equal cells, **seamlessly tileable**, solid background, consistent style, no text or border lines;
-- Algorithmic crop + one-click keying + **seamlessness pass** (edge sampling blend so all four edges tile);
-- Export **PNG tileset + JSON index** (Tiled `.tsx`-compatible).
-- DoD: a default 16-tile terrain sheet tiles seamlessly with no seams.
+**A1 Tile-set generation** ✅ Done
+- Text-to-image for a 2×2×3 terrain-ecosystem sheet (base terrain + 3 features), a 2×2 building sheet and
+  prop variant grids, with built-in prompts for equal cells, solid background, **seamless tiling**,
+  consistent style, and no text/frames/grid lines;
+- Frame stripping (expected-position ± tolerance darkest-run search + residual sweep), text detection and
+  patching, offset-quilt splicing (wrap-equal), 9-cell median texture; aligned composition derives the whole
+  tile family (band / outline / bevel / AO measured from the AI art);
+- Export a **complete tileset folder + zip** (47-tile atlas, 3×24 layout, every single tile, metadata),
+  compatible with common Tiled layouts.
+- DoD met: adjacent tiles are pixel-identical along shared edges; long runs and walls show no per-tile seam.
 
-**A2 Tile-map editor** (a 5th mode)
-- Canvas as a tile grid with a right-side tile palette (reusing family-palette interactions: left-click select, right-click batch replace);
-- Brush / rectangle / fill / eraser, tile flip & rotate, **multiple layers** (ground / objects / decoration), collision markers;
-- Reuse pixel-editor capabilities for grid / zoom / undo / pan;
-- Export **PNG + JSON** (plus Tiled `.tmx` import/export).
-- DoD: paint a 32×32 three-layer map and open the export in Tiled.
+**A2 Tile-map editor** ✅ Done (5th mode)
+- Tile-grid canvas with multi-pack mixing (terrain / buildings / props), brush / eraser / rotate / scale,
+  grid toggle, Ctrl+left-drag pan;
+- **Live auto-stitching wall layer** (16-tile piece chosen from the four neighbours), building overlay layer,
+  transparent-exterior compositing;
+- **Perlin-noise big world** preview (procedural continents / rivers / mountains, optional scattered
+  buildings) and **dual-grid** rendering;
+- Export PNG preview + map JSON (overlay name/rotation/scale, wall layer, dual flag).
+- TODO: Tiled `.tmx/.tsx` import/export, flood fill / rectangle / multi-layer stack.
 
-**A3 Pipeline integration**
-- Tiles / maps sync into IDE and pixel mode for polish; sprite animations can be placed in a map preview.
+**A3 Pipeline integration** ✅ Mostly done
+- Tile packs (folder/zip) load into any preview and mix freely; one pack format for terrain, buildings and
+  props;
+- TODO: push tiles/maps back into IDE and pixel mode for polishing.
 
-**A4 Large-map performance**
-- Lazy-load tilesets >4096, viewport-rendered map editor, async large-map export.
+**A4 Large-map performance** 🚧 Partial
+- Done: tile composition cached by (terrain art, mask) — a 96×64 map renders in about a second; cross-pack
+  blending and the wall layer are vectorized;
+- TODO: viewport rendering, async export of very large maps, lazy tileset loading.
 
 ### Phase B: Solo Performance & Generation Quality
 
@@ -98,12 +137,13 @@ Known tech debt: large onedir package (~260 MB), some workflow logs not yet i18n
 
 ## 5. Milestones
 
-| Milestone | Scope | Target |
+| Milestone | Scope | Status |
 |-----------|-------|--------|
-| **M1 (v0.2)** | A1 tile-set + A2 tile-map editor MVP + B1 caching/parallel + C1 line/ellipse/symmetry + onefile packaging | next major release |
-| **M2** | B2 multi-candidate & template upgrade + C2 in-page sprite editing + D4 docs/sample gallery | after M1 |
-| **M3** | A3/A4 pipeline integration & large-map perf + C1 layer stack + D1 auto-update | after M2 |
-| **M4** | stability polish, 100% i18n, community ops, **v1.0** | stable release |
+| **M1 (v0.2)** | A1 tile sets + A2 tile-map MVP + packaging | ✅ Released |
+| **M2 (v0.3)** | 47/16/dual-grid algorithm work, building 16-tile family, prop pipeline, tile-pack import/export, boundary percolation blending, Perlin big world, preview-without-generating, screenshot gallery | ✅ Released |
+| **M3** | Tiled `.tmx/.tsx` import/export, map layer stack + rectangle/fill tools, A3 polish round-trip, A4 viewport/async export | Next release |
+| **M4** | B1 result caching/parallelism + B2 multi-candidate & prompt templates + C2 inline sprite editing | After M3 |
+| **M5** | Stabilization, 100 % i18n, D1 auto-update, community, **v1.0** | Stable release |
 
 ## 6. Quick Wins (highest ROI first)
 
@@ -117,8 +157,8 @@ Known tech debt: large onedir package (~260 MB), some workflow logs not yet i18n
 
 - Create GitHub **Milestones (M1–M4)** and **Labels**: `tiles` / `map-editor` / `solo-quality` / `performance` / `pixel-editor` / `sprite` / `i18n` / `packaging` / `docs` / `good-first-issue`;
 - Every PR links to an Issue; milestones are decomposed from this document;
-- Quality bar: any change must pass `pytest` (currently 333 tests) without regressions.
+- Quality bar: any change must pass `pytest` (currently 527 tests) without regressions.
 
 ---
 
-*Last updated: 2026-08-26 (created alongside v0.1.0 release)*
+*Last updated: 2026-09-17 (updated alongside v0.3.0: tilemap mode main body shipped)*
