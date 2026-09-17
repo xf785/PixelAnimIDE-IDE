@@ -36,9 +36,13 @@ TILE_NAMES = [
 
 
 class TileEditorDialog(QDialog):
-    """9 张瓦片编辑器（基础九宫格，编辑后由调用方重新无缝化/生成瓦片集）。"""
+    """9 张瓦片编辑器（基础九宫格，编辑后由调用方重新无缝化/生成瓦片集）。
 
-    def __init__(self, base: BaseTileSet, parent=None):
+    note: 可选提示文本（地块/经典类别会说明「只有中心格会作为地形纹理」——
+    第 8 轮起 47 拼接走对齐式构图，几何由算法生成，纹理取自中心格）。
+    """
+
+    def __init__(self, base: BaseTileSet, parent=None, note: str | None = None):
         super().__init__(parent)
         self.setWindowTitle(tr("编辑瓦片（重绘后需重新生成瓦片集）"))
         self.resize(1080, 720)
@@ -54,6 +58,11 @@ class TileEditorDialog(QDialog):
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.addWidget(T(QLabel(), "选择瓦片（点击切换）"))
+        if note:
+            hint = T(QLabel(), note)
+            hint.setWordWrap(True)
+            hint.setMaximumWidth(280)
+            lv.addWidget(hint)
         grid = QGridLayout()
         grid.setSpacing(4)
         self._buttons: Dict[str, QToolButton] = {}

@@ -21,7 +21,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from core.processing.pixelizer import extract_dominant_palette, map_to_palette
 
@@ -527,63 +527,112 @@ def _quarter_box(s: int, quarter: str) -> Tuple[int, int, int, int]:
     }[quarter]
 
 
-def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
-    """用九宫格的真实艺术片按位掩码拼接一张瓦片（RGBA，同尺寸）。
+def _disc_offsets(radius: int) -> List[Tuple[int, int]]:
+    """圆盘结构元的偏移集合（欧氏距离 ≤ radius），用于等宽描边膨胀。"""
+    r = max(0, int(radius))
+    return [
+        (dy, dx)
+        for dy in range(-r, r + 1)
+        for dx in range(-r, r + 1)
+        if dx * dx + dy * dy <= r * r
+    ]
 
-    块选取规则（与 AI 九宫格「圆角团块」画法严格对应，参考示意图）：
-    - 目标四分之一块看它的两个正交邻居（如 TL 看 N/W）：
-      * 两侧都是同类地形 + 对角同类 → 纯地形：取中心瓦片同侧四分之一；
-      * 上侧异类（边界在上）→ 取 **上边瓦片同侧四分之一**（其外侧条带=另一方地形）；
-      * 左侧异类（边界在左）→ 取 **左边瓦片同侧四分之一**；
-      * 两侧都异类（外角：另一种地形包住本角）→ 取本角瓦片同侧四分之一（含圆角弧）；
-      * 两侧同类但对角异类（内角：另一种地形斜插进来）→ 取 **对角瓦片旋转 180°
-        后的同侧四分之一**（凹角/负形），而不是本角瓦片——旧实现用凸角艺术画内角，
-        这是内角处接缝错乱的原因之一。
-    取「同侧四分之一」而非「下半/右半四分之一」，使 AI 把边界条带画在格外侧
-    1/4 还是 1/2 处都能正确对位（1/2 时两种取法等价）。
+
+def _disc_dilate(mask: np.ndarray, radius: int) -> np.ndarray:
+    """圆盘膨胀：任何方向上膨胀宽度都等于 radius（方形膨胀在对角线方向会多出 √2 倍）。"""
+    if radius <= 0:
+        return mask.copy()
+    out = mask.copy()
+    for dy, dx in _disc_offsets(radius):
+        if dy == 0 and dx == 0:
+            continue
+        shifted = np.zeros_like(mask)
+        ys_src = slice(max(0, -dy), mask.shape[0] - max(0, dy))
+        ys_dst = slice(max(0, dy), mask.shape[0] - max(0, -dy))
+        xs_src = slice(max(0, -dx), mask.shape[1] - max(0, dx))
+        xs_dst = slice(max(0, dx), mask.shape[1] - max(0, -dx))
+        shifted[ys_dst, xs_dst] = mask[ys_src, xs_src]
+        out |= shifted
+    return out
+
+
+def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
+    """按位掩码合成一张瓦片：**AI 纹理 + 程序化几何**，共享边逐像素相等。
+
+    为什么不再逐块抠 AI 的九宫格艺术：AI 画不画得「刚好」取决于它的发挥——
+    条带深度、是否连续、有没有格线框都会变，抠四分之一块必然在接缝处错位
+    （表现为地图上规律的深色网格/图案跳变）。对齐式构图只从 AI 取**纹理与
+    实测参数**，几何完全由算法生成：
+
+    - 特征区 = `base.center`（无缝纹理，网格对齐平铺）；
+    - 基础地形区 = `base.base_texture`（同样是网格对齐的无缝纹理）→ 与相邻
+      基础地形瓦片在同一像素坐标上取同一纹理，接缝逐像素相等；
+    - 暴露侧画 `band` 像素宽的基础地形条带；转角处条带内边界为半径 band 的
+      圆弧（外角：条带减去角部圆盘；内角：角上四分之一圆盘的地面凹口）；
+    - 描边 = 条带内侧 `line_width` 像素，取实测描边色 → 相邻同侧暴露的瓦片
+      描边位置完全相同，连成一条干净的边线。
+
+    `blend` 仅保留签名兼容（对齐式构图不需要中线交叉淡化）。
     """
     s = base.size
-    canvas = np.zeros((s, s, 4), dtype=np.float32)
-    for quarter, rules in _ART_SRC.items():
-        sa, sb, diag = _QUARTER_SIDES[quarter]
-        a = mask & BIT[sa]      # 该四分之一块的两个正交邻居
-        b = mask & BIT[sb]
-        d = mask & BIT[diag]
-        if a and b:
-            state = "fill" if d else "inner"   # 对角也是同类 -> 填充；对角异类 -> 内角
-        elif not a and not b:
-            state = "outer"                     # 两侧都异类 -> 外角圆角
-        elif a and not b:
-            state = "l_cut" if quarter in ("TL", "BL") else "r_cut"
-        else:
-            state = "t_cut" if quarter in ("TL", "TR") else "b_cut"
-        src_name, src_q, flip = rules[state]
-        tile = base.tile(src_name)
-        if flip:
-            tile = tile.transpose(Image.Transpose.ROTATE_180)
-        arr = np.asarray(tile.convert("RGBA")).astype(np.float32)
-        l, t, r, b = _quarter_box(s, src_q)
-        l2, t2, r2, b2 = _quarter_box(s, quarter)
-        canvas[t2:b2, l2:r2] = arr[t:b, l:r]
+    feat = np.asarray(base.center.convert("RGBA"))
+    ground_img = base.base_texture if base.base_texture is not None else base.center
+    if ground_img.size != (s, s):
+        ground_img = ground_img.resize((s, s), Image.Resampling.NEAREST)
+    ground = np.asarray(ground_img.convert("RGBA"))
+    band = int(base.band or 0) or max(2, s // 4)
+    band = max(1, min(s // 2, band))
+    radius = int(base.radius or 0) or band
+    radius = max(1, min(band, radius))
+    rim_w = max(0, min(int(base.line_width or 0), max(1, band - 1)))
 
-    # 块接触带交叉淡化（垂直接缝 + 水平接缝，宽度 blend）
-    # 注意：两侧像素必须都用「混合前」的值计算，否则第二次写回会读到已被改写的
-    # 邻居列/行，产生左右不对称的脏边（旧实现即为此 bug）。
-    w = max(0, min(int(blend), s // 4 - 1))
-    half = s // 2
-    for i in range(w):
-        t = (i + 0.5) / (w + 1)
-        # 垂直中线（TL/TR ↔ BL/BR）
-        left_col = canvas[:, half - 1 - i].copy()
-        right_col = canvas[:, half + i].copy()
-        canvas[:, half - 1 - i] = (1 - t) * left_col + t * right_col
-        canvas[:, half + i] = t * left_col + (1 - t) * right_col
-        # 水平中线（TL/BL ↔ TR/BR）
-        top_row = canvas[half - 1 - i, :].copy()
-        bottom_row = canvas[half + i, :].copy()
-        canvas[half - 1 - i, :] = (1 - t) * top_row + t * bottom_row
-        canvas[half + i, :] = t * top_row + (1 - t) * bottom_row
-    out = np.clip(canvas, 0, 255).astype(np.uint8)
+    ys, xs = np.mgrid[0:s, 0:s]
+    band_mask = np.zeros((s, s), dtype=bool)
+    if not (mask & BIT["T"]):
+        band_mask |= ys < band
+    if not (mask & BIT["B"]):
+        band_mask |= ys >= s - band
+    if not (mask & BIT["L"]):
+        band_mask |= xs < band
+    if not (mask & BIT["R"]):
+        band_mask |= xs >= s - band
+
+    for _name, sa, sb, diag, (fx, fy) in _CORNERS:
+        a = bool(mask & BIT[sa])
+        b = bool(mask & BIT[sb])
+        d = bool(mask & BIT[diag])
+        cx = 0.0 if fx == 0 else float(s - 1)
+        cy = 0.0 if fy == 0 else float(s - 1)
+        if not a and not b:
+            # 外角：把地形的角切掉一块，地面沿弧线补齐——弧与两侧直边相切
+            # （切点在 (band+radius, band) 与 (band, band+radius)），因此条带
+            # 到圆角是平滑过渡，而不是被挤成一条细缝（旧公式的毛病）。
+            ix = float(band + radius) if fx == 0 else float(s - band - radius)
+            iy = float(band + radius) if fy == 0 else float(s - band - radius)
+            near_x = (xs < band + radius) if fx == 0 else (xs >= s - band - radius)
+            near_y = (ys < band + radius) if fy == 0 else (ys >= s - band - radius)
+            cut = near_x & near_y & ((xs - ix) ** 2 + (ys - iy) ** 2 > radius * radius)
+            band_mask |= cut
+        elif a and b and not d:
+            # 内角：对角斜插进来一块另一方地形，角上是地面凹口。半径取 band-1，
+            # 使凹口在两条边上的覆盖长度正好等于条带宽度（band 像素）——差 1 像素
+            # 就会在共享边留下色差（旧公式 radius=band 的毛病）。
+            r_pocket = max(1, band - 1)
+            band_mask |= (xs - cx) ** 2 + (ys - cy) ** 2 <= r_pocket * r_pocket
+
+    base_px = ground.copy()
+    rim_px = np.array([int(base.line_color[0]), int(base.line_color[1]), int(base.line_color[2]), 255], dtype=np.uint8)
+    if rim_w > 0:
+        # 描边 = 边界偏移带：圆盘膨胀保证任意方向等宽（方形膨胀在对角/圆弧方向会
+        # 多出 √2 倍宽度，转角处比相邻瓦片多 1-2 像素）。
+        rim_mask = band_mask & _disc_dilate(~band_mask, rim_w)
+    else:
+        rim_mask = np.zeros((s, s), dtype=bool)
+
+    out = feat.copy()
+    out[band_mask] = base_px[band_mask]
+    out[rim_mask] = rim_px
+    out[..., 3] = 255  # 地块瓦片一律不透明（无透明楔形/空边）
     return Image.fromarray(out, "RGBA")
 
 

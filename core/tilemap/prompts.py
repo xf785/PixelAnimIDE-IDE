@@ -11,14 +11,25 @@ from __future__ import annotations
 
 from typing import Optional
 
+# 所有瓦片提示词共用：文字与格线框是「绝对禁止」项（第 8 轮起单列强调）
+NO_TEXT_RULE = (
+    "ABSOLUTE RULE — NO TEXT AND NO FRAMES: the image must contain ZERO text of any "
+    "kind: no letters, no words, no Chinese characters, no numbers, no captions, no "
+    "titles, no labels, no signatures, no logos, no watermarks, no arrows, no UI "
+    "elements — not even a single character. Do NOT write the material name or any "
+    "description anywhere in the image. Do NOT draw grid lines, cell borders, frames, "
+    "table lines, boxes or separators between the cells: the cells must be separated "
+    "ONLY by their own art, with the artwork flowing continuously across cell borders. "
+    "Any text or frame line makes the tileset unusable.\n"
+)
+
 TILESET_SHEET_PROMPT = (
     "Create ONE single pixel-art tileset image: an EXACT 3x3 grid of 9 equal square "
     "cells (the whole image is one square, each cell is exactly 1/3 of the width and "
     "height), NO grid lines, NO gaps, NO borders between cells, NO text, NO labels, "
     "NO watermarks. Every cell uses the SAME material/texture and the SAME limited "
     "solid color palette: '{description}', in {style} pixel-art style, clean hard "
-    "edges, no anti-aliasing, no gradients, no photorealism.\n"
-    "Cell layout (row-major, 3 columns x 3 rows):\n"
+    "edges, no anti-aliasing, no gradients, no photorealism.\n"    "Cell layout (row-major, 3 columns x 3 rows):\n"
     "  - CENTER cell (row 1, col 1): a plain, fully SEAMLESS tileable texture — the "
     "texture must wrap perfectly both horizontally and vertically with no visible "
     "seam, no border, no vignette, no focal object.\n"
@@ -33,11 +44,14 @@ TILESET_SHEET_PROMPT = (
     "the rounded edge, matching the edge cells exactly.\n"
     "The background of every cell is FULLY PAINTED (no transparency, no empty "
     "areas); texture colors must be consistent across all 9 cells; keep the "
-    "entire subject fully inside its cell with a small margin."
+    "entire subject fully inside its cell with a small margin.\n"
+    + NO_TEXT_RULE
 )
 
 TILESET_NEGATIVE_PROMPT = (
-    "grid lines, cell borders, gaps between cells, text, numbers, labels, watermark, "
+    "grid lines, cell borders, frames, cell outlines, table lines, gaps between cells, "
+    "text, letters, words, characters, typography, font, caption, title, label, sign, "
+    "numbers, digits, annotation, arrow, logo, signature, watermark, stamp, UI, "
     "inconsistent palette, different texture between cells, missing cells, scattered "
     "cells, gradients, anti-aliasing, blurry, photorealism, gray background, "
     "colored background, shading, shadows, perspective"
@@ -189,7 +203,8 @@ def build_ecosystem_prompts(
         + "Style rules: clean hard pixel edges, no anti-aliasing, no gradients, no grid "
         "lines or frames between cells, no text; features keep their dark rim and "
         "shading (this is a tileset, not a flat color chart); the same base-terrain "
-        "texture must be pixel-consistent across all 4 blocks."
+        "texture must be pixel-consistent across all 4 blocks.\n"
+        + NO_TEXT_RULE
     )
     return {
         "image_prompt": prompt,
@@ -255,7 +270,8 @@ def build_building_prompts(
         "same material, centred in its cell with pure white around it; edge/corner "
         "cells = pillar base/capital variants.\n"
         "Keep the whole material family consistent (same palette, same lighting) across "
-        "all 4 blocks; clean hard pixel edges, no anti-aliasing."
+        "all 4 blocks; clean hard pixel edges, no anti-aliasing.\n"
+        + NO_TEXT_RULE
     )
     return {
         "image_prompt": prompt,

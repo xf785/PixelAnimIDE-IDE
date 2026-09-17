@@ -216,6 +216,233 @@ def _requantize_rgba_palette(img: Image.Image, palette) -> Image.Image:
     return q
 
 
+# --------------------------------------------------------------------------- #
+# 纹理提取与「对齐式」地形艺术（第 8 轮：构造性无缝 47 拼接）
+# --------------------------------------------------------------------------- #
+def _inset_crop(img: Image.Image, frac: float) -> Image.Image:
+    """去掉四周 frac 比例的外框（AI 的格线/描边/边缘脏像素都在外侧）。"""
+    w, h = img.size
+    dx = max(1, int(round(w * float(frac))))
+    dy = max(1, int(round(h * float(frac))))
+    if w - 2 * dx < 8 or h - 2 * dy < 8:
+        return img
+    return img.crop((dx, dy, w - dx, h - dy))
+
+
+def make_tile_texture(
+    tile: Image.Image,
+    target: int,
+    inset_frac: float = 0.10,
+    max_colors: int = 64,
+) -> Image.Image:
+    """把一格 AI 像素画变成「可网格对齐平铺」的无缝纹理（target×target）。
+
+    1. 去掉外侧 inset_frac（甩掉格线框与边缘噪声）；
+    2. 偏移错位缝合 → 左右/上下边缘逐像素相等（周期平铺零接缝）；
+    3. 块众数/最近邻缩放到瓦片尺寸（保持像素硬边）；
+    4. **缩放后再缝合一次**：块众数降采样按块取值，会破坏步骤 2 的边缘相等性，
+       而「相邻瓦片共享边逐像素相等」这条不变量正建立在最终尺寸的边缘相等上。
+    """
+    from .tiles import resize_tile
+
+    core = _inset_crop(tile.convert("RGBA"), inset_frac)
+    seamless = make_texture_seamless(core, max_colors=max_colors)
+    return make_texture_seamless(resize_tile(seamless, int(target)), max_colors=max_colors)
+
+
+def median_tile_texture(
+    tiles,
+    target: int,
+    inset_frac: float = 0.10,
+    max_colors: int = 64,
+) -> Image.Image:
+    """九格逐像素中位数 → 纹理（抹掉只出现在个别格里的文字/贴花/水印）。
+
+    基础地形块的 9 格理应是同一种纹理；任何只画在某一格里的东西（文字、签名、
+    装饰）在 9 格中位数里都会被「投票」掉，这是对「底图上写了字」最稳的兜底。
+    """
+    from .tiles import resize_tile
+
+    crops = [np.asarray(_inset_crop(t.convert("RGBA"), inset_frac), dtype=np.float32) for t in tiles]
+    h = min(c.shape[0] for c in crops)
+    w = min(c.shape[1] for c in crops)
+    stack = np.stack([c[:h, :w] for c in crops], axis=0)
+    med = np.median(stack, axis=0).astype(np.uint8)
+    tex = make_texture_seamless(Image.fromarray(med, "RGBA"), max_colors=max_colors)
+    return make_texture_seamless(resize_tile(tex, int(target)), max_colors=max_colors)
+
+
+def _first_feature_depth(profile: np.ndarray, target: np.ndarray, tol: float) -> Optional[int]:
+    """从外侧向内扫描，返回第一个「接近特征色」的像素下标（无则 None）。"""
+    d = np.linalg.norm(profile - target[None, :], axis=1)
+    idx = np.nonzero(d <= tol)[0]
+    return int(idx[0]) if len(idx) else None
+
+
+def measure_terrain_art(
+    base: BaseTileSet,
+    ground_rgb: Optional[np.ndarray] = None,
+    default_band_frac: float = 0.25,
+    default_rim_frac: float = 0.03,
+) -> Dict:
+    """从 AI 九宫格实测「基础地形条带深度」「描边宽度/颜色」（比例，与尺寸无关）。
+
+    特征块的结构是「中心格=纯特征、边格外侧条带=基础地形」，因此：
+    - 条带深度 = 边格上从外向内第一个「像特征」的像素位置（四侧三格取中位数）；
+    - 描边 = 条带内明显暗于两端的像素（宽度取中位数、颜色取中位数）。
+    全部用比例表达，因此 AI 画在多少像素上都成立；测量失败时回退默认值。
+    """
+    tiles = base.all()
+    order = ["tl", "top", "tr", "left", "center", "right", "bl", "bottom", "br"]
+    by_name = dict(zip(order, tiles))
+    centre = np.asarray(by_name["center"].convert("RGB"), dtype=np.float32)
+    s = centre.shape[0]
+    feat_rgb = np.median(centre.reshape(-1, 3), axis=0)
+    if ground_rgb is None:
+        ground_rgb = np.median(
+            np.concatenate([
+                np.asarray(by_name[n].convert("RGB"), dtype=np.float32).reshape(-1, 3)
+                for n in ("top", "bottom", "left", "right")
+            ], axis=0),
+            axis=0,
+        )
+    tol = max(10.0, float(np.linalg.norm(feat_rgb - ground_rgb)) * 0.35)
+
+    def depths_for(names, side: str) -> list:
+        """按「从外侧向内」的方向扫描三张边格，收集条带深度（像素）。"""
+        out = []
+        for n in names:
+            arr = np.asarray(by_name[n].convert("RGB"), dtype=np.float32)
+            h, w = arr.shape[:2]
+            if side == "top":
+                profiles = [arr[:, x] for x in range(w)]
+            elif side == "bottom":
+                profiles = [arr[::-1, x] for x in range(w)]
+            elif side == "left":
+                profiles = [arr[y, :] for y in range(h)]
+            else:
+                profiles = [arr[y, ::-1] for y in range(h)]
+            for prof in profiles:
+                depth = _first_feature_depth(prof, feat_rgb, tol)
+                if depth is not None and 0 < depth < s:
+                    out.append(depth)
+        return out
+
+    depths = (
+        depths_for(("top", "tl", "tr"), "top")
+        + depths_for(("bottom", "bl", "br"), "bottom")
+        + depths_for(("left", "tl", "bl"), "left")
+        + depths_for(("right", "tr", "br"), "right")
+    )
+    band_frac = float(np.median(depths)) / s if depths else float(default_band_frac)
+    band_frac = min(0.5, max(0.08, band_frac))
+
+    # 描边：边格外侧条带内「明显暗于基础地形」的像素
+    band_px = max(1, int(round(band_frac * s)))
+    rim_px: list = []
+    rim_cols: list = []
+    for n in ("top", "bottom", "left", "right"):
+        arr = np.asarray(by_name[n].convert("RGB"), dtype=np.float32)
+        h, w = arr.shape[:2]
+        if n == "top":
+            strip = arr[:band_px, :, :]
+        elif n == "bottom":
+            strip = arr[h - band_px:, :, :]
+        elif n == "left":
+            strip = arr[:, :band_px, :]
+        else:
+            strip = arr[:, w - band_px:, :]
+        lum = 0.299 * strip[..., 0] + 0.587 * strip[..., 1] + 0.114 * strip[..., 2]
+        ground_lum = float(0.299 * ground_rgb[0] + 0.587 * ground_rgb[1] + 0.114 * ground_rgb[2])
+        dark = lum < ground_lum * 0.72
+        if not dark.any():
+            continue
+        rim_cols.append(np.median(strip[dark], axis=0))
+        # 宽度：每列（行）里暗像素的数量取中位数
+        counts = dark.sum(axis=0) if n in ("top", "bottom") else dark.sum(axis=1)
+        counts = counts[counts > 0]
+        if counts.size:
+            rim_px.append(float(np.median(counts)))
+    rim_frac = (float(np.median(rim_px)) / s) if rim_px else float(default_rim_frac)
+    rim_frac = min(0.25, max(0.015, rim_frac))
+    rim_rgb = (
+        tuple(int(c) for c in np.median(np.stack(rim_cols, axis=0), axis=0))
+        if rim_cols else (24, 22, 26)
+    )
+    return {
+        "band_frac": band_frac,
+        "rim_frac": rim_frac,
+        "rim_rgb": rim_rgb,
+        "feature_rgb": tuple(int(c) for c in feat_rgb),
+        "ground_rgb": tuple(int(c) for c in ground_rgb),
+        "measured": bool(depths) and bool(rim_cols),
+    }
+
+
+def align_terrain_set(
+    base: BaseTileSet,
+    base_texture: Optional[Image.Image] = None,
+    tile_size: int = 32,
+    ground_rgb: Optional[np.ndarray] = None,
+    max_colors: int = 64,
+    plain: bool = False,
+) -> BaseTileSet:
+    """把 AI 九宫格艺术「对齐化」成一套可构造性无缝拼接的地形艺术。
+
+    - `center` = 该地形的无缝特征纹理（网格对齐平铺，边缘逐像素可接）；
+    - `base_texture` + `band`/`radius` + `line_color`/`line_width` = 另一方地形
+      的纹理与实测条带/描边参数，供 `autotile.compose_art_tile` 程序化构图。
+
+    这样 47 张瓦片共享同一份纹理与同一条几何规则，**相邻瓦片的共享边逐像素
+    相等**（无缝由构造保证），不再依赖 AI 把边界画在哪个深度、是否连续。
+
+    plain=True（基础地形块）时不实测条带/描边（它本来就没有边界），用默认几何，
+    这样地图外缘的边框线也不会被底图上的脏像素污染。
+    """
+    texture = make_tile_texture(base.center, tile_size, max_colors=max_colors)
+    if plain:
+        darkest = _darkest_color(texture)
+        return BaseTileSet(
+            size=texture.size[0],
+            center=texture,
+            edges={n: texture for n in EDGE_NAMES},
+            corners={n: texture for n in ("tl", "tr", "bl", "br")},
+            line_color=darkest,
+            line_width=max(1, tile_size // 16),
+            band=max(2, tile_size // 4),
+            radius=max(2, tile_size // 4),
+            base_texture=(base_texture or texture),
+            art_meta={"band_px": max(2, tile_size // 4), "rim_px": max(1, tile_size // 16),
+                      "plain": True, "tile_size": tile_size},
+        )
+    measured = measure_terrain_art(base, ground_rgb=ground_rgb)
+    band = max(1, min(tile_size // 2, int(round(measured["band_frac"] * tile_size))))
+    rim_w = max(1, min(max(1, tile_size // 8), int(round(measured["rim_frac"] * tile_size))))
+    return BaseTileSet(
+        size=texture.size[0],
+        center=texture,
+        edges={n: texture for n in EDGE_NAMES},
+        corners={n: texture for n in ("tl", "tr", "bl", "br")},
+        line_color=measured["rim_rgb"],
+        line_width=rim_w,
+        band=band,
+        radius=band,
+        base_texture=(base_texture or texture),
+        art_meta=dict(measured, band_px=band, rim_px=rim_w, tile_size=tile_size),
+    )
+
+
+def _darkest_color(img: Image.Image) -> Tuple[int, int, int]:
+    """纹理中最暗 15% 像素的中位色（当描边色用，和纹理同色系）。"""
+    arr = np.asarray(img.convert("RGB"), dtype=np.float32).reshape(-1, 3)
+    if not len(arr):
+        return (0, 0, 0)
+    lum = 0.299 * arr[:, 0] + 0.587 * arr[:, 1] + 0.114 * arr[:, 2]
+    k = max(1, int(len(lum) * 0.15))
+    dark = arr[np.argsort(lum)[:k]]
+    return tuple(int(c) for c in np.median(dark, axis=0))
+
+
 def process_base_set(
     base: BaseTileSet,
     max_colors: int = 32,

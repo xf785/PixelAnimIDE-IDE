@@ -3,8 +3,9 @@
 模块：
 - prompts.py   瓦片集严格提示词（3×3 基础 / 2×2 地块生态图 / 2×2 建筑图）
 - tiles.py     3×3 自适应裁切、2×2 块图裁切、九宫格/生态/建筑数据结构
-- seamless.py  无缝化算法（偏移错位缝合：纹理全向 / 单轴；地块组预处理）
-- autotile.py  47-tile 生成（程序化构图 + 九宫格艺术片构图）、双网格、多地形掩码
+- cleanup.py   底图清理：抹除每格深色线框、检测/修补文字水印
+- seamless.py  无缝化：偏移错位缝合、纹理提取（九格中位数）、条带/描边实测、对齐化
+- autotile.py  47-tile 生成（对齐式构图：AI 纹理 + 程序化几何）、双网格、多地形掩码
 - buildings.py 建筑类：抠白底、墙体无缝、透明拼件（直段/端头/转角/立柱）
 - map.py       瓦片地图数据模型（多地形 + 建筑 overlay）与渲染、序列化
 """
@@ -23,11 +24,21 @@ from .tiles import (
     normalize_tileset,
 )
 from .seamless import (
+    align_terrain_set,
     make_axis_seamless,
     make_edge_seamless,
     make_texture_seamless,
+    make_tile_texture,
+    measure_terrain_art,
+    median_tile_texture,
     prepare_terrain_set,
     process_base_set,
+)
+from .cleanup import (
+    clean_centre_tile,
+    detect_text_marks,
+    patch_marks,
+    strip_grid_frames,
 )
 from .autotile import (
     BIT,
@@ -67,8 +78,16 @@ __all__ = [
     "make_texture_seamless",
     "make_axis_seamless",
     "make_edge_seamless",
+    "make_tile_texture",
+    "median_tile_texture",
+    "measure_terrain_art",
+    "align_terrain_set",
     "prepare_terrain_set",
     "process_base_set",
+    "strip_grid_frames",
+    "detect_text_marks",
+    "patch_marks",
+    "clean_centre_tile",
     "BIT",
     "canonical_mask",
     "canonical_masks",

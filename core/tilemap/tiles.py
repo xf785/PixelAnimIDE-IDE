@@ -33,14 +33,24 @@ CORNER_NAMES = ("tl", "tr", "bl", "br")
 
 @dataclass
 class BaseTileSet:
-    """处理后的 9 张基础瓦片（RGBA，同一尺寸）。"""
+    """处理后的 9 张基础瓦片（RGBA，同一尺寸）。
+
+    第 8 轮起，地形艺术走「对齐式构图」：`center` 是该地形的无缝特征纹理，
+    `base_texture` + `band`/`radius` + `line_color`/`line_width` 是另一方地形的
+    纹理与实测几何参数，`edges`/`corners` 仅作保存/编辑参考（构图不再依赖
+    AI 把边界画在格内哪个位置，从而保证 47 张瓦片共享边逐像素相等）。
+    """
 
     size: int
     center: Image.Image
     edges: Dict[str, Image.Image] = field(default_factory=dict)    # top/bottom/left/right
     corners: Dict[str, Image.Image] = field(default_factory=dict)  # tl/tr/bl/br
-    line_color: Tuple[int, int, int] = (0, 0, 0)                   # 统一边界线色
-    line_width: int = 1
+    line_color: Tuple[int, int, int] = (0, 0, 0)                   # 统一边界线色（=描边色）
+    line_width: int = 1                                            # 边界线宽（=描边宽度）
+    band: int = 0                                                  # 基础地形条带厚度（0=按 1/4 推算）
+    radius: int = 0                                                # 转角圆角半径（0=取 band）
+    base_texture: Optional[Image.Image] = None                      # 另一方（基础）地形纹理
+    art_meta: Dict = field(default_factory=dict)                    # 实测参数（日志/元数据）
 
     def tile(self, name: str) -> Image.Image:
         """按名字取瓦片：'center' / 'top'… / 'tl'…。"""
@@ -343,6 +353,24 @@ def detect_base_block(
     if not confident:
         logger.info("基础块识别不唯一（%s=%.1f vs %s=%.1f），按最低分取 %s", best, best_score, second, second_score, best)
     return best, scores, confident
+
+
+def cell_box(
+    img: Image.Image,
+    rows: int,
+    cols: int,
+    r: int,
+    c: int,
+) -> Tuple[int, int, int, int]:
+    """整图第 (r, c) 格的像素框（与 crop_blocks/crop_base_3x3 同一居中几何）。
+
+    用于把「对某一格的修补」写回整图（例如文字修补后同步清理后的底图）。
+    """
+    w, h = img.size
+    cell = compute_cell_size(w, h, rows=rows, cols=cols)
+    x0 = (w - cell * cols) // 2 + c * cell
+    y0 = (h - cell * rows) // 2 + r * cell
+    return (x0, y0, x0 + cell, y0 + cell)
 
 
 def ecosystem_from_blocks(

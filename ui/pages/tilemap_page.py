@@ -328,10 +328,12 @@ class TilemapPage(QWidget):
         self._accept_btn.setEnabled(True)
         self._edit_btn.setEnabled(False)
         self._map_btn.setEnabled(False)
-        self._show_sheet(session.sheet_image)
+        self._show_sheet(session.sheet_clean or session.sheet_image)
+        frames = (session.frame_report or {}).get("count", 0)
+        note = tr("（已抹除 {0} 条格线框）").format(frames) if frames else ""
         self._status.setText(
-            tr("底图已生成并保存（{0}）。确认满意后点「接受并生成瓦片集」，不满意可「重新生成」").format(
-                session.sheet_path
+            tr("底图已生成并保存（{0}）{1}。确认满意后点「接受并生成瓦片集」，不满意可「重新生成」").format(
+                session.sheet_path, note
             )
         )
 
@@ -355,7 +357,7 @@ class TilemapPage(QWidget):
         self._on_done(result)
 
     def _show_sheet(self, img) -> None:
-        """预览原始生图底图（确认中间结果）。"""
+        """预览「清理后」的生图底图（确认中间结果）。"""
         if img is None:
             return
         zoom = max(1, min(3, 900 // max(img.size)))
@@ -364,7 +366,7 @@ class TilemapPage(QWidget):
             Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation,
         )
         self._preview_label.setPixmap(pix)
-        self._preview_caption.setText(tr("生图底图（待确认）") + f"  ·  {img.size[0]}×{img.size[1]}")
+        self._preview_caption.setText(tr("生图底图（待确认，格线框已抹除）") + f"  ·  {img.size[0]}×{img.size[1]}")
 
     def _on_done(self, result) -> None:
         self._result = result
@@ -449,6 +451,14 @@ class TilemapPage(QWidget):
             }
         return ["九宫格"], {"九宫格": session.base}
 
+    def _editor_note(self) -> str:
+        """编辑对话框的说明：对齐式构图下只有中心格会成为地形纹理。"""
+        cat = self._session.params.category if self._session else "classic"
+        if cat == "building":
+            return tr("四个组的中心格分别是墙体/顶面/开口/立柱拼件（白底会被抠除）。")
+        return tr("47 拼接采用「对齐式构图」：只有**中心格**会作为该地形的无缝纹理，"
+                  "条带与描边由算法按实测参数生成（其余 8 格仅供参考/留存）。")
+
     def _on_edit_tiles(self) -> None:
         if self._session is None:
             QMessageBox.information(self, tr("编辑瓦片"), tr("请先生成瓦片集"))
@@ -457,7 +467,7 @@ class TilemapPage(QWidget):
         name, ok = QInputDialog.getItem(self, tr("编辑瓦片"), tr("选择瓦片组"), names, 0, False)
         if not ok or name not in sets:
             return
-        dialog = TileEditorDialog(sets[name], parent=self)
+        dialog = TileEditorDialog(sets[name], parent=self, note=self._editor_note())
         if dialog.exec() == QDialog.DialogCode.Accepted:
             edited = dialog.result()
             sets[name] = base_set_with_edits(sets[name], edited)

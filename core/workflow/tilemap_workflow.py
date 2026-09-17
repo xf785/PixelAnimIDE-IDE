@@ -21,30 +21,43 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from PIL import Image
+import numpy as np
 
 from core.api.base import BaseAPI
 from core.tilemap import (
     BaseTileSet,
     TileMapModel,
+    align_terrain_set,
     build_47_sheet,
     build_47_sheet_art,
     build_dual_pieces_sheet_art,
     building_from_blocks,
     crop_base_3x3,
     crop_blocks,
+    detect_text_marks,
     ecosystem_from_blocks,
+    median_tile_texture,
     normalize_tileset,
     opaque_ratio,
+    patch_marks,
     prepare_terrain_set,
     process_base_set,
     process_building_sheet,
+    strip_grid_frames,
 )
 from core.tilemap.prompts import (
     build_building_prompts,
     build_ecosystem_prompts,
     build_tileset_prompts,
 )
-from core.tilemap.tiles import BuildingSheet, EcosystemSheet, grid_cell_px, to_base_set
+from core.tilemap.tiles import (
+    BLOCK_POSITIONS,
+    BuildingSheet,
+    EcosystemSheet,
+    cell_box,
+    grid_cell_px,
+    to_base_set,
+)
 from core.workflow.solo_workflow import WorkflowError
 from ui.i18n import tr
 
@@ -63,6 +76,18 @@ TILEMAP_STEP_LABELS = {
 
 
 BLOCK_POS_LABELS = {"tl": "左上", "tr": "右上", "bl": "左下", "br": "右下"}
+
+
+def _measure_border_rgb(base: BaseTileSet) -> tuple:
+    """经典 3×3：从四张边瓦片的**外侧条带**实测「格外的另一方地形」颜色（底图背景）。"""
+    band = max(2, base.size // 4)
+    pixels = []
+    arr = {n: np.asarray(base.tile(n).convert("RGB"), dtype=np.float32) for n in ("top", "bottom", "left", "right")}
+    pixels.append(arr["top"][:band, :, :].reshape(-1, 3))
+    pixels.append(arr["bottom"][-band:, :, :].reshape(-1, 3))
+    pixels.append(arr["left"][:, :band, :].reshape(-1, 3))
+    pixels.append(arr["right"][:, -band:, :].reshape(-1, 3))
+    return tuple(int(c) for c in np.median(np.concatenate(pixels, axis=0), axis=0))
 
 
 @dataclass
@@ -93,6 +118,10 @@ class TilemapSession:
     cell_px: int = 0                               # 本次请求的单格像素（边长 = 格数 × cell_px）
     sheet_image: Optional[Image.Image] = None      # 生图底图
     sheet_path: Optional[Path] = None
+    sheet_clean: Optional[Image.Image] = None      # 抹除格线框后的底图（后续全部步骤用这张）
+    sheet_clean_path: Optional[Path] = None
+    frame_report: Dict = field(default_factory=dict)   # 格线框抹除报告
+    text_report: List[Dict] = field(default_factory=list)  # 疑似文字/水印检出记录
     base: Optional[BaseTileSet] = None             # 经典 3×3：裁切后的原始 9 片（可编辑）
     processed: Optional[BaseTileSet] = None        # 经典：无缝化处理后的 9 片
     ecosystem: Optional[EcosystemSheet] = None     # 地块生态：1 基础 + 3 特征（可编辑）
@@ -268,13 +297,79 @@ class TilemapWorkflow:
         session.sheet_path = out / "tileset_sheet.png"
         session.sheet_image.save(session.sheet_path)
         self._log_msg("info", tr("瓦片底图已生成: {0}").format(session.sheet_path))
+        # 立刻清理（抹除格线框）：用户确认底图时看到的就是「将会被使用的图」
+        self._clean_sheet(params, session)
+
+    def _clean_sheet(self, params: TilemapParams, session: TilemapSession) -> None:
+        """统一清理底图：抹除每格深色线框 + 检测文字/水印（第 8 轮）。"""
+        cells = 6 if params.category in ("ground", "building") else 3
+        cleaned, report = strip_grid_frames(session.sheet_image, rows=cells, cols=cells)
+        session.sheet_clean = cleaned
+        session.frame_report = report
+        if report.get("count"):
+            widths = sorted({d["width"] for d in report["vertical"] + report["horizontal"]})
+            self._log_msg(
+                "info",
+                tr("已抹除底图上的格线框 {0} 条（宽度 {1} px）").format(
+                    report["count"], "/".join(str(w) for w in widths)
+                ),
+            )
+        out = Path(params.output_dir) / "artifacts"
+        out.mkdir(parents=True, exist_ok=True)
+        session.sheet_clean_path = out / "tileset_sheet_clean.png"
+        cleaned.save(session.sheet_clean_path)
+
+    def _check_text(self, params: TilemapParams, session: TilemapSession, items, label: str) -> None:
+        """文字/水印兜底：检测将作为纹理来源的格子，命中即告警并做纹理修补。
+
+        items: [(名字, 取瓦片, 写回瓦片, 整图格坐标 None|(r, c))]；修补用「自身纹理
+        平移半格」的副本覆盖，并把同一修补写回清理后的底图（预览/产物与成品一致）。
+        """
+        found = []
+        cells = 6 if params.category in ("ground", "building") else 3
+        for name, getter, setter, pos in items:
+            tile = getter()
+            boxes = detect_text_marks(tile)
+            if not boxes:
+                continue
+            found.append(name)
+            session.text_report.append({"where": f"{label}/{name}", "boxes": [list(b) for b in boxes]})
+            patched = patch_marks(tile, boxes)
+            setter(patched)
+            if pos is not None and session.sheet_clean is not None:
+                box = cell_box(session.sheet_clean, cells, cells, pos[0], pos[1])
+                session.sheet_clean.paste(patched.convert("RGBA"), box[:2])
+                if session.sheet_clean_path is not None:
+                    session.sheet_clean.save(session.sheet_clean_path)
+        if found:
+            self._log_msg(
+                "warning",
+                tr("底图检测到疑似文字/水印（{0}），已用纹理修补覆盖；建议重新生成以免误伤艺术纹理").format(
+                    "、".join(found)
+                ),
+            )
 
     def _do_crop(self, params: TilemapParams, session: TilemapSession) -> None:
-        """步骤 3/6：按类别裁切（生态/建筑 = 2×2 块 × 3×3；经典 = 3×3）。"""
+        """步骤 3/6：清理底图（抹格线框）→ 按类别裁切（生态/建筑 = 2×2 块 × 3×3；经典 = 3×3）。"""
         if session.sheet_image is None:
             raise WorkflowError("尚未生成底图，请先执行上一步", step="crop")
+        if session.sheet_clean is None:      # 手动/子集执行时补做清理
+            self._clean_sheet(params, session)
+        sheet = session.sheet_clean or session.sheet_image
         if params.category == "ground":
-            blocks, cell = crop_blocks(session.sheet_image)
+            blocks, cell = crop_blocks(sheet)
+            # 文字/水印检测必须在**源分辨率**的原始格上做（归一化后笔画会被压碎），
+            # 且四块的中心格都会成为纹理来源，因此四块都要查。
+            text_items = []
+            for key, (br, bc) in BLOCK_POSITIONS.items():
+                blk = blocks[br][bc]
+                text_items.append((
+                    key,
+                    (lambda b=blk: b[4]),
+                    (lambda t, b=blk: b.__setitem__(4, t)),
+                    (br * 3 + 1, bc * 3 + 1),
+                ))
+            self._check_text(params, session, text_items, tr("生态底图"))
             session.ecosystem = ecosystem_from_blocks(
                 blocks,
                 tile_size=params.tile_size,
@@ -298,8 +393,20 @@ class TilemapWorkflow:
                     "warning",
                     tr("未能可靠识别基础地形块，已按左上块处理：底图里应有一块四周无边界/描边的纯基础地形纹理，建议重新生成或手动指定位置"),
                 )
+            # 文字/水印兜底已在裁切时（源分辨率四块中心格）完成
+            eco_items = None
         elif params.category == "building":
-            blocks, cell = crop_blocks(session.sheet_image)
+            blocks, cell = crop_blocks(sheet)
+            bld_items = []
+            for idx, (br, bc) in enumerate(BLOCK_POSITIONS.values()):
+                blk = blocks[br][bc]
+                bld_items.append((
+                    ("墙体块", "顶面块", "开口块", "立柱块")[idx],
+                    (lambda b=blk: b[4]),
+                    (lambda t, b=blk: b.__setitem__(4, t)),
+                    (br * 3 + 1, bc * 3 + 1),
+                ))
+            self._check_text(params, session, bld_items, tr("建筑底图"))
             session.building = building_from_blocks(blocks, tile_size=params.tile_size)
             self._log_msg("info", tr("已裁切 4 块 × 9 瓦片（建筑：墙体/顶面/开口/立柱）"))
             # 自检：墙体组中心格必须填满整格（AI 没按位置画时会出现整块白底）
@@ -312,7 +419,15 @@ class TilemapWorkflow:
                     ),
                 )
         else:
-            tiles, cell = crop_base_3x3(session.sheet_image)
+            tiles, cell = crop_base_3x3(sheet)
+            base = normalize_tileset(to_base_set(tiles), target_size=params.tile_size)
+            self._check_text(
+                params, session,
+                [("中心格", lambda: tiles[4].convert("RGBA"),
+                  lambda t: tiles.__setitem__(4, t.convert("RGBA")), (1, 1))],
+                tr("经典底图"),
+            )
+            # 修补可能改动了中心格：用（可能已修补的）九格重建
             base = normalize_tileset(to_base_set(tiles), target_size=params.tile_size)
             session.base = base
             self._log_msg(
@@ -321,14 +436,28 @@ class TilemapWorkflow:
             )
 
     def _do_seamless(self, params: TilemapParams, session: TilemapSession) -> None:
-        """步骤 4/6：无缝化处理（生态=各地形组保艺术预处理；建筑=墙体拼件；经典=旧链路）。"""
+        """步骤 4/6：对齐化处理（生态=各特征纹理 + 实测条带/描边；建筑=墙体拼件；经典=单地形）。"""
         if params.category == "ground":
             if session.ecosystem is None:
                 raise WorkflowError("尚未裁切瓦片，请先执行上一步", step="seamless")
-            session.terrain_sets = {
-                tid: prepare_terrain_set(tset) for tid, tset in session.ecosystem.terrain_sets().items()
-            }
-            self._log_msg("info", tr("生态无缝化完成：{0} 套地形瓦片组（纹理细节保留）").format(len(session.terrain_sets)))
+            raw = session.ecosystem.terrain_sets()
+            base_raw = raw[1]
+            base_tex = median_tile_texture(base_raw.all(), params.tile_size)
+            ground_rgb = np.median(np.asarray(base_tex.convert("RGB")).reshape(-1, 3), axis=0)
+            arts: Dict[int, BaseTileSet] = {}
+            for tid, tset in raw.items():
+                arts[tid] = align_terrain_set(
+                    tset, base_texture=base_tex, tile_size=params.tile_size,
+                    ground_rgb=ground_rgb, plain=(tid == 1),
+                )
+            session.terrain_sets = arts
+            meta = arts[1].art_meta
+            self._log_msg(
+                "info",
+                tr("生态无缝化完成：{0} 套地形纹理（条带 {1}px、描边 {2}px，实测自底图）").format(
+                    len(arts), meta.get("band_px", "?"), meta.get("rim_px", "?")
+                ),
+            )
         elif params.category == "building":
             if session.building is None:
                 raise WorkflowError("尚未裁切瓦片，请先执行上一步", step="seamless")
@@ -340,10 +469,24 @@ class TilemapWorkflow:
         else:
             if session.base is None:
                 raise WorkflowError("尚未裁切瓦片，请先执行上一步", step="seamless")
-            # 地块类：保艺术预处理（中心偏移缝合、边瓦片轴向缝合、角瓦片原样），
-            # 不做程序化线带——艺术片构图时瓦片全填充、无透明楔形
-            session.processed = prepare_terrain_set(session.base)
-            self._log_msg("info", tr("无缝化完成：中心全向无缝、边瓦片轴向缝合（纹理细节保留）"))
+            # 经典 3×3：单地形。中心纹理 = 特征纹理；「另一方地形」= 边格外侧条带的
+            # 实测色（底图背景），因此暴露侧画的就是底图本来的背景色带
+            border_rgb = _measure_border_rgb(session.base)
+            border_tex = Image.new(
+                "RGBA", (params.tile_size, params.tile_size),
+                (int(border_rgb[0]), int(border_rgb[1]), int(border_rgb[2]), 255),
+            )
+            session.processed = align_terrain_set(
+                session.base, base_texture=border_tex, tile_size=params.tile_size,
+                ground_rgb=np.array(border_rgb, dtype=np.float32),
+            )
+            meta = session.processed.art_meta
+            self._log_msg(
+                "info",
+                tr("无缝化完成：对齐式纹理（条带 {0}px、描边 {1}px，实测自底图）").format(
+                    meta.get("band_px", "?"), meta.get("rim_px", "?")
+                ),
+            )
 
     def _do_atlas(self, params: TilemapParams, session: TilemapSession) -> None:
         """步骤 5/6：生成瓦片集（生态=每地形艺术片 47 集；建筑=无需；经典=程序化）。"""

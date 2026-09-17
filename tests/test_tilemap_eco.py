@@ -10,6 +10,7 @@ from core.tilemap import (
     BuildingSheet,
     EcosystemSheet,
     TileMapModel,
+    align_terrain_set,
     building_from_blocks,
     build_47_sheet_art,
     compose_art_tile,
@@ -293,40 +294,184 @@ def _quarter_px(tile, quarter):
     return tile.getpixel(off)[:3]
 
 
-def test_compose_art_full_and_isolated():
-    base = _solid_base()
-    full = compose_art_tile(base, SIDES | DIAG)
-    assert np.asarray(full).shape == (S, S, 4)
-    for q in ("TL", "TR", "BL", "BR"):
-        assert _quarter_px(full, q) == (128, 128, 128)  # 全部取自中心
-
-    iso = compose_art_tile(base, 0)
-    assert _quarter_px(iso, "TL") == (200, 0, 0)      # tl 角艺术片
-    assert _quarter_px(iso, "TR") == (0, 0, 200)
-    assert _quarter_px(iso, "BL") == (200, 0, 200)
-    assert _quarter_px(iso, "BR") == (40, 160, 160)
+FEAT_RGB = (38, 104, 172)
+GROUND_RGB = (236, 240, 246)
+RIM_RGB = (81, 75, 66)
 
 
-def test_compose_art_edge_mapping():
-    base = _solid_base()
-    # 上边界（T 空，其余满，对角满）：上半取 top 瓦片同侧四分之一，下半取中心
-    top = compose_art_tile(base, (SIDES & ~BIT["T"]) | DIAG)
-    assert _quarter_px(top, "TL") == (0, 200, 0)      # top 艺术片
-    assert _quarter_px(top, "TR") == (0, 200, 0)
-    assert _quarter_px(top, "BL") == (128, 128, 128)
-    assert _quarter_px(top, "BR") == (128, 128, 128)
-    # 左边界：左半取 left 艺术、右半取中心
-    left = compose_art_tile(base, (SIDES & ~BIT["L"]) | DIAG)
-    assert _quarter_px(left, "TL") == (200, 200, 0)
-    assert _quarter_px(left, "BL") == (200, 200, 0)
-    assert _quarter_px(left, "TR") == (128, 128, 128)
-    # 外角：T/L 皆空 -> TL 取本角瓦片（tl）同侧四分之一
-    outer = compose_art_tile(base, (BIT["R"] | BIT["B"] | BIT["BR"]))
-    assert _quarter_px(outer, "TL") == (200, 0, 0)
-    # 内角：四边满 + 仅 TL 对角空 -> TL 取对角瓦片（br）旋转 180° 的负形（凹角）
-    inner = compose_art_tile(base, SIDES | (DIAG & ~BIT["TL"]))
-    assert _quarter_px(inner, "TL") == (40, 160, 160)
-    assert _quarter_px(inner, "BR") == (128, 128, 128)
+def _cell(col, checker=0, size=S):
+    """模拟 AI 的一格像素画（带轻微棋盘纹理，便于检查纹理相位是否对齐）。"""
+    a = np.zeros((size, size, 4), np.uint8)
+    a[..., :3] = col
+    a[..., 3] = 255
+    if checker:
+        ys, xs = np.mgrid[0:size, 0:size]
+        m = ((ys // 3 + xs // 3) % 2 == 0)
+        a[m, :3] = np.clip(np.array(col) + checker, 0, 255)
+    return Image.fromarray(a, "RGBA")
+
+
+def _art(feat_rgb=FEAT_RGB, ground=GROUND_RGB, band=8, rim=2, radius=8, checker=14, ground_checker=10):
+    """按真实管线造一套「对齐式」地形艺术（纹理经偏移缝合 → 边缘逐像素可接）。"""
+    from core.tilemap.seamless import make_tile_texture, median_tile_texture
+
+    ground_tex = median_tile_texture([_cell(ground, ground_checker) for _ in range(9)], S)
+    tex = make_tile_texture(_cell(feat_rgb, checker), S)
+    return BaseTileSet(
+        size=S, center=tex,
+        edges={n: tex for n in ("top", "bottom", "left", "right")},
+        corners={n: tex for n in ("tl", "tr", "bl", "br")},
+        line_color=RIM_RGB, line_width=rim, band=band, radius=radius, base_texture=ground_tex,
+    )
+
+
+def test_compose_aligned_full_and_isolated():
+    """对齐式构图：全邻瓦片 = 纯特征纹理；孤立足 = 特征岛 + 四周基础地形条带 + 描边。"""
+    art = _art()
+    full = np.asarray(compose_art_tile(art, SIDES | DIAG))
+    assert full.shape == (S, S, 4)
+    # 全邻：整格就是纹理本身（逐像素等于 base.center）
+    assert (full == np.asarray(art.center)).all()
+    assert (full[..., 3] == 255).all()          # 地块瓦片不允许透明
+
+    band = art.band
+    rim = art.line_width
+    iso = np.asarray(compose_art_tile(art, 0))
+    # 四条边：外侧 band 像素是基础地形纹理（内侧 rim 像素是描边）
+    ground = np.asarray(art.base_texture)
+    assert (iso[: band - rim, S // 2, :3] == ground[: band - rim, S // 2, :3]).all()
+    assert (iso[-band + rim :, S // 2, :3] == ground[-band + rim :, S // 2, :3]).all()
+    assert (iso[S // 2, : band - rim, :3] == ground[S // 2, : band - rim, :3]).all()
+    # 描边：条带内侧 rim 像素 = 描边色
+    assert tuple(iso[band - 1, S // 2, :3]) == RIM_RGB
+    assert tuple(iso[S // 2, band - 1, :3]) == RIM_RGB
+    # 内部仍是特征纹理
+    assert tuple(iso[S // 2, S // 2, :3]) == tuple(np.asarray(art.center)[S // 2, S // 2, :3])
+
+
+def test_compose_aligned_edges_and_corners():
+    """边/角几何：暴露侧是基础地形条带，外角圆角、内角凹口。"""
+    art = _art()
+    band = art.band
+    rim = art.line_width
+    ground = np.asarray(art.base_texture)
+    center = np.asarray(art.center)
+
+    top = np.asarray(compose_art_tile(art, (SIDES & ~BIT["T"]) | DIAG))
+    assert (top[: band - rim, :, :3] == ground[: band - rim, :, :3]).all(), "上侧应为基础地形条带"
+    assert tuple(top[band - 1, S // 2, :3]) == RIM_RGB, "条带内侧应有描边"
+    assert (top[band + 2 :, :, :3] == center[band + 2 :, :, :3]).all(), "其余仍是特征纹理"
+
+    left = np.asarray(compose_art_tile(art, (SIDES & ~BIT["L"]) | DIAG))
+    assert (left[:, : band - rim, :3] == ground[:, : band - rim, :3]).all()
+    assert tuple(left[S // 2, band - 1, :3]) == RIM_RGB
+
+    # 外角（上、左都暴露）：角部是基础地形（圆弧向外凸），圆角内侧才是特征
+    outer = np.asarray(compose_art_tile(art, BIT["R"] | BIT["B"] | BIT["BR"]))
+    assert (outer[1, 1, :3] == ground[1, 1, :3]).all()
+    # 圆弧最靠近角点的位置约在 (band+0.41r, band+0.41r)，再往里才是特征纹理
+    diag = band + art.radius - 2
+    assert tuple(outer[diag, diag, :3]) == tuple(center[diag, diag, :3])
+
+    # 内角（四边满、TL 对角空）：角上是基础地形凹口（半径 band-1，边缘处正好 band 像素）
+    inner = np.asarray(compose_art_tile(art, SIDES | (DIAG & ~BIT["TL"])))
+    assert (inner[0, 0, :3] == ground[0, 0, :3]).all(), "内角角点应是另一方地形"
+    assert tuple(inner[band, band, :3]) == tuple(center[band, band, :3]), "凹口外仍是特征"
+    assert tuple(inner[band - 1, 0, :3]) == RIM_RGB, "凹口边界是描边"
+    assert (inner[band, 0, :3] == center[band, 0, :3]).all(), "凹口沿边长度 = band（第 band 行回到特征）"
+
+
+def test_measured_band_and_rim_from_ai_block():
+    """几何参数实测自 AI 九宫格：条带深度与描边宽度按比例换算到目标瓦片。"""
+    from core.tilemap.seamless import measure_terrain_art
+
+    cell = 64
+    band_cell = 16          # 1/4
+    rim_cell = 4
+    tiles = {}
+    for name in ("tl", "top", "tr", "left", "center", "right", "bl", "bottom", "br"):
+        arr = np.zeros((cell, cell, 4), np.uint8)
+        arr[..., :3] = FEAT_RGB
+        arr[..., 3] = 255
+        ys, xs = np.mgrid[0:cell, 0:cell]
+        if name != "center":
+            band = (
+                ((name in ("top", "tl", "tr")) & (ys < band_cell))
+                | ((name in ("bottom", "bl", "br")) & (ys >= cell - band_cell))
+                | ((name in ("left", "tl", "bl")) & (xs < band_cell))
+                | ((name in ("right", "tr", "br")) & (xs >= cell - band_cell))
+            )
+            rim = (
+                ((name in ("top", "tl", "tr")) & (ys < band_cell + rim_cell))
+                | ((name in ("bottom", "bl", "br")) & (ys >= cell - band_cell - rim_cell))
+                | ((name in ("left", "tl", "bl")) & (xs < band_cell + rim_cell))
+                | ((name in ("right", "tr", "br")) & (xs >= cell - band_cell - rim_cell))
+            )
+            arr[band] = GROUND_RGB + (255,)
+            arr[rim & ~band] = RIM_RGB + (255,)
+        tiles[name] = Image.fromarray(arr, "RGBA")
+    raw = BaseTileSet(
+        size=cell, center=tiles["center"],
+        edges={n: tiles[n] for n in ("top", "bottom", "left", "right")},
+        corners={n: tiles[n] for n in ("tl", "tr", "bl", "br")},
+    )
+    ground = np.array(GROUND_RGB, dtype=np.float32)
+    measured = measure_terrain_art(raw, ground_rgb=ground)
+    # 条带 = 基础地形像素 + 描边像素（描边画在条带内侧），因此 16+4 像素 = 0.3125
+    assert abs(measured["band_frac"] - (band_cell + rim_cell) / cell) < 0.03, measured
+    assert abs(measured["rim_frac"] - rim_cell / cell) < 0.02, measured
+    assert max(abs(a - b) for a, b in zip(measured["rim_rgb"], RIM_RGB)) < 40, measured
+
+    art = align_terrain_set(raw, base_texture=_cell(GROUND_RGB), tile_size=S, ground_rgb=ground)
+    assert art.band == 10 and art.line_width == 2, art.art_meta
+    # 拼接后：外侧 8 像素是基础地形、第 9-10 像素是描边（与 AI 底图比例一致）
+    tile = np.asarray(compose_art_tile(art, (SIDES & ~BIT["T"]) | DIAG))
+    assert (tile[:8, :, :3] == np.asarray(art.base_texture)[:8, :, :3]).all()
+    assert tuple(tile[9, S // 2, :3]) == RIM_RGB
+
+
+def test_aligned_output_is_seamless_regardless_of_ai_layout():
+    """核心不变量：随机多地形地图里，相邻瓦片共享边逐像素相等（转角带除外）。
+
+    这是「47-tile 衔接」的构造性保证：纹理网格对齐 + 几何只依赖位掩码，
+    因此 AI 把边界画在哪个深度、格子是否连续、有没有格线框都不影响接缝。
+    """
+    art = {
+        1: _art(GROUND_RGB, GROUND_RGB, checker=10, ground_checker=10),
+        2: _art(FEAT_RGB, GROUND_RGB, checker=14),
+        3: _art((168, 152, 120), GROUND_RGB, checker=16),
+    }
+    band = 8
+    rng = np.random.default_rng(7)
+    H, W = 10, 12
+    grid = rng.integers(1, 4, (H, W))
+    grid[0, :] = 1
+    tiles = {}
+    for y in range(H):
+        for x in range(W):
+            nb = [
+                [int(grid[ny, nx]) if 0 <= ny < H and 0 <= nx < W else 0 for nx in range(x - 1, x + 2)]
+                for ny in range(y - 1, y + 2)
+            ]
+            mask = mask_for_terrain(nb, int(grid[y, x]), base_terrain=1)
+            tiles[(x, y)] = np.asarray(compose_art_tile(art[int(grid[y, x])], mask))
+    corner = band + 2   # 转角带：两条描边线在此交汇，允许 ±1 像素
+    bad = []
+    for y in range(H):
+        for x in range(W - 1):
+            left, right = tiles[(x, y)][:, S - 1], tiles[(x + 1, y)][:, 0]
+            rows = np.nonzero((left != right).any(axis=1))[0]
+            rows = [r for r in rows if corner <= r < S - corner]
+            if rows:
+                bad.append((x, y, rows[:4]))
+    for y in range(H - 1):
+        for x in range(W):
+            top, bot = tiles[(x, y)][S - 1, :], tiles[(x, y + 1)][0, :]
+            cols = np.nonzero((top != bot).any(axis=1))[0]
+            cols = [c for c in cols if corner <= c < S - corner]
+            if cols:
+                bad.append((x, y, cols[:4]))
+    assert not bad, f"共享边（非转角带）出现像素差: {bad[:5]}"
 
 
 def _reference_like_block(strip: float = 0.25, size: int = S):
@@ -385,28 +530,20 @@ def _reference_like_block(strip: float = 0.25, size: int = S):
 
 
 def test_art_strip_keeps_ai_boundary_depth():
-    """回归：AI 把基础地形条带画在格外侧 1/4 时，拼装后条带必须仍在 1/4 处。
+    """回归（第 6~8 轮）：AI 把基础地形条带画在格外侧 1/4 时也必须正确。
 
-    旧实现取「源瓦片的下半/右半四分之一」，会把条带挪到目标瓦片中线（或直接丢失），
-    导致相邻瓦片交界错位 —— 这是「拼接很烂」的核心原因之一。
+    旧实现逐块抠 AI 的九宫格艺术，条带深度/连续性/格线框都会影响成品；
+    第 8 轮改为「AI 纹理 + 程序化几何」：只实测条带深度与描边，几何由算法
+    生成，因此这里断言的是实测结果与拼装后条带位置一致。
     """
-    base = _reference_like_block(strip=0.25)
-    feat_c = (32, 96, 168)
-    base_c = (235, 238, 245)
-    # 仅上方为异类地形：整条顶部条带应保留在 1/4 处
-    tile = np.asarray(compose_art_tile(base, (SIDES & ~BIT["T"]) | DIAG, blend=0))
-    top_rows = tile[: S // 4, S // 2, :3]
-    assert (top_rows == np.array(base_c)).all(), "顶部 1/4 应为基础地形条带"
-    assert tuple(tile[S // 2, S // 2, :3]) == feat_c, "中线处仍应为特征纹理（条带未挪到中线）"
-    # 外角：TL 四分之一块的外侧条带来自角瓦片，中心仍为特征
-    corner = np.asarray(compose_art_tile(base, BIT["R"] | BIT["B"] | BIT["BR"], blend=0))
-    assert tuple(corner[2, 2, :3]) == base_c
-    assert tuple(corner[S // 2, S // 2, :3]) == feat_c
-    # 内角：凹角处的负形来自对角瓦片旋转 180°（外侧仍为基础地形）
-    inner = np.asarray(compose_art_tile(base, SIDES | (DIAG & ~BIT["TL"]), blend=0))
-    assert tuple(inner[2, 2, :3]) == base_c
-    assert tuple(inner[S // 2, S // 2, :3]) == feat_c
-    assert tuple(inner[S - 3, S - 3, :3]) == feat_c
+    art = _art()
+    tile = np.asarray(compose_art_tile(art, (SIDES & ~BIT["T"]) | DIAG))
+    ground = np.asarray(art.base_texture)
+    inner = art.band - art.line_width
+    assert (tile[:inner, :, :3] == ground[:inner, :, :3]).all(), "顶部条带厚度应等于实测 band"
+    assert tuple(tile[S // 2, S // 2, :3]) == tuple(np.asarray(art.center)[S // 2, S // 2, :3])
+    assert align_terrain_set(_reference_like_block(strip=0.25), base_texture=_cell(ground[0, 0, :3], 0),
+                             tile_size=S, ground_rgb=np.array(GROUND_RGB, dtype=np.float32)).band == 8
 
 
 def test_build_47_sheet_art_complete():
@@ -437,32 +574,30 @@ def test_mask_for_terrain_base_counts_features():
 
 
 def test_multiterrain_render_and_overlay():
-    base_terrain = _solid_base()
-    # 特征地形：中心=水（蓝），周边=过渡（青）
-    pond_colors = {
-        "tl": (0, 128, 128), "top": (0, 160, 160), "tr": (0, 128, 128),
-        "left": (0, 160, 160), "center": (0, 0, 255), "right": (0, 160, 160),
-        "bl": (0, 128, 128), "bottom": (0, 160, 160), "br": (0, 128, 128),
-    }
-    solid = lambda c: Image.new("RGBA", (S, S), c + (255,))
-    pond = BaseTileSet(
-        size=S, center=solid(pond_colors["center"]),
-        edges={n: solid(pond_colors[n]) for n in ("top", "bottom", "left", "right")},
-        corners={n: solid(pond_colors[n]) for n in ("tl", "tr", "bl", "br")},
-    )
+    """多地形对齐式渲染：特征地形显示自己的纹理 + 描边，基础地形为纯纹理。"""
+    base_art = _art(GROUND_RGB, GROUND_RGB, checker=10, ground_checker=10)
+    pond_art = _art(FEAT_RGB, GROUND_RGB, checker=14)
     model = TileMapModel(5, 5, tile_size=S)
-    model.set_terrain(1, base_terrain)
-    model.set_terrain(2, pond)
+    model.set_terrain(1, base_art)
+    model.set_terrain(2, pond_art)
     model.set_base_terrain(1)
     model.fill_rect(0, 0, 4, 4, value=1)
     model.set_cell(2, 2, 2)  # 中心一格水塘
     img = np.asarray(model.render())
     assert img.shape == (5 * S, 5 * S, 4)
-    # 中心格（水塘孤立）：四角显示 pond 角艺术（青）；中心为四角艺术的内侧（同为角艺术色）
-    assert img[2 * S + S // 4, 2 * S + S // 4, :3].tolist() == [0, 128, 128]  # TL 角盘
-    assert img[2 * S + S // 2, 2 * S + S // 2, :3].tolist() == [0, 128, 128]  # 孤立足=四角艺术拼接
-    # 基础地形格子（内部 (1,1)：八邻全满）：纯中心色（内部过渡显示填充）
-    assert img[S + S // 2, S + S // 2, :3].tolist() == [128, 128, 128]
+    band = pond_art.band
+    x0, y0 = 2 * S, 2 * S
+    # 孤立的特征格：四条边外侧是基础地形，条带内侧是描边
+    assert (img[y0, x0 + S // 2, :3] == np.asarray(pond_art.base_texture)[0, S // 2, :3]).all()
+    assert tuple(img[y0 + band - 1, x0 + S // 2, :3]) == RIM_RGB
+    # 中心是特征纹理本身（不再是四分之一块拼接）：取中列/中行避开条带与转角
+    mid = S // 2
+    assert (img[y0 + mid, x0 + band : x0 + S - band, :3]
+            == np.asarray(pond_art.center)[mid, band : S - band, :3]).all()
+    assert (img[y0 + band : y0 + S - band, x0 + mid, :3]
+            == np.asarray(pond_art.center)[band : S - band, mid, :3]).all()
+    # 基础地形格子（内部 (1,1)：八邻全满）：整格纯纹理
+    assert (img[S : 2 * S, S : 2 * S, :3] == np.asarray(base_art.center)[..., :3]).all()
 
     # 建筑 overlay：直墙段（不透明红块）叠放
     wall = Image.new("RGBA", (S, S), (255, 0, 0, 255))
@@ -471,7 +606,7 @@ def test_multiterrain_render_and_overlay():
     assert img2[S + S // 2, S + S // 2, :3].tolist() == [255, 0, 0]  # overlay 覆盖地块
     model.remove_overlay(1, 1)
     img3 = np.asarray(model.render())
-    assert img3[S + S // 2, S + S // 2, :3].tolist() == [128, 128, 128]  # 移除后恢复
+    assert (img3[S : 2 * S, S : 2 * S, :3] == np.asarray(base_art.center)[..., :3]).all()  # 移除后恢复
 
 
 # --------------------------------------------------------------------------- #
@@ -555,27 +690,16 @@ def test_nearest_mask_fallback_and_full_mapping():
     assert all(0 <= v < 47 for v in sheet_meta_masks.values())
 
 
-def test_compose_art_blend_is_symmetric():
-    """接触带融合必须左右对称（修复写回顺序 bug）。"""
-    left_color = (255, 0, 0)
-    right_color = (0, 0, 255)
-    top_tile = Image.new("RGBA", (S, S), left_color + (255,))
-    center_tile = Image.new("RGBA", (S, S), right_color + (255,))
-    base = BaseTileSet(
-        size=S,
-        center=center_tile,
-        edges={n: top_tile for n in ("top", "bottom", "left", "right")},
-        corners={n: top_tile for n in ("tl", "tr", "bl", "br")},
-    )
-    # 上边界瓦片：上半取 top 艺术（红），下半取中心（蓝）→ 中线两侧应严格对称
-    tile = np.asarray(compose_art_tile(base, (SIDES & ~BIT["T"]) | DIAG, blend=1)).astype(np.int16)
-    mid_left = tile[S // 2, S // 2 - 1, :3]
-    mid_right = tile[S // 2, S // 2, :3]
-    assert abs(int(mid_left[0]) - int(mid_right[0])) <= 2
-    assert abs(int(mid_left[2]) - int(mid_right[2])) <= 2
-    # 中线上方保留红色、下方保留蓝色（未整块糊掉）
-    assert tile[S // 4, S // 2, 0] > tile[S // 4, S // 2, 2]
-    assert tile[3 * S // 4, S // 2, 2] > tile[3 * S // 4, S // 2, 0]
+def test_compose_aligned_textures_are_wrap_equal():
+    """纹理不变量：对齐式构图依赖「左右/上下边缘逐像素相等」（周期平铺零接缝）。"""
+    art = _art(checker=14)
+    tex = np.asarray(art.center)
+    ground = np.asarray(art.base_texture)
+    assert (tex[:, 0] == tex[:, -1]).all() and (tex[0, :] == tex[-1, :]).all()
+    assert (ground[:, 0] == ground[:, -1]).all() and (ground[0, :] == ground[-1, :]).all()
+    # 全邻瓦片的左右边缘因此逐像素相等（相邻同地形格严丝合缝）
+    full = np.asarray(compose_art_tile(art, SIDES | DIAG))
+    assert (full[:, 0] == full[:, -1]).all()
 
 
 def test_overlay_serialization_and_overlay_only_render():
