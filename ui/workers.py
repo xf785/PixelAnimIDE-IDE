@@ -218,18 +218,24 @@ TILEMAP_API_KINDS = ("image",)
 
 
 class TilemapWorker(QThread):
-    """瓦片地图工作流后台线程（文生瓦片集 → 裁切 → 无缝 → 47/双网格 → 导出）。"""
+    """瓦片地图工作流后台线程。
+
+    stages="full"：跑完整流程（prompts→base→crop→seamless→atlas→export）；
+    stages="base"：只跑 提示词+底图，返回 TilemapSession（保留中间底图，
+    供用户在 UI 确认后继续本地处理）。
+    """
 
     log = Signal(str, str)
     sheet_ready = Signal(str)          # 瓦片底图路径
     atlas_ready = Signal(str)          # 瓦片集图路径
-    succeeded = Signal(object)         # TilemapResult
+    succeeded = Signal(object)         # TilemapResult 或 TilemapSession（base 阶段）
     failed = Signal(str)
 
-    def __init__(self, api_manager: APIConfigManager, params, parent=None):
+    def __init__(self, api_manager: APIConfigManager, params, parent=None, stages: str = "full"):
         super().__init__(parent)
         self._api_manager = api_manager
         self._params = params
+        self._stages = stages
         self._cancel = threading.Event()
         self._clients: List = []
 
@@ -246,12 +252,18 @@ class TilemapWorker(QThread):
                 log=self._on_log,
                 cancel=self._cancel,
             )
-            result = workflow.run(self._params)
-            if result.sheet_path:
-                self.sheet_ready.emit(str(result.sheet_path))
-            if result.atlas_path:
-                self.atlas_ready.emit(str(result.atlas_path))
-            self.succeeded.emit(result)
+            if self._stages == "base":
+                session = workflow.run_to_base(self._params)
+                if session.sheet_path:
+                    self.sheet_ready.emit(str(session.sheet_path))
+                self.succeeded.emit(session)
+            else:
+                result = workflow.run(self._params)
+                if result.sheet_path:
+                    self.sheet_ready.emit(str(result.sheet_path))
+                if result.atlas_path:
+                    self.atlas_ready.emit(str(result.atlas_path))
+                self.succeeded.emit(result)
         except WorkflowCancelled:
             self.failed.emit(tr("任务已取消"))
         except WorkflowError as exc:

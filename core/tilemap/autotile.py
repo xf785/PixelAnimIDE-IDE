@@ -40,9 +40,54 @@ _CORNERS = (
 SHEET_COLS = 8
 SHEET_ROWS = 6  # 48 槽，47 张瓦片 + 1 空槽
 
+_SIDE_BITS = ("T", "B", "L", "R")
+_DIAG_NEEDS = {  # 对角位 -> 需要同时为满的两个正交位
+    "TL": ("T", "L"),
+    "TR": ("T", "R"),
+    "BL": ("B", "L"),
+    "BR": ("B", "R"),
+}
+
+
+def canonical_mask(mask: int) -> int:
+    """规范化 8 邻域掩码：对角位仅在两相邻正交位都为满时生效。
+
+    这是经典 blob / 47-tile 的约定（与 FrameRonin `computeBlobMask`、
+    Godot 地形集同源）：对角位表达「转角是否连通」，只有两侧正交位都连通时
+    才有意义；例如只有对角邻居而无正交邻居时，等价于孤立瓦片（mask=0）。
+    """
+    m = int(mask) & 255
+    sides = 0
+    for name in _SIDE_BITS:
+        sides |= m & BIT[name]
+    out = sides
+    for diag, (a, b) in _DIAG_NEEDS.items():
+        if (m & BIT[diag]) and (sides & BIT[a]) and (sides & BIT[b]):
+            out |= BIT[diag]
+    return out
+
+
+def canonical_masks() -> List[int]:
+    """全部可达掩码（恰好 47 个），按经典分组顺序排列。"""
+    out: List[int] = []
+    for mask in _group_masks():
+        c = canonical_mask(mask)
+        if c not in out:
+            out.append(c)
+    return out
+
+
+def nearest_mask(mask: int, candidates: Optional[List[int]] = None) -> int:
+    """把任意掩码映射到最近的合法掩码（汉明距离，FrameRonin 同款回退）。"""
+    m = int(mask) & 255
+    pool = candidates or canonical_masks()
+    if m in pool:
+        return m
+    return min(pool, key=lambda k: bin(m ^ k).count("1"))
+
 
 def mask_from_neighbors(nb) -> int:
-    """由 3×3 邻域（中心为当前格）计算位掩码。
+    """由 3×3 邻域（中心为当前格）计算规范化位掩码。
 
     nb: 3×3 的可迭代（bool/int），True/非 0 表示该邻居是同类地形；
     中心格忽略。
@@ -56,7 +101,7 @@ def mask_from_neighbors(nb) -> int:
     for r, c, name in order:
         if int(nb[r][c]):
             mask |= BIT[name]
-    return mask
+    return canonical_mask(mask)
 
 
 def compose_tile(
@@ -415,3 +460,232 @@ def _neighbors(grid: np.ndarray, y: int, x: int) -> List[List[int]]:
         [int(grid[ny, nx]) if 0 <= ny < h and 0 <= nx < w else 0 for nx in range(x - 1, x + 2)]
         for ny in range(y - 1, y + 2)
     ]
+
+
+# --------------------------------------------------------------------------- #
+# 艺术片构图（真实 AI 九宫格艺术拼接，替代程序化描边）
+# --------------------------------------------------------------------------- #
+def mask_for_terrain(nb, terrain_id: int, base_terrain: Optional[int] = None) -> int:
+    """多地形位掩码（规范化）：同地形邻居视为满；基础地形额外把任何非空地形
+    视为满（基础地形在生态内部过渡处始终显示填充，过渡艺术由特征地形一侧提供）。"""
+    order = [
+        (0, 0, "TL"), (0, 1, "T"), (0, 2, "TR"),
+        (1, 0, "L"), (2, 0, "BL"), (2, 1, "B"), (2, 2, "BR"),
+        (1, 2, "R"),
+    ]
+    mask = 0
+    for r, c, name in order:
+        v = int(nb[r][c])
+        filled = (v != 0) if (base_terrain is not None and terrain_id == base_terrain) else (v == terrain_id)
+        if filled:
+            mask |= BIT[name]
+    return canonical_mask(mask)
+
+
+# 每个目标四分之一块：邻居位定义 + 状态 → (源瓦片, 源四分之一, 是否旋转 180°)
+_QUARTER_SIDES = {
+    "TL": ("T", "L", "TL"),
+    "TR": ("T", "R", "TR"),
+    "BL": ("B", "L", "BL"),
+    "BR": ("B", "R", "BR"),
+}
+
+_ART_SRC = {
+    # fill=纯地形；t_cut/b_cut/l_cut=直边（取对应边瓦片的同侧四分之一，
+    # 其外侧条带即为另一方地形）；outer=外角（本角瓦片的同侧四分之一，含圆角弧）；
+    # inner=内角（对角瓦片旋转 180° 的同侧四分之一 = 凹角负形）
+    "TL": {
+        "fill": ("center", "TL", False), "t_cut": ("top", "TL", False),
+        "l_cut": ("left", "TL", False), "outer": ("tl", "TL", False),
+        "inner": ("br", "TL", True),
+    },
+    "TR": {
+        "fill": ("center", "TR", False), "t_cut": ("top", "TR", False),
+        "r_cut": ("right", "TR", False), "outer": ("tr", "TR", False),
+        "inner": ("bl", "TR", True),
+    },
+    "BL": {
+        "fill": ("center", "BL", False), "b_cut": ("bottom", "BL", False),
+        "l_cut": ("left", "BL", False), "outer": ("bl", "BL", False),
+        "inner": ("tr", "BL", True),
+    },
+    "BR": {
+        "fill": ("center", "BR", False), "b_cut": ("bottom", "BR", False),
+        "r_cut": ("right", "BR", False), "outer": ("br", "BR", False),
+        "inner": ("tl", "BR", True),
+    },
+}
+
+
+def _quarter_box(s: int, quarter: str) -> Tuple[int, int, int, int]:
+    half = s // 2
+    return {
+        "TL": (0, 0, half, half),
+        "TR": (half, 0, s, half),
+        "BL": (0, half, half, s),
+        "BR": (half, half, s, s),
+    }[quarter]
+
+
+def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
+    """用九宫格的真实艺术片按位掩码拼接一张瓦片（RGBA，同尺寸）。
+
+    块选取规则（与 AI 九宫格「圆角团块」画法严格对应，参考示意图）：
+    - 目标四分之一块看它的两个正交邻居（如 TL 看 N/W）：
+      * 两侧都是同类地形 + 对角同类 → 纯地形：取中心瓦片同侧四分之一；
+      * 上侧异类（边界在上）→ 取 **上边瓦片同侧四分之一**（其外侧条带=另一方地形）；
+      * 左侧异类（边界在左）→ 取 **左边瓦片同侧四分之一**；
+      * 两侧都异类（外角：另一种地形包住本角）→ 取本角瓦片同侧四分之一（含圆角弧）；
+      * 两侧同类但对角异类（内角：另一种地形斜插进来）→ 取 **对角瓦片旋转 180°
+        后的同侧四分之一**（凹角/负形），而不是本角瓦片——旧实现用凸角艺术画内角，
+        这是内角处接缝错乱的原因之一。
+    取「同侧四分之一」而非「下半/右半四分之一」，使 AI 把边界条带画在格外侧
+    1/4 还是 1/2 处都能正确对位（1/2 时两种取法等价）。
+    """
+    s = base.size
+    canvas = np.zeros((s, s, 4), dtype=np.float32)
+    for quarter, rules in _ART_SRC.items():
+        sa, sb, diag = _QUARTER_SIDES[quarter]
+        a = mask & BIT[sa]      # 该四分之一块的两个正交邻居
+        b = mask & BIT[sb]
+        d = mask & BIT[diag]
+        if a and b:
+            state = "fill" if d else "inner"   # 对角也是同类 -> 填充；对角异类 -> 内角
+        elif not a and not b:
+            state = "outer"                     # 两侧都异类 -> 外角圆角
+        elif a and not b:
+            state = "l_cut" if quarter in ("TL", "BL") else "r_cut"
+        else:
+            state = "t_cut" if quarter in ("TL", "TR") else "b_cut"
+        src_name, src_q, flip = rules[state]
+        tile = base.tile(src_name)
+        if flip:
+            tile = tile.transpose(Image.Transpose.ROTATE_180)
+        arr = np.asarray(tile.convert("RGBA")).astype(np.float32)
+        l, t, r, b = _quarter_box(s, src_q)
+        l2, t2, r2, b2 = _quarter_box(s, quarter)
+        canvas[t2:b2, l2:r2] = arr[t:b, l:r]
+
+    # 块接触带交叉淡化（垂直接缝 + 水平接缝，宽度 blend）
+    # 注意：两侧像素必须都用「混合前」的值计算，否则第二次写回会读到已被改写的
+    # 邻居列/行，产生左右不对称的脏边（旧实现即为此 bug）。
+    w = max(0, min(int(blend), s // 4 - 1))
+    half = s // 2
+    for i in range(w):
+        t = (i + 0.5) / (w + 1)
+        # 垂直中线（TL/TR ↔ BL/BR）
+        left_col = canvas[:, half - 1 - i].copy()
+        right_col = canvas[:, half + i].copy()
+        canvas[:, half - 1 - i] = (1 - t) * left_col + t * right_col
+        canvas[:, half + i] = t * left_col + (1 - t) * right_col
+        # 水平中线（TL/BL ↔ TR/BR）
+        top_row = canvas[half - 1 - i, :].copy()
+        bottom_row = canvas[half + i, :].copy()
+        canvas[half - 1 - i, :] = (1 - t) * top_row + t * bottom_row
+        canvas[half + i, :] = t * top_row + (1 - t) * bottom_row
+    out = np.clip(canvas, 0, 255).astype(np.uint8)
+    return Image.fromarray(out, "RGBA")
+
+
+def build_47_sheet_art(base, blend: int = 1) -> Tuple[Image.Image, Dict]:
+    """用艺术片构图生成 47-tile 瓦片集（8×6 图 + 全 256 掩码映射元数据）。
+
+    只枚举 **47 个可达（规范化）掩码**（对角位依赖正交位，FrameRonin 同款），
+    每个掩码一个槽位；非可达掩码通过汉明距离回退到最近槽位，
+    因此 `mask_to_index` 对全部 256 种邻域都有确定答案，且槽位顺序稳定。
+    """
+    s = base.size
+    masks = canonical_masks()
+    index_to_mask: List[int] = []
+    tiles: List[Image.Image] = []
+    seen: Dict[bytes, int] = {}
+    slot_of_mask: Dict[int, int] = {}
+    for mask in masks:
+        tile = compose_art_tile(base, mask, blend=blend)
+        key = tile.tobytes()
+        if key in seen:
+            slot_of_mask[mask] = seen[key]
+            continue
+        idx = len(tiles)
+        seen[key] = idx
+        slot_of_mask[mask] = idx
+        index_to_mask.append(mask)
+        tiles.append(tile)
+    unique = len(tiles)
+    # 经典布局中「孤立瓦片」（mask=0）与「四内角瓦片」（四边满、对角全空）
+    # 图形重合（同为四角圆盘切），模板惯例保留双槽位。
+    hole_mask = BIT["T"] | BIT["B"] | BIT["L"] | BIT["R"]
+    if hole_mask in slot_of_mask and slot_of_mask.get(0) == slot_of_mask[hole_mask]:
+        tiles.append(tiles[slot_of_mask[hole_mask]])
+        slot_of_mask[0] = len(tiles) - 1
+        index_to_mask.append(0)
+        unique = len(tiles)
+    while len(tiles) < 47:
+        tiles.append(tiles[0])
+    # 全 256 掩码 -> 槽位（不可达掩码按汉明距离回退）
+    mask_to_index = {m: slot_of_mask[nearest_mask(m, masks)] for m in range(256)}
+    sheet = Image.new("RGBA", (SHEET_COLS * s, SHEET_ROWS * s), (0, 0, 0, 0))
+    for i, tile in enumerate(tiles):
+        sheet.paste(tile, ((i % SHEET_COLS) * s, (i // SHEET_COLS) * s), tile)
+    meta = {
+        "format": "pixel-anim-47tile-art",
+        "tile_size": s,
+        "sheet_cols": SHEET_COLS,
+        "sheet_rows": SHEET_ROWS,
+        "tile_count": 47,
+        "reachable_masks": masks,
+        "mask_convention": "TL=1 T=2 TR=4 L=8 R=16 BL=32 B=64 BR=128; 对角位仅在两正交位为满时有效",
+        "radius": s // 2,
+        "blend": int(blend),
+        "mask_to_index": {str(m): mask_to_index[m] for m in range(256)},
+        "index_to_mask": index_to_mask,
+    }
+    return sheet, meta
+
+
+def build_dual_pieces_sheet_art(base, blend: int = 1) -> Tuple[Image.Image, Dict]:
+    """双网格 16 块集（艺术片版）：由九宫格艺术构图瓦片裁四分之一块。"""
+    s = base.size
+    half = s // 2
+    all_sides = BIT["T"] | BIT["B"] | BIT["L"] | BIT["R"]
+    kind_masks = {
+        0: all_sides,
+        1: all_sides & ~BIT["T"],
+        2: all_sides & ~BIT["L"],
+        3: all_sides & ~BIT["T"] & ~BIT["L"],
+    }
+
+    def mask_for(qy, qx, kind):
+        m = kind_masks[kind]
+        if kind == 1 and qy == 1:
+            m = all_sides & ~BIT["B"]
+        if kind == 2 and qx == 1:
+            m = all_sides & ~BIT["R"]
+        if kind == 3:
+            m = all_sides
+            m &= ~(BIT["T"] if qy == 0 else BIT["B"])
+            m &= ~(BIT["L"] if qx == 0 else BIT["R"])
+        return m
+
+    sheet = Image.new("RGBA", (half * 4, half * 4), (0, 0, 0, 0))
+    pieces: List[Dict] = []
+    for qy in range(2):
+        for qx in range(2):
+            for kind in range(4):
+                tile = compose_art_tile(base, mask_for(qy, qx, kind), blend=blend)
+                l, t, r, b = _quarter_box(s, "TL" if qy == 0 and qx == 0 else "TR" if qy == 0 else "BL" if qx == 0 else "BR")
+                piece = tile.crop((l, t, r, b))
+                idx = len(pieces)
+                sheet.paste(piece, ((idx % 4) * half, (idx // 4) * half), piece)
+                pieces.append({"index": idx, "qy": qy, "qx": qx, "kind": kind, "name": DUAL_PIECE_NAMES[kind]})
+    meta = {
+        "format": "pixel-anim-dual-art",
+        "tile_size": s,
+        "piece_size": half,
+        "cols": 4,
+        "rows": 4,
+        "piece_count": 16,
+        "blend": int(blend),
+        "pieces": pieces,
+    }
+    return sheet, meta

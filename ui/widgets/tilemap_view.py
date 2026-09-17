@@ -12,7 +12,15 @@ from typing import Optional, Tuple
 from PIL import Image
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from core.tilemap import TileMapModel
 from ui.i18n import T, tr
@@ -43,10 +51,12 @@ class TilemapView(QWidget):
     def __init__(
         self,
         model: TileMapModel,
-        center: Image.Image,
+        center=None,
         line_color: Tuple[int, int, int] = (0, 0, 0),
         line_width: int = 1,
         atlas_mode: str = "47",
+        terrain_labels: Optional[dict] = None,
+        pieces: Optional[dict] = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -55,6 +65,11 @@ class TilemapView(QWidget):
         self._line_color = line_color
         self._line_width = line_width
         self._atlas_mode = atlas_mode
+        self._terrain_labels = terrain_labels or {}
+        self._pieces = pieces or {}
+        self._paint_terrain = 1
+        self._current_piece = None
+        self._piece_rot = 0
         self._zoom = 3
         self._erase = False
         self.setMouseTracking(True)
@@ -75,6 +90,26 @@ class TilemapView(QWidget):
         self._toolbar.addWidget(self._erase_btn)
         self._toolbar.addWidget(self._clear_btn)
         self._toolbar.addStretch(1)
+        # 多地形画笔（地块生态）
+        self._terrain_combo = QComboBox()
+        for tid, label in sorted(self._terrain_labels.items()):
+            self._terrain_combo.addItem(str(label), tid)
+        if self._terrain_labels:
+            self._terrain_combo.currentIndexChanged.connect(
+                lambda _i: setattr(self, "_paint_terrain", int(self._terrain_combo.currentData() or 1))
+            )
+            self._toolbar.addWidget(self._terrain_combo)
+        # 建筑拼件（overlay 层：选择 + 旋转）
+        self._piece_combo = QComboBox()
+        self._piece_combo.addItem(T(None, "（无拼件）"), None)
+        for name in self._pieces:
+            self._piece_combo.addItem(name, name)
+        self._rot_btn = T(QToolButton(), "旋转")
+        if self._pieces:
+            self._piece_combo.currentIndexChanged.connect(self._on_piece_changed)
+            self._rot_btn.clicked.connect(self._on_rotate)
+            self._toolbar.addWidget(self._piece_combo)
+            self._toolbar.addWidget(self._rot_btn)
         self._toolbar.addWidget(self._zoom_label)
 
         outer = QVBoxLayout(self)
@@ -93,8 +128,15 @@ class TilemapView(QWidget):
         self._paint_btn.setChecked(not erase)
         self._erase_btn.setChecked(erase)
 
+    def _on_piece_changed(self, _index: int) -> None:
+        self._current_piece = self._piece_combo.currentData()
+
+    def _on_rotate(self) -> None:
+        self._piece_rot = (self._piece_rot + 1) % 4
+
     def clear(self) -> None:
         self._model.clear()
+        self._model.clear_overlay()
         self._rebuild()
         self.changed.emit()
 
@@ -110,9 +152,12 @@ class TilemapView(QWidget):
 
     # ------------------------------------------------------------------ #
     def _rebuild(self) -> None:
-        img = self._model.render(
-            self._center, self._line_color, self._line_width, mode=self._atlas_mode
-        )
+        if self._model.terrain_sets or self._center is None:
+            img = self._model.render()  # 多地形艺术构图 / 仅 overlay（建筑拼件）
+        else:
+            img = self._model.render(
+                self._center, self._line_color, self._line_width, mode=self._atlas_mode
+            )
         s = self._model.tile_size
         pix = pil_to_qpixmap(img).scaled(
             img.width * self._zoom,
@@ -149,7 +194,15 @@ class TilemapView(QWidget):
         cell = self._cell_at(pos)
         if cell is None:
             return
-        self._model.set_cell(cell[0], cell[1], 0 if self._erase else 1)
+        if self._erase:
+            self._model.set_cell(cell[0], cell[1], 0)
+            self._model.remove_overlay(cell[0], cell[1])
+        elif self._current_piece:
+            piece = self._pieces.get(self._current_piece)
+            if piece is not None:
+                self._model.set_overlay(cell[0], cell[1], piece, self._piece_rot)
+        else:
+            self._model.set_cell(cell[0], cell[1], self._paint_terrain)
         self._rebuild()
         self.changed.emit()
 

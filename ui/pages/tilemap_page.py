@@ -1,22 +1,29 @@
 """瓦片地图模式页（第 5 模式）。
 
-链路：文本描述（纹理/风格）→ 内置严格瓦片集提示词 → 文生 3×3 瓦片集底图
-      → 自适应裁切 9 张瓦片 → 逐瓦片重绘（像素编辑器）→ 无缝化
-      → 47-tile 瓦片集 / 双网格（用户可选）→ 大网格地图预览与铺设 → 导出。
+分类：
+- 地块生态（ground）：2×2 生态图（1 基础 + 3 特征），生成多地形 47 艺术集，
+  多地形画笔铺设；
+- 建筑类（building）：2×2 建筑图（墙体/顶面/开口/立柱），生成透明拼件，
+  像图层一样叠放在地块上（可旋转）；
+- 经典 3×3（classic）：保留旧链路。
+
+链路：提示词 → 文生底图 → 裁切 → 无缝化 → 瓦片集/拼件 → 地图预览铺设 → 导出。
 """
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -38,8 +45,23 @@ from ui.workers import TilemapWorker
 
 logger = logging.getLogger("PixelAnimIDE.ui.tilemap_page")
 
-FORM_WIDTH = 360
+FORM_WIDTH = 380
 STYLE_PRESETS = ["game sprite", "retro", "pixel", "top-down RPG", "platformer", "16-bit"]
+
+CATEGORY_LABELS = {
+    "ground": "地块生态",
+    "building": "建筑类",
+    "classic": "经典 3×3",
+}
+
+# 基础地形块位置（AI 常不遵守「左上」要求，默认自动识别）
+BASE_BLOCK_LABELS = {
+    "auto": "自动识别",
+    "tl": "左上块",
+    "tr": "右上块",
+    "bl": "左下块",
+    "br": "右下块",
+}
 
 
 class TilemapPage(QWidget):
@@ -83,10 +105,41 @@ class TilemapPage(QWidget):
         f.setContentsMargins(12, 18, 12, 12)
         f.setVerticalSpacing(10)
 
+        self._category_combo = QComboBox()
+        for key, zh in CATEGORY_LABELS.items():
+            self._category_combo.addItem(tr(zh), key)
+        self._category_combo.currentIndexChanged.connect(self._on_category_changed)
+        f.addRow(T(QLabel(), "瓦片类别"), self._category_combo)
+
         self._desc_edit = QTextEdit()
         T(self._desc_edit, "例如：草地、石砖墙、熔岩地面、水面……", attr="placeholder")
-        self._desc_edit.setMaximumHeight(72)
+        self._desc_edit.setMaximumHeight(64)
         f.addRow(T(QLabel(), "纹理描述"), self._desc_edit)
+
+        # 地块生态特征槽（3 个：名称 + 描述）
+        self._feature_rows: list = []
+        self._feature_labels: list = []
+        for i, default in enumerate(
+            (("水塘", "a clear pond"), ("稀疏草地", "sparse patchy grass"), ("岩石", "a rocky outcrop"))
+        ):
+            name_edit = QLineEdit(default[0])
+            desc_edit = QLineEdit(default[1])
+            row = QHBoxLayout()
+            row.addWidget(name_edit, 1)
+            row.addWidget(desc_edit, 2)
+            label = T(QLabel(), f"特征 {i + 1}")
+            f.addRow(label, row)
+            self._feature_rows.append((name_edit, desc_edit))
+            self._feature_labels.append(label)
+
+        self._base_pos_label = T(QLabel(), "基础地形块")
+        self._base_pos_combo = QComboBox()
+        for key, zh in BASE_BLOCK_LABELS.items():
+            self._base_pos_combo.addItem(T(None, zh), key)
+        self._base_pos_combo.setToolTip(
+            tr("生图返回的 2×2 底图中哪一块是纯基础地形；默认自动识别（AI 常不遵守位置要求）")
+        )
+        f.addRow(self._base_pos_label, self._base_pos_combo)
 
         self._style_combo = QComboBox()
         self._style_combo.setEditable(True)
@@ -106,15 +159,17 @@ class TilemapPage(QWidget):
         self._sheet_spin.setValue(768)
         f.addRow(T(QLabel(), "生图边长"), self._sheet_spin)
 
+        self._line_label = T(QLabel(), "边界线宽")
         self._line_spin = QSpinBox()
         self._line_spin.setRange(1, 4)
         self._line_spin.setValue(1)
-        f.addRow(T(QLabel(), "边界线宽"), self._line_spin)
+        f.addRow(self._line_label, self._line_spin)
 
+        self._mode_label = T(QLabel(), "瓦片集模式")
         self._mode_combo = QComboBox()
         self._mode_combo.addItem(T(None, "47-tile 瓦片集"), "47")
         self._mode_combo.addItem(T(None, "双网格地图"), "dual")
-        f.addRow(T(QLabel(), "瓦片集模式"), self._mode_combo)
+        f.addRow(self._mode_label, self._mode_combo)
 
         size_row = QHBoxLayout()
         self._map_w_spin = QSpinBox()
@@ -139,6 +194,11 @@ class TilemapPage(QWidget):
         fl.addLayout(actions)
 
         actions2 = QHBoxLayout()
+        self._accept_btn = T(QPushButton(), "接受并生成瓦片集")
+        self._accept_btn.setObjectName("PrimaryButton")
+        self._accept_btn.clicked.connect(self._on_accept)
+        self._accept_btn.setVisible(False)
+        actions2.addWidget(self._accept_btn, 1)
         self._edit_btn = T(QPushButton(), "编辑瓦片")
         self._edit_btn.clicked.connect(self._on_edit_tiles)
         self._edit_btn.setEnabled(False)
@@ -176,15 +236,52 @@ class TilemapPage(QWidget):
         top.addWidget(right, 1)
 
         root.addLayout(top, 1)
+        self._on_category_changed()
 
     # ------------------------------------------------------------------ #
+    def _on_category_changed(self, *_args) -> None:
+        cat = self._category_combo.currentData()
+        is_ground = cat == "ground"
+        is_building = cat == "building"
+        for label in self._feature_labels:
+            label.setVisible(is_ground)
+        for name_edit, desc_edit in self._feature_rows:
+            name_edit.setVisible(is_ground)
+            desc_edit.setVisible(is_ground)
+        self._line_label.setVisible(cat == "classic")
+        self._line_spin.setVisible(cat == "classic")
+        self._base_pos_label.setVisible(is_ground)
+        self._base_pos_combo.setVisible(is_ground)
+        self._mode_label.setVisible(cat != "building")
+        self._mode_combo.setVisible(cat != "building")
+        self._desc_edit.setPlaceholderText(
+            tr("例如：草地、沙漠、雪原……（生态基础地形）")
+            if is_ground
+            else tr("例如：石墙、木栅栏、房屋……（建筑主体）")
+            if is_building
+            else tr("例如：草地、石砖墙、熔岩地面、水面……")
+        )
+        # 切换类别：收起「接受」按钮、恢复生成按钮文案
+        self._accept_btn.setVisible(False)
+        self._gen_btn.setText(tr("生成瓦片集"))
+
     def _collect_params(self) -> TilemapParams:
+        cat = self._category_combo.currentData()
         desc = self._desc_edit.toPlainText().strip()
         if not desc:
             raise WorkflowError(tr("请先填写纹理描述"), step="瓦片提示词")
+        features: dict = {}
+        if cat == "ground":
+            for name_edit, desc_edit in self._feature_rows:
+                name = name_edit.text().strip()
+                if name:
+                    features[name] = desc_edit.text().strip() or name
         return TilemapParams(
             description=desc,
             style=self._style_combo.currentText().strip() or "game sprite",
+            category=cat,
+            features=features,
+            base_block=self._base_pos_combo.currentData() or "auto",
             tile_size=self._tile_spin.value(),
             sheet_size=self._sheet_spin.value(),
             atlas_mode=self._mode_combo.currentData(),
@@ -204,46 +301,125 @@ class TilemapPage(QWidget):
         if self._worker and self._worker.isRunning():
             return
         self._params = params
+        self._stage = "base" if params.category != "classic" else "full"
         self._gen_btn.setEnabled(False)
+        self._accept_btn.setVisible(False)
         self._edit_btn.setEnabled(False)
         self._map_btn.setEnabled(False)
         self._status.setText(tr("生成中…"))
-        self._worker = TilemapWorker(self._ctx.api, params, parent=self)
-        self._worker.succeeded.connect(self._on_done)
+        self._worker = TilemapWorker(self._ctx.api, params, parent=self, stages=self._stage)
+        self._worker.succeeded.connect(self._on_worker_done)
         self._worker.failed.connect(self._on_failed)
         self._worker.start()
+
+    def _on_worker_done(self, obj) -> None:
+        """按阶段分发：base 阶段 = 底图待确认；full = 全部完成。"""
+        if self._stage == "base":
+            self._on_base_done(obj)
+        else:
+            self._on_done(obj)
+
+    def _on_base_done(self, session) -> None:
+        """底图（2×2 生态图/建筑图）已生成：保留中间结果，展示并等待用户确认。"""
+        self._session = session
+        self._gen_btn.setEnabled(True)
+        self._gen_btn.setText(tr("重新生成"))
+        self._accept_btn.setVisible(True)
+        self._accept_btn.setEnabled(True)
+        self._edit_btn.setEnabled(False)
+        self._map_btn.setEnabled(False)
+        self._show_sheet(session.sheet_image)
+        self._status.setText(
+            tr("底图已生成并保存（{0}）。确认满意后点「接受并生成瓦片集」，不满意可「重新生成」").format(
+                session.sheet_path
+            )
+        )
+
+    def _on_accept(self) -> None:
+        """用户确认底图：本地继续 裁切→无缝→瓦片集→导出（无需 API）。"""
+        if self._session is None:
+            return
+        # 基础块位置在「确认底图」这一刻才真正生效：用户看着底图即可纠正误判，
+        # 无需重新生图（裁切/无缝/瓦片集全是本地步骤）。
+        self._session.params.base_block = self._base_pos_combo.currentData() or "auto"
+        self._accept_btn.setEnabled(False)
+        self._gen_btn.setEnabled(False)
+        self._status.setText(tr("处理中…"))
+        try:
+            result = self._local_wf.finish_from_base(self._session)
+        except Exception as exc:  # noqa: BLE001
+            self._gen_btn.setEnabled(True)
+            self._accept_btn.setEnabled(True)
+            QMessageBox.warning(self, tr("瓦片集生成失败"), str(exc))
+            return
+        self._on_done(result)
+
+    def _show_sheet(self, img) -> None:
+        """预览原始生图底图（确认中间结果）。"""
+        if img is None:
+            return
+        zoom = max(1, min(3, 900 // max(img.size)))
+        pix = pil_to_qpixmap(img).scaled(
+            img.width * zoom, img.height * zoom,
+            Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation,
+        )
+        self._preview_label.setPixmap(pix)
+        self._preview_caption.setText(tr("生图底图（待确认）") + f"  ·  {img.size[0]}×{img.size[1]}")
 
     def _on_done(self, result) -> None:
         self._result = result
         self._session = result.session
         self._gen_btn.setEnabled(True)
+        self._gen_btn.setText(tr("生成瓦片集"))
+        self._accept_btn.setVisible(False)
         self._edit_btn.setEnabled(True)
         self._map_btn.setEnabled(True)
-        self._show_atlas()
-        self._status.setText(tr("瓦片集已生成: {0}").format(result.atlas_path))
+        self._show_preview()
+        self._status.setText(tr("瓦片集已生成: {0}").format(result.output_dir / "export"))
 
     def _on_failed(self, message: str) -> None:
         self._gen_btn.setEnabled(True)
         self._status.setText(tr("生成失败: {0}").format(message))
         QMessageBox.warning(self, tr("瓦片集生成失败"), message)
 
-    def _show_atlas(self) -> None:
-        if self._session and self._session.atlas_sheet is not None:
+    def _show_preview(self) -> None:
+        if self._session is None:
+            return
+        cat = self._session.params.category
+        sheet = None
+        if cat == "ground":
+            first_tid = sorted(self._session.terrain_sheets)[0]
+            sheet, _meta = self._session.terrain_sheets[first_tid]
+            caption = tr("地块生态（{0} 套地形，显示基础地形 47 集）").format(len(self._session.terrain_sets))
+        elif cat == "building":
+            pieces = self._session.pieces["pieces"]
+            names = list(pieces)
+            s = self._session.params.tile_size
+            from PIL import Image
+
+            sheet = Image.new("RGBA", (s * len(names), s), (0, 0, 0, 0))
+            for i, name in enumerate(names):
+                sheet.paste(pieces[name], (i * s, 0), pieces[name])
+            caption = tr("建筑拼件（{0}）").format(" / ".join(names))
+        else:
             sheet = self._session.atlas_sheet
-            zoom = max(1, min(4, 1024 // max(sheet.size)))
-            pix = pil_to_qpixmap(sheet).scaled(
-                sheet.width * zoom,
-                sheet.height * zoom,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.FastTransformation,
+            caption = (
+                tr("47-tile（8×6）") if self._session.params.atlas_mode == "47" else tr("双网格（16 块）")
             )
-            self._preview_label.setPixmap(pix)
-            mode = tr("47-tile（8×6）") if self._session.params.atlas_mode == "47" else tr("双网格（16 块）")
-            self._preview_caption.setText(f"{mode}  ·  {sheet.size[0]}×{sheet.size[1]}")
+        if sheet is None:
+            return
+        zoom = max(1, min(4, 1024 // max(sheet.size)))
+        pix = pil_to_qpixmap(sheet).scaled(
+            sheet.width * zoom,
+            sheet.height * zoom,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
+        self._preview_label.setPixmap(pix)
+        self._preview_caption.setText(f"{caption}  ·  {sheet.size[0]}×{sheet.size[1]}")
 
     # ------------------------------------------------------------------ #
     def _rerun_local_steps(self) -> None:
-        """编辑瓦片后重跑 无缝化/瓦片集/导出（纯本地，无 API）。"""
         if self._session is None:
             return
         try:
@@ -253,49 +429,100 @@ class TilemapPage(QWidget):
             QMessageBox.warning(self, tr("重新生成失败"), str(exc))
             return
         self._result = self._session.result
-        self._show_atlas()
+        self._show_preview()
         self._status.setText(tr("瓦片已更新并重新生成瓦片集"))
 
+    def _block_base_set(self):
+        """返回 (名称列表, {名称: 可编辑 BaseTileSet}) 供编辑对话框使用（按类别）。"""
+        session = self._session
+        cat = session.params.category
+        if cat == "ground":
+            names = ["基础地形"] + list(session.ecosystem.features)
+            return names, {names[0]: session.ecosystem.base, **session.ecosystem.features}
+        if cat == "building":
+            names = ["墙体", "顶面", "开口", "立柱"]
+            return names, {
+                "墙体": session.building.wall,
+                "顶面": session.building.top,
+                "开口": session.building.opening,
+                "立柱": session.building.pillar,
+            }
+        return ["九宫格"], {"九宫格": session.base}
+
     def _on_edit_tiles(self) -> None:
-        if self._session is None or self._session.base is None:
+        if self._session is None:
             QMessageBox.information(self, tr("编辑瓦片"), tr("请先生成瓦片集"))
             return
-        dialog = TileEditorDialog(self._session.base, parent=self)
+        names, sets = self._block_base_set()
+        name, ok = QInputDialog.getItem(self, tr("编辑瓦片"), tr("选择瓦片组"), names, 0, False)
+        if not ok or name not in sets:
+            return
+        dialog = TileEditorDialog(sets[name], parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             edited = dialog.result()
-            self._session.base = base_set_with_edits(self._session.base, edited)
+            sets[name] = base_set_with_edits(sets[name], edited)
+            cat = self._session.params.category
+            if cat == "ground":
+                if name == names[0]:
+                    self._session.ecosystem.base = sets[name]
+                else:
+                    self._session.ecosystem.features[name] = sets[name]
+            elif cat == "building":
+                mapping = {"墙体": "wall", "顶面": "top", "开口": "opening", "立柱": "pillar"}
+                setattr(self._session.building, mapping[name], sets[name])
+            else:
+                self._session.base = sets[name]
             self._rerun_local_steps()
+
+    def _terrain_labels(self) -> dict:
+        if self._session is None or self._session.ecosystem is None:
+            return {}
+        labels = {1: tr("基础地形")}
+        for i, name in enumerate(self._session.ecosystem.features, start=2):
+            labels[i] = name
+        return labels
 
     def _on_map_preview(self) -> None:
         if self._session is None or self._session.map_model is None:
             QMessageBox.information(self, tr("地图预览"), tr("请先生成瓦片集"))
             return
         session = self._session
-        model = TileMapModel.from_dict(session.map_model.to_dict())
+        pieces = session.pieces["pieces"] if session.pieces else None
+        # 带上拼件注册表：建筑 overlay 按名称恢复（此前从 dict 重建会丢失全部拼件）
+        model = TileMapModel.from_dict(session.map_model.to_dict(), pieces=pieces)
+        if session.map_model.terrain_sets:
+            for tid, tset in session.terrain_sets.items():
+                model.set_terrain(tid, tset)
+            model.base_terrain = session.map_model.base_terrain
         dialog = QDialog(self)
         dialog.setWindowTitle(tr("地图预览（左键铺设 / 右键擦除 / 滚轮缩放）"))
-        dialog.resize(880, 640)
+        dialog.resize(900, 680)
         layout = QVBoxLayout(dialog)
+        center = None
+        if not model.terrain_sets and session.processed is not None:
+            center = session.processed.center  # 仅经典单地形程序化渲染需要
         view = TilemapView(
             model,
-            session.processed.center,
-            line_color=session.processed.line_color,
-            line_width=session.processed.line_width,
-            atlas_mode=session.params.atlas_mode,
+            center,
+            line_color=(0, 0, 0),
+            line_width=1,
+            atlas_mode="47",
+            terrain_labels=self._terrain_labels(),
+            pieces=pieces,
         )
         layout.addWidget(view, 1)
-        close_btn = T(QPushButton(), "应用到会话")
         row = QHBoxLayout()
         row.addStretch(1)
+        close_btn = T(QPushButton(), "应用到会话")
         row.addWidget(close_btn)
         layout.addLayout(row)
         close_btn.clicked.connect(dialog.accept)
-        dialog.exec()
-        # 应用回会话并重新导出演示图
-        session.map_model = model
-        try:
-            self._local_wf.step("export", session.params, session)
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.warning(self, tr("导出失败"), str(exc))
-            return
-        self._status.setText(tr("地图已更新并重新导出预览"))
+        code = dialog.exec()
+        if code == QDialog.DialogCode.Accepted:
+            session.map_model = model
+            try:
+                self._local_wf.step("export", session.params, session)
+            except Exception as exc:  # noqa: BLE001
+                QMessageBox.warning(self, tr("导出失败"), str(exc))
+                return
+            self._status.setText(tr("地图已更新并重新导出预览"))

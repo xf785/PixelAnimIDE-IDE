@@ -1,8 +1,10 @@
 # 瓦片地图模式（第 5 模式）设计文档
 
-> 状态：核心算法层已完成并有测试保障；工作流与 UI 集成待开发。
-> 相关模块：`core/tilemap/`（prompts / tiles / seamless / autotile / map），
-> 测试：`tests/test_tilemap_core.py`（14 项，含无缝不变量与 47 计数证明）。
+> 状态：算法层、工作流、UI（第 5 模式）均已完成并有测试保障；
+> 第六轮按用户参考图 `示意图.png` 修正了拼装映射与提示词风格（见 §9~§10）。
+> 相关模块：`core/tilemap/`（prompts / tiles / seamless / autotile / buildings / map）、
+> `core/workflow/tilemap_workflow.py`、`ui/pages/tilemap_page.py`、`ui/widgets/tilemap_view.py`；
+> 测试：`tests/test_tilemap_*.py`（14+27+6+6+12 = 65 项，含无缝不变量与 47 计数证明），全量 452 项通过。
 
 ## 1. 模式总览
 
@@ -65,3 +67,209 @@
   编辑后本地重跑、步骤守卫）、`tests/test_tilemap_gui.py`（模式切换、页面预览、
   瓦片编辑器、地图控件绘制/缩放、工作线程）；全量 411 项测试通过；
   打包验证：PyInstaller 重建后 exe 离屏启动正常。
+
+## 5. 第二轮重构（按用户反馈）
+
+1. **分类生成**：瓦片按功能分为两类：
+   - 地块类 = 2×2 生态图（每块 3×3）：左上=纯基础地形（中心无缝纹理 +
+     与空白的自然边界）；右上/左下/右下=同一生态下的特征地块（水塘/
+     稀疏草地/岩石），特征块中心=特征纯纹理、周边 8 格=特征↔基础的
+     直线/圆角过渡 → 同一生态内不同元素无缝融合；
+   - 建筑类 = 2×2 建筑图：墙体组（中心=可重复墙面纹理 + 端头/转角）、
+     顶面组、开口组（门/窗）、立柱组；建筑外纯白 → 抠除后透明，
+     可像图层一样叠放在地块上。
+2. **纹理退化修复**：无缝化从全图镜像平均改为**偏移错位缝合**（平移半格、
+   仅中央十字缝窄带交叉淡化、平移回来）——接缝窄带外的像素原样保留，
+   不再出现「渐变+色块」；单轴版 `make_axis_seamless` 用于边瓦片。
+3. **47-tile 构图改用真实艺术片**：`compose_art_tile` 把每张瓦片的 4 个
+   四分之一块直接取自九宫格的对应艺术片（中心=填充、边=直线过渡、
+   角=圆角过渡，内角=角艺术），块接触带 1px 交叉淡化掩盖 AI 不一致；
+   不再程序化描边。`build_47_sheet_art` / `build_dual_pieces_sheet_art`。
+4. **多地形 + overlay 地图模型**：`TileMapModel` 支持 terrain id 网格 +
+   `terrain_sets`（每地形一套九宫格）；`mask_for_terrain`：基础地形把
+   任何非空地形视为满（内部过渡显示填充），特征地形仅统计同地形邻居
+   （过渡艺术由特征一侧提供）；`overlay` 层放建筑拼件（直段/端头/转角/
+   立柱，带旋转），`process_building_sheet` 抠白底 + 派生拼件。
+5. 测试：`tests/test_tilemap_eco.py`（缝合保纹理/生态裁切/艺术构图映射/
+   47 计数/多地形掩码/overlay）。
+6. UI 与工作流已接入：`tilemap_workflow.py` 按 category 分支（ground=生态
+   多地形 47 艺术集导出；building=拼件导出 + 摆样预览；classic=旧链路）；
+   `tilemap_page.py` 类别选择 + 特征槽 + 按瓦片组编辑 + 多地形画笔；
+   `tilemap_view.py` 地形画笔切换与建筑拼件放置（选择 + 旋转 + 图层）。
+   待办：实机验收（真实生图服务商 2×2 生态图/建筑图的裁切对齐与融合效果）。
+
+## 7. 第三轮修正（按用户反馈）
+
+- **两段式确认**：生态/建筑生成改为「底图生成 → 保留中间结果并展示 →
+  用户点「接受并生成瓦片集」（或「重新生成」）→ 本地继续裁切/无缝/瓦片集/
+  导出」；`run_to_base` / `finish_from_base`，底图始终存盘 artifacts。
+- **地块类必须填充满**：经典链路与演示地图全部改用九宫格艺术片构图
+  （`compose_art_tile` + `prepare_terrain_set`），瓦片全程不透明、无程序化
+  描边与透明楔形；演示地图整图铺满（无空边）；47 集图仅第 48 空槽透明；
+  经典 3×3 提示词同步改为「角格 = 画在格内的圆角过渡、整格全填充」。
+- 新增测试：`test_two_stage_base_then_accept`、`test_classic_map_preview_
+  fully_opaque`、GUI 两段式接受流程测试；全量测试通过。
+
+## 8. 第四轮：参照 FrameRonin 修正（关键 bug）
+
+参考对象：`frameronin.com` 为 SPA（无源码可爬），改用其开源仓库
+`systemchester/FrameRonin` 的实现（本地 `.tmp/refs/FrameRonin`），
+核心参考 `frontend/src/components/infiniteMap/blobTerrain.ts`：
+`computeBlobMask`（掩码约定）、`MASK_TO_INDEX`（47 槽索引表）、
+`nearestBlobTileIndex`（汉明距离回退）。
+
+学到的两条关键规则（此前实现缺失，正是「拼接很烂」的根因）：
+1. **对角位必须依赖正交位**：`n && w && has(-1,-1)` 才计入 TL 位（TR/BL/BR 同理）。
+   此前我们无条件计入对角位 → 产生大量非经典邻域（如「只有对角邻居」），
+   派生出错误瓦片；改为 `canonical_mask()` 规范化后，**可达掩码恰好 47 个**，
+   与 47 槽一一对应。
+2. **任意掩码用汉明距离回退到最近合法掩码**（`nearest_mask`），导出的
+   `mask_to_index` 因此对全部 256 种邻域都有确定答案。
+
+本轮修复的 bug：
+- `mask_from_neighbors` / `mask_for_terrain` 未规范化对角位（见上，核心 bug）；
+- `build_47_sheet_art` 改为枚举 47 个可达掩码 + 全 256 映射 + `reachable_masks`
+  元数据（槽位稳定，不再依赖去重顺序）；
+- `compose_art_tile` 接触带融合**写回顺序 bug**：第二次写回读了已被改写的
+  邻居列/行，导致中线左右不对称的脏边（已用副本修复，并有对称性测试）；
+- `TileMapModel.render()` 在非多地形模型下**丢弃 overlay**→ 建筑地图预览全透明
+  （严重 bug，已修）；`center=None` 时也可渲染（仅 overlay）；
+- overlay 未序列化 → 重开「地图预览」拼件全部丢失；现按名称序列化 +
+  `from_dict(pieces=...)` 恢复，建筑导出补写 `map_demo.json`；
+- 地图预览对话框在建筑类别下 `session.processed` 为 None 导致崩溃/空图（已修）。
+
+新增测试：`test_canonical_mask_rule`、`test_nearest_mask_fallback_and_full_mapping`、
+`test_compose_art_blend_is_symmetric`、`test_overlay_serialization_and_overlay_only_render`、
+建筑预览非空回归；全量测试通过。
+
+## 9. 第五轮：2×2×3 地形生成链路严格修正
+
+审查发现三处**致命错误**（已复现证据），是「生成效果非常不好」的直接原因：
+
+1. **裁切窗口 bug（最严重）**：`crop_blocks(img, tile_size=32)` 用
+   `cell = min(tile_size, w//6, h//6)` 把「目标瓦片尺寸」当成了裁切窗口，
+   对 768×768 的 6×6 生态图**只取了中心 192×192 的一小块**，AI 画的网格被
+   整体切错位（复现：右下角格标记完全取不到）。
+   修正：`crop_blocks` / `crop_base_3x3` **始终按整图比例裁切**
+   （cell = min(w//cols, h//rows)），目标尺寸只由 `normalize_tileset` 归一。
+2. **提示词与请求尺寸矛盾**：提示词写「每格 32×32 像素」，而实际请求
+   768×768（每格本应 128px）→ 模型按文字画出小网格并在四周留白，进一步
+   加剧错位。修正：新增 `grid_cell_px()` 统一计算
+   「请求边长 = 格数 × 单格像素（32/64 的倍数，≤2048）」，并把同一数值写进
+   提示词（生态/建筑 6 格、经典 3 格），工作流日志同步打印。
+3. **几何契约缺失**：原提示词只说「smooth transitions」，AI 可能把边界画在
+   1/3 处或让特征填满整格，而我们的四分之一块拼接**要求边格严格沿中线对半、
+   角格外侧 1/4 为基础**。修正：提示词改为逐格几何契约（top/bottom/left/right
+   边格的哪一半是基础地形、角格 1/4 + 圆角弧、基础块 9 格同一无缝纹理且
+   跨块像素级一致），并显式禁止透明度/空区/装饰物。
+
+附带质量改进：
+- `normalize_tileset` 缩小改用**块众数降采样**（全向量化、确定性），
+  4 倍放大的像素画可被精确还原，不再点采样丢格色；
+- 建筑提示词同步改为同一几何口径（6×6 格、边长=$cell×6、墙体中心格必须
+  填满整格、其余格纯白待抠除）。
+
+新增测试：`test_crop_uses_whole_sheet_not_center_window`（整图裁切回归）、
+`test_grid_cell_px_is_multiple_and_within_limit`、`test_mode_downscale_recovers_pixel_art`、
+`test_ground_request_size_matches_prompt`、`test_classic_request_size_matches_cells`、
+`test_building_request_size_matches_cells`、提示词几何契约断言；全量测试通过。
+
+## 10. 第六轮：按「示意图.png」参考修正拼装映射与风格
+
+用户提供参考图（`示意图.png`，526×528）作为期望效果。对其做定量分析
+（按 6×6 格切分统计每格亮度/深色占比 + 局部放大目视）后确认：
+
+- 每块 3×3 是**一个带深色描边的圆角团块**（水塘/岩块），团块边界条带位于
+  边格的**外侧约 1/4**（不是经典模板的 1/2）；角格外侧为基础地形 + 圆弧；
+- 基础地形块中心格为纯净无缝纹理；
+- 特征具备明显深色描边 + 2~3 阶明暗 + 内部纹理（水波、岩石切面）。
+
+据此修正两处**生成逻辑核心问题**：
+
+1. **拼装取块：从「下半/右半四分之一」改为「同侧四分之一」**（`_ART_SRC`）。
+   旧实现假设 AI 把边界画在**中线**（取源瓦片下半/右半），而参考图画在**外侧 1/4**，
+   于是条带被挪到目标瓦片中线甚至整条丢失 → 相邻瓦片交界纹理/描边错位
+   （用户反馈「拼接很烂」的核心原因之一）。
+   新实现取 `top.TL / left.TL / bottom.BL / right.BR` 等同侧四分之一，
+   对 AI 画在 1/4 或 1/2 处**都能正确对位**（1/2 时两种取法等价）。
+2. **内角改用对角瓦片旋转 180° 的负形**。旧实现外角/内角不分，内角也用本角凸角
+   艺术 → 内角处出现错误圆角/缺口；现在内角（对角为另一种地形、两侧同类）取
+   `rot180(对角瓦片)` 的同侧四分之一，得到正确凹角。
+
+提示词同步改为参考图口径：特征块 = 「一整块圆角团块 + 外侧约 1/4 条带
+（1/5~1/3 且各格一致）+ 深色 1-2px 描边 + 2-3 阶明暗 + 内部纹理」；
+删除旧提示词中会把参考风格抹平的 `no shading / no outlines` 约束；
+基础块中心格要求纯净无缝。
+
+验证：
+- 新增 `test_art_strip_keeps_ai_boundary_depth`（合成 1/4 条带底图，断言拼装后条带
+  仍在 1/4 处、外角/内角形态正确；旧代码必失败）、更新
+  `test_compose_art_edge_mapping`（外角=本角瓦片、内角=对角瓦片）；
+- 端到端目视验证：按参考风格合成 6×6 底图 → 走真实管线（裁切→预处理→多地形渲染），
+  边界列采样为 `base/base/…/rim/feature`（外侧 1/4 条带 + 深色描边逐像素正确），
+  外角圆角、内角凹角形态正确，无透明空洞；
+- 全量测试通过（当时 452 项）。
+
+附带：`conftest.py` 增加受限环境兼容（`tmp_path` 用普通 mkdir 建在 `.tmp/pytest_work`，
+规避 Windows 沙箱下 pytest 编号目录 chmod/加锁/枚举被拒的问题）。
+
+## 11. 第七轮：基础地形块位置自动识别（防「整张图角色错位」）
+
+### 问题
+裁切后的角色分配原来是**纯位置约定**：`blocks[0][0]` 恒为基础地形，其余三块按
+右上/左下/右下对应特征。但生图模型经常不守位置要求——真实例子是用户的
+`示意图.png`：纯基础地形块在**右上**，冰水塘在左上。此时按位置约定会把「水塘团块」
+当成地面纹理、把纯地面当成一个「特征地形」，整张瓦片集彻底不可用（且因为裁剪
+无误、流程不报错，属于最难排查的一类失效）。
+
+### 判据（几何契约的逆命题）
+特征块的结构是「中心格=纯特征，外侧约 1/4 条带=基础地形」，因此**外侧带颜色与
+中心格颜色必然不同**；基础地形块则处处同一纹理。`block_base_score()` 打分：
+
+1. `ring_gap`（主项）：外侧带像素到**中心格中位色**距离的**中位数**——中位数对邻块
+   溢出的碎石/装饰点稳健（参考图右上块的外侧带就混入了水塘的岩边碎点）；
+2. `centre_spread`：中心格自身的杂色度（特征纹理比纯地面花）；
+3. `block_std`：整块亮度标准差——防止「团块画得太小、中心格仍以基础色为主」时被
+   误判成地面（此时唯一暴露它的是整块的强对比）。
+
+`detect_base_block()` 取得分最低者并给出可信位：
+- 四块得分都高（AI 压根没画纯基础块）→ 回退左上并标不可信；
+- 最优与次优几乎同分（例如两块都是同一地面）→ 仍取最低分，但标不可信。
+
+### 接口与交互
+- `ecosystem_from_blocks(..., base_pos="auto"|"tl"|"tr"|"bl"|"br")`；`EcosystemSheet`
+  新增 `base_pos` / `base_pos_detected`；
+- 工作流参数 `TilemapParams.base_block`（默认 `auto`），裁切日志打印
+  「基础地形块位置：右上（自动识别）」；识别失败给 warning 建议重新生成或手动指定；
+- UI：参数区新增「基础地形块」下拉（自动识别/左上/右上/左下/右下，仅地块生态类别
+  可见）。**该项在点「接受并生成瓦片集」时才生效**——用户对着底图即可纠正误判，
+  裁切/无缝/瓦片集全是本地步骤，无需重新生图；
+- 提示词补一条强约束：基础块是**唯一**没有任何边界/描边/碎石/贴花的块，工具靠
+  「纯净度」自动定位它，不纯净则整张瓦片集不可用。
+
+### 验证
+- `test_detect_base_block_finds_plain_block_in_any_position`（参数化四个位置，纯块
+  得分 <6、其余 >60）、`test_ecosystem_blocks_use_detected_base_and_reading_order`
+  （识别 + 其余三块按阅读顺序对特征名）、`test_base_pos_explicit_override_wins`、
+  `test_detect_base_block_falls_back_when_no_plain_block`（四块全是团块 → 回退左上
+  且不可信）、`test_plain_sheet_detection_is_safe`（只画了地面）；
+- 工作流级：`test_ground_workflow_detects_base_block_position`（底图纯地面块在右上
+  → 自动识别、日志留痕、基础地形确实是那块纯纹理）、`test_ground_workflow_manual_base_block`；
+- GUI 级：确认流程里改选「右下块」后 `ecosystem.base_pos == "br"`；
+- 端到端目视：按参考图口径合成 6×6 底图（基础块在**右上**、团块带 1/4 基础条带 +
+  岩边 + 圆弧圆角）→ 真实管线 → 铺设含**内凹角**（水域中间挖空）的地图，
+  外角圆角、内角凹弧、条带深度与岩边逐像素与底图一致。
+
+### 建筑类底图的自检（同一类失效的兜底）
+建筑四块的语义（墙体/顶面/开口/立柱）在像素上没有可靠的可判别特征，仍按位置约定，
+但新增廉价的**自检**：墙体组（左上块）中心格必须填满整格，`opaque_ratio()` 低于
+90% 即在日志给出 warning 并提示「墙体组画在左上、立柱组画在右下」——
+覆盖「AI 把白底拼件块画到左上」这类会静默产出坏拼件的情况。
+测试：`test_building_sheet_self_check_warns_on_white_wall_block`。
+
+
+
+
+
+
+

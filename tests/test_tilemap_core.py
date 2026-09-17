@@ -103,12 +103,14 @@ def test_crop_adaptive_and_normalize():
 
 
 def test_prompts_embedded_strict_rules():
-    p = build_tileset_prompts("grass field", style="retro", tile_size=32)
+    p = build_tileset_prompts("grass field", style="retro", tile_size=32, cell_px=256)
     text = p["image_prompt"]
-    for needle in ("3x3 grid", "9 equal square", "SEAMLESS", "CENTER cell", "CORNER", "PURE WHITE", "#FFFFFF"):
+    for needle in ("3x3 grid", "9 equal square", "SEAMLESS", "CENTER cell", "CORNER", "FULLY PAINTED"):
         assert needle in text
-    assert "32x32" in text
+    # 单格像素按实际请求边长写入（避免文字尺寸与图片尺寸矛盾导致网格错位）
+    assert "256x256 pixels" in text and "768x768 pixels" in text
     assert p["grid_rows"] == 3 and p["grid_cols"] == 3
+    assert p["cell_px"] == 256
 
 
 # --------------------------------------------------------------------------- #
