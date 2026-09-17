@@ -518,3 +518,22 @@ Python 代码全部由本项目重写；若要直接引用其源码或美术资�
    `atlas_mode="dual"` 时演示地图自动切到该模式，`to_dict/from_dict` 保留该开关。
    测试断言双网格渲染填充满、与 47 单格渲染不同、序列化可恢复。
 5. 测试：新增 `tests/test_tilemap_round14.py`（8 项）；全量测试通过。
+## 20. 第十六轮：素材导出 zip、跨包交界块状渗透融合、文档与截图画廊
+
+1. **素材导出也是 zip**：素材（道具）走与地块/建筑相同的 `export_tileset_dir()`，
+   输出「完整瓦片集目录 + 同名 zip」（逐张素材 PNG、index.json、map/info.json、
+   manifest.json、README.txt）；页面按钮在素材模式下也改为目录+zip 导出。
+2. **跨瓦片包交界的块状渗透融合**（`TileMapModel._blend_terrain_edges`）：
+   同一包内部靠「对齐式构图 + 边缘噪声」保证无缝；但**两张来自不同瓦片包的地块**
+   相接时，各自带的是自己的地面条带与描边，交界会是一条硬边。现在在合成后的画布上
+   沿共享边做**块状噪声互换**：每 `block×block`（默认约 tile/12）一段随机决定互相
+   咬进 1..depth 像素（depth ≈ 强度 × tile/6），两侧呈块状互相渗透；
+   噪声只依赖格坐标 → 结果确定性可复现；融合强度沿用界面的「交界融合 %」，
+   写进地图 JSON（`edge_blend`）随预览/导出保留。
+3. **文档同步**：`README.md` / `README_CN.md` 新增「瓦片地图模式」章节与
+   **5 张截图画廊**（地块生态底图、展示地形地图预览、画笔与 16-tile 自动墙、
+   编辑瓦片、柏林噪声大地图 + 素材）；截图统一改名归档到 `docs/screenshots/`：
+   `01-ecosystem-sheet.png`、`02-map-preview-showcase.png`、`03-map-preview-brushes.png`、
+   `04-tile-editor.png`、`05-perlin-world-with-props.png`。
+4. 测试：新增 `test_cross_pack_boundary_percolation`（不同包地面色不同时两侧颜色
+   互相咬入、仍全不透明、可复现、关闭后恢复原样）；全量测试通过。

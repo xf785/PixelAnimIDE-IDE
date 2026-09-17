@@ -778,6 +778,7 @@ class TilemapWorkflow:
             self._log_msg("warning", tr("瓦片集目录导出失败：{0}").format(exc))
         # 演示地图：基础地形铺底 + 特征水塘/岩石区域（多地形自动衔接）
         model = TileMapModel(params.map_width, params.map_height, tile_size=params.tile_size)
+        model.edge_blend = float(params.edge_blend)      # 跨地块包/跨地形块状渗透融合
         for tid, tset in session.terrain_sets.items():
             model.set_terrain(tid, tset)
         model.set_base_terrain(1)

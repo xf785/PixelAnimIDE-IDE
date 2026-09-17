@@ -44,6 +44,7 @@ class TileMapModel:
         self.terrain_sets: Dict[int, BaseTileSet] = {}
         # 墙体层（建筑类实时自动拼接）：占用网格 + 16-tile 件注册表
         self.dual_mode = False          # 地块类：双网格（4 分块）渲染
+        self.edge_blend = 0.0           # 不同地块包 / 不同地形交界的块状渗透融合强度
         self.wall_grid: Optional[np.ndarray] = None
         self.wall_pieces: Dict[str, Image.Image] = {}
         self.base_terrain: Optional[int] = None
@@ -144,6 +145,7 @@ class TileMapModel:
                     if self.grid[y, x]:
                         tile = compose_tile(center, self.mask(x, y), line_color, line_width)
                         canvas.paste(tile, (x * s, y * s), tile)
+        canvas = self._blend_terrain_edges(canvas)
         self._render_walls(canvas)
         self._paste_overlay(canvas)
         return canvas
@@ -217,6 +219,68 @@ class TileMapModel:
                 tile = compose_art_tile_cached(self.terrain_sets[tid], self.mask(x, y))
                 canvas.paste(tile, (x * s, y * s), tile)
         return canvas
+
+    # ------------------------------------------------------------------ #
+    def _blend_k(self, x: int, y: int, block: int, axis: str, depth: int) -> int:
+        """块状噪声：某一格边界上第 `block` 段的渗透像素数（0..depth，确定性）。"""
+        if depth <= 0:
+            return 0
+        seed = (x * 73856093) ^ (y * 19349663) ^ (block * 83492791) ^ (7 if axis == "x" else 13)
+        rng = np.random.default_rng(seed & 0xFFFFFFFF)
+        return int(rng.integers(0, depth + 1))
+
+    def _blend_terrain_edges(self, canvas: Image.Image) -> Image.Image:
+        """**不同地块包 / 不同地形相接处**的块状渗透融合。
+
+        同一套瓦片内部本来就无缝；但两张来自不同瓦片包的地块贴在一起时，各自带的是
+        自己的地面条带 + 描边，交界会是一条硬边。这里在合成后的画布上，沿共享边按
+        「块状噪声」把两侧像素**互换**：每 block×block 的一段随机决定互相咬进几像素，
+        于是两侧地形呈块状互相渗透，交界自然。噪声只依赖坐标 → 结果确定性、可重现。
+        """
+        strength = float(getattr(self, "edge_blend", 0.0) or 0.0)
+        if strength <= 0.01 or not self.terrain_sets:
+            return canvas
+        s = self.tile_size
+        depth = max(1, int(round(strength * max(2, s // 6))))     # 最大渗透深度（像素）
+        block = max(1, min(4, int(round(s / 12))))                # 块状噪声的块边长
+        arr = np.array(canvas.convert("RGBA"))
+        H, W = self.height, self.width
+        starts = list(range(0, s, block))
+        for y in range(H):
+            for x in range(W):
+                tid = int(self.grid[y, x])
+                if not tid:
+                    continue
+                for axis, (dx, dy) in (("x", (1, 0)), ("y", (0, 1))):
+                    nx, ny = x + dx, y + dy
+                    if nx >= W or ny >= H:
+                        continue
+                    nid = int(self.grid[ny, nx])
+                    if not nid or nid == tid:
+                        continue
+                    ks = np.array([self._blend_k(x, y, b, axis, depth) for b in starts], dtype=int)
+                    for k in range(1, depth + 1):
+                        sel = np.array([b for b, kv in zip(starts, ks) if kv >= k], dtype=int)
+                        if sel.size == 0:
+                            continue
+                        offs = sel[:, None] + np.arange(block)[None, :]
+                        if axis == "x":
+                            cx = (x + 1) * s - 1
+                            rows = (y * s + offs).ravel()
+                            rows = rows[rows < (y + 1) * s]
+                            a = arr[rows, cx - (k - 1)].copy()
+                            b = arr[rows, cx + k].copy()
+                            arr[rows, cx - (k - 1)] = b
+                            arr[rows, cx + k] = a
+                        else:
+                            cy = (y + 1) * s - 1
+                            cols = (x * s + offs).ravel()
+                            cols = cols[cols < (x + 1) * s]
+                            a = arr[cy - (k - 1), cols].copy()
+                            b = arr[cy + k, cols].copy()
+                            arr[cy - (k - 1), cols] = b
+                            arr[cy + k, cols] = a
+        return Image.fromarray(arr, "RGBA")
 
     def _render_terrains_dual(self) -> Image.Image:
         """多地形**双网格**渲染：每格按 4 个四分之一块拼（同一套对齐式艺术）。"""
@@ -322,6 +386,8 @@ class TileMapModel:
             data["wall_grid"] = self.wall_grid.astype(int).tolist()
         if self.dual_mode:
             data["dual_mode"] = True
+        if self.edge_blend:
+            data["edge_blend"] = round(float(self.edge_blend), 3)
         # 建筑 overlay：按拼件名 + 旋转序列化（恢复时用 pieces 注册表还原图像）
         overlays = [
             {"x": x, "y": y, "piece": item[2], "rot": item[1],
@@ -348,6 +414,8 @@ class TileMapModel:
             model.base_terrain = int(data["base_terrain"])
         if data.get("dual_mode"):
             model.dual_mode = True
+        if data.get("edge_blend"):
+            model.edge_blend = float(data["edge_blend"])
         if data.get("wall_grid") is not None and pieces:
             walls = data["wall_grid"]
             model.enable_wall_layer(pieces)

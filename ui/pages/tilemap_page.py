@@ -595,18 +595,21 @@ class TilemapPage(QWidget):
             QMessageBox.information(self, tr("保存瓦片包"), tr("请先生成瓦片集"))
             return
         if self._prop_pack is not None and self._session.params.category == "prop":
-            default = Path(DEFAULT_OUTPUT_DIR) / "tilemap" / f"{self._prop_pack.name}.tilepack"
-            path, _f = QFileDialog.getSaveFileName(
-                self, tr("保存瓦片包"), str(default), tr("瓦片包 (*.tilepack)")
+            # 素材/建筑/地块统一导出为**完整瓦片集目录 + zip**
+            base = Path(DEFAULT_OUTPUT_DIR) / "tilemap"
+            name, ok = QInputDialog.getText(
+                self, tr("导出瓦片集"), tr("导出文件夹名"), text=self._prop_pack.name or "props"
             )
-            if not path:
+            if not ok or not name.strip():
                 return
             try:
-                saved = save_tilepack(path, self._prop_pack)
+                paths = export_tileset_dir(base / name.strip(), self._prop_pack)
             except Exception as exc:  # noqa: BLE001
                 QMessageBox.warning(self, tr("保存瓦片包失败"), str(exc))
                 return
-            self._status.setText(tr("瓦片包已保存：{0}（素材 {1} 个）").format(saved, len(self._prop_pack.pieces)))
+            self._status.setText(
+                tr("瓦片集已导出：{0}（含逐张素材 PNG，另附 {1}）").format(paths["dir"], paths["zip"].name)
+            )
             return
         default = str(Path(DEFAULT_OUTPUT_DIR) / "tilemap")
         name, ok = QInputDialog.getText(
@@ -725,6 +728,7 @@ class TilemapPage(QWidget):
             for tid, tset in view._model.terrain_sets.items():
                 big.set_terrain(tid, tset)
             big.base_terrain = view._model.base_terrain or 1
+            big.edge_blend = self._blend_spin.value() / 100.0
             fids = sorted(t for t in big.terrain_sets if t != (big.base_terrain or 1))
             kinds = generate_perlin_map(
                 big, seed=seed_edit.text().strip() or "pixelgifide",

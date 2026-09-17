@@ -90,6 +90,44 @@ A dedicated pixel canvas (reusing the full editor):
 - **Use as video first frame** hands it to Solo for image-to-video — if below the API minimum size it is **NEAREST-upscaled** (hard edges, no blur) via `video_image_min_side` (default 256) paired with `video_image_max_side` (default 512).
 - **Export PNG**.
 
+### Tilemap Mode — text-to-tileset with seamless stitching
+
+The fifth mode: **one text prompt → a complete, game-ready tileset + playable map preview**.
+
+- **Terrain ecosystems (地块生态)**: the AI paints one 2×2×3 sheet (base terrain + 3 features, e.g. lake / mud / rocks); algorithms strip grid frames, detect text marks, splice the texture into a **wrap-equal seamless** tile and derive the whole tile family procedurally.
+- **Aligned composition**: band depth, layered outline, bevel and ambient shadow are measured from the AI art once, then composed per mask — so adjacent tiles are **pixel-identical along their shared edges** and long walls/runs never show per-tile seams.
+- **Edge noise + boundary percolation (交界融合)**: irregular inward noise on non-interior edges, plus **block-noise percolation** where two terrains (even two *different* tile packs) meet — the two sides interlock instead of showing a hard line.
+- **Buildings (建筑类)**: the wall **16-tile family** (straight / corner / inner+outer corner / T / cross / end / isolated) with fixed cross-section geometry, transparent exterior for overlay compositing, procedural 1px outline, top face + front shading, plus AI-derived **door** and **pillar** pieces.
+- **Props (素材/道具)**: trees, flowers, rocks… generated as a variant grid, background removed automatically (pure-white or pure-black key chosen from the prompt: light subjects such as snow get a black key), alpha hardened to 0/255, bottom-aligned so props "stand" on the ground; placement is **scalable** (25–400 %).
+- **Tile packs**: export a **complete tileset folder + zip** (47-tile atlas, FrameRonin 3×24 layout, every single tile, all metadata, prop/piece PNGs); import folders, zips or `.tilepack` into any preview.
+- **Map preview**: open it **without generating anything**, load several packs, paint terrain / buildings / props together, toggle the grid, **Ctrl+left-drag to pan**, wheel to zoom, and generate a **Perlin-noise big world** (up to 400×400) with optional scattered buildings.
+- **Dual-grid** and **FrameRonin 47/16 layouts** are supported for both generation and preview.
+
+<p align="center">
+  <img src="docs/screenshots/01-ecosystem-sheet.png" alt="Terrain ecosystem sheet (base terrain + three features) generated from one prompt" width="880"/>
+</p>
+<p align="center"><em>1 · Terrain ecosystem: one prompt → 2×2×3 sheet (base terrain + lake / mud / rocks), grid frames already stripped.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/02-map-preview-showcase.png" alt="Map preview painting four terrains with percolated boundaries" width="880"/>
+</p>
+<p align="center"><em>2 · Map preview: showcase map covering ~30 of the 47 masks — lake, flowers and rocks blended into the base terrain with percolation noise.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/03-map-preview-brushes.png" alt="Map preview brushes: terrain, 16-tile auto walls, rotation and scale" width="880"/>
+</p>
+<p align="center"><em>3 · Brushes: terrain paint, <b>auto-stitched 16-tile walls</b> (the rectangle is one drag, corners chosen automatically), rotation and 25–400 % scaling.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/04-tile-editor.png" alt="Tile editor: pick one of the 3x3 sheet cells and repaint it" width="880"/>
+</p>
+<p align="center"><em>4 · Tile editor: repaint any cell of the AI sheet (the centre cell drives the seamless terrain texture) with palette + pixel tools.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/05-perlin-world-with-props.png" alt="Perlin big world preview with props scaled and placed on terrain" width="880"/>
+</p>
+<p align="center"><em>5 · Perlin-noise big world: procedural continents + rivers rendered with the generated packs, props (trees at 275 %) placed on top.</em></p>
+
 ## 📋 Feature Table
 
 | Module | Description |

@@ -209,3 +209,43 @@ def test_dual_grid_terrain_render_supported():
     assert data.get("dual_mode") is True
     restored = TileMapModel.from_dict(data)
     assert restored.dual_mode is True
+
+
+def test_cross_pack_boundary_percolation():
+    """来自不同瓦片包的地块相接：块状噪声让两侧像素互相渗透，不再是硬边。"""
+    a = _art(col=(60, 150, 70), ground=(40, 120, 50))      # 包 A：草地
+    b = _art(col=(200, 170, 60), ground=(210, 180, 90))    # 包 B：沙地（地面色不同）
+    a.art_meta["edge_blend"] = 0.0        # 只看地图级跨包融合
+    b.art_meta["edge_blend"] = 0.0
+    model = TileMapModel(6, 4, tile_size=S)
+    model.set_terrain(1, a)
+    model.set_terrain(2, b)
+    model.base_terrain = 1
+    model.fill_rect(0, 0, 2, 3, 1)
+    model.fill_rect(3, 0, 5, 3, 2)
+    flat = np.asarray(model.render())
+    model.edge_blend = 0.8
+    blended = np.asarray(model.render())
+    edge = 3 * S
+    region_flat = flat[:, edge - 3:edge + 3, :3].reshape(-1, 3)
+    region_blend = blended[:, edge - 3:edge + 3, :3].reshape(-1, 3)
+    changed = int((region_flat != region_blend).any(axis=1).sum())
+    assert changed > 50, f"交界处应发生块状互换，实际 {changed} 像素"
+    assert (blended[..., 3] == 255).all()
+    # 两侧都出现**对方那一侧**的颜色（真正互相渗透，而不是单侧位移）
+    def colours(img):
+        return {tuple(px) for px in img.reshape(-1, 3).tolist()}
+
+    band = 8                                     # 覆盖最大渗透深度（约 tile/6）
+    left_flat = colours(flat[:, edge - band:edge, :3])
+    right_flat = colours(flat[:, edge:edge + band, :3])
+    left_blend = colours(blended[:, edge - band:edge, :3])
+    right_blend = colours(blended[:, edge:edge + band, :3])
+    assert (left_blend - left_flat) & right_flat, "左块应被右块地形咬入"
+    assert (right_blend - right_flat) & left_flat, "右块应被左块地形咬入"
+    # 确定性：同参数重渲染结果一致
+    assert (np.asarray(model.render()) == blended).all()
+    # 关闭融合 -> 恢复原样
+    model.edge_blend = 0.0
+    assert (np.asarray(model.render()) == flat).all()
+    assert model.to_dict().get("edge_blend", 0.0) == 0.0
