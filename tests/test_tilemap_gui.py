@@ -185,7 +185,7 @@ def test_page_category_and_multiterrain_view(qtbot, ctx, tmp_path):
     )
     qtbot.addWidget(bview)
     bview.show()
-    assert bview._piece_combo.count() == 5  # （无拼件）+ 4 件
+    assert bview._piece_combo.count() == 21  # （无拼件）+ 墙体 16 族 16 件 + 实心 + 门×2 + 立柱
     bview._piece_combo.setCurrentIndex(1)   # straight
     bview._paint_cell(QPoint(2 * 32 * bview._zoom + 2, 2 * 32 * bview._zoom + 2))
     assert (2, 2) in bview.model().overlay

@@ -52,6 +52,12 @@ from core.tilemap.prompts import (
     build_ecosystem_prompts,
     build_tileset_prompts,
 )
+from core.tilemap.walls import (
+    W16_SLOTS,
+    build_piece_set,
+    build_wall_atlas,
+    wall_art_from_sheet,
+)
 from core.tilemap.tiles import (
     BLOCK_POSITIONS,
     BuildingSheet,
@@ -109,6 +115,7 @@ class TilemapParams:
     mountain_threshold: float = 0.55  # 程序化地形：山地阈值（FrameRonin 原值 0.48，演示取 0.55）
     line_width: int = 1              # 边界线宽（像素）
     edge_noise: float = 0.09         # 边缘噪声幅度（占瓦片尺寸比例，0=完全平直）
+    wall_thickness: float = 0.56     # 建筑：墙体厚度（占瓦片边长比例）
     detail_keep: float = 0.3         # AI 转角内部细节混合比例（0~1）
     map_width: int = 14              # 演示地图宽度（格）
     map_height: int = 10             # 演示地图高度（格）
@@ -204,6 +211,46 @@ def _demo_showcase(model: TileMapModel, f1: int, f2: int, base: int) -> None:
     rect(rx, ry, rx + size, ry + size, f1)                    # 环形：四类内角同时出现
     rect(rx + 1, ry + 1, rx + size - 1, ry + size - 1, base)
     rect(0, h - 2, w - 1, h - 2, f2)                          # 贴边的长条（含边缘端头）
+
+
+def _apply_wall_layout(model: TileMapModel, walls, pieces: Dict[str, Image.Image]) -> None:
+    """把墙格布局铺成叠加层：按每格的 4 邻接（+对角）选 16-tile 拼件。"""
+    from core.tilemap.autotile import canonical_mask
+
+    H, W = len(walls), len(walls[0])
+    for y in range(H):
+        for x in range(W):
+            if not walls[y][x]:
+                continue
+            m = 0
+            for (dy, dx, bit) in ((-1, 0, 2), (1, 0, 64), (0, -1, 8), (0, 1, 16),
+                                  (-1, -1, 1), (-1, 1, 4), (1, -1, 32), (1, 1, 128)):
+                ny, nx = y + dy, x + dx
+                if 0 <= ny < H and 0 <= nx < W and walls[ny][nx]:
+                    m |= bit
+            m = canonical_mask(m)
+            name = W16_SLOTS[m & 0b1111]
+            piece = pieces.get(name)
+            if piece is not None:
+                model.set_overlay(x, y, piece, 0, name=name)
+
+
+def _demo_wall_layout(w: int, h: int):
+    """演示布局：一间屋子（外墙 + 上下两个门洞 + 内部十字墙 + 两根立柱）。"""
+    g = [[0] * w for _ in range(h)]
+    for x in range(1, w - 1):
+        g[1][x] = g[h - 2][x] = 1
+    for y in range(1, h - 1):
+        g[y][1] = g[y][w - 2] = 1
+    mid = w // 2
+    g[1][mid] = 0                        # 北门洞
+    g[h - 2][mid] = 0                    # 南门洞
+    cx, cy = w // 2, h // 2
+    for x in range(max(3, cx - 3), min(w - 3, cx + 4)):
+        g[cy][x] = 1                     # 内部横墙
+    for y in range(max(3, cy - 2), min(h - 3, cy + 3)):
+        g[y][cx] = 1                     # 内部竖墙（与横墙交叉 -> 十字件）
+    return g
 
 
 def _demo_map(model: TileMapModel, params: Optional[TilemapParams] = None) -> None:
@@ -537,10 +584,24 @@ class TilemapWorkflow:
         elif params.category == "building":
             if session.building is None:
                 raise WorkflowError("尚未裁切瓦片，请先执行上一步", step="seamless")
-            session.pieces = process_building_sheet(session.building)
+            # 墙体 16-tile 族：带体几何 + 透明外部 + 实测描边/厚度
+            art = wall_art_from_sheet(
+                session.building,
+                tile_size=params.tile_size,
+                thickness_frac=params.wall_thickness,
+                edge_noise_frac=params.edge_noise,
+            )
+            pieces = build_piece_set(art)
+            session.pieces = {"art": art, "pieces": pieces}
+            session.atlas_sheet, session.atlas_meta = build_wall_atlas(art)
+            meta = session.atlas_meta
             self._log_msg(
                 "info",
-                tr("建筑拼件完成：直段/端头/转角/立柱（白底已抠除，可叠放地块）"),
+                tr("建筑拼件完成：墙体 16-tile 族 {0} 件 + 门{1} + 立柱{2}（外部透明，可叠放地块）").format(
+                    len([n for n in pieces if n in W16_SLOTS]),
+                    tr("（有）") if meta.get("has_door") else tr("（程序化）"),
+                    tr("（有）") if meta.get("has_pillar") else tr("（程序化）"),
+                ),
             )
         else:
             if session.base is None:
@@ -588,6 +649,9 @@ class TilemapWorkflow:
         elif params.category == "building":
             if session.pieces is None:
                 raise WorkflowError("尚未完成建筑拼件，请先执行上一步", step="atlas")
+            if session.atlas_sheet is None:      # 手动/子集执行时补做
+                session.atlas_sheet, session.atlas_meta = build_wall_atlas(session.pieces["art"])
+            self._log_msg("info", tr("建筑图集已生成（4×5 = 20 槽：16-tile 族 + 实心/门/立柱）"))
         else:
             if session.processed is None:
                 raise WorkflowError("尚未完成无缝化，请先执行上一步", step="atlas")
@@ -707,20 +771,22 @@ class TilemapWorkflow:
     def _export_building(self, params: TilemapParams, session: TilemapSession, export_dir: Path) -> None:
         if session.pieces is None:
             raise WorkflowError("尚未生成建筑拼件，请先执行上一步", step="export")
+        pieces = session.pieces["pieces"]
         pieces_dir = export_dir / "pieces"
         pieces_dir.mkdir(parents=True, exist_ok=True)
-        for name, piece in session.pieces["pieces"].items():
+        for name, piece in pieces.items():
             piece.save(pieces_dir / f"{name}.png")
-        # 演示预览：拼件在透明画布上的摆样（直墙 + 转角 + 端头 + 立柱）
+        atlas_path = meta_path = None
+        if session.atlas_sheet is not None:
+            atlas_path = export_dir / "walls_16.png"
+            session.atlas_sheet.save(atlas_path)
+            meta_path = export_dir / "walls_16.json"
+            meta_path.write_text(json.dumps(session.atlas_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 演示预览：地块铺底 + 墙体透明叠加（一间带门与立柱的屋子）
         model = TileMapModel(params.map_width, params.map_height, tile_size=params.tile_size)
-        p = session.pieces["pieces"]
-        model.set_overlay(2, 2, p["straight"], 0, name="straight")
-        model.set_overlay(3, 2, p["straight"], 0, name="straight")
-        model.set_overlay(4, 2, p["corner"], 0, name="corner")
-        model.set_overlay(4, 3, p["straight"], 1, name="straight")
-        model.set_overlay(2, 4, p["end"], 1, name="end")
-        model.set_overlay(2, 3, p["pillar"], 0, name="pillar")
+        model.fill_rect(0, 0, params.map_width - 1, params.map_height - 1, 1)
         session.map_model = model
+        _apply_wall_layout(model, _demo_wall_layout(params.map_width, params.map_height), pieces)
         preview = model.render()
         preview_path = export_dir / "map_preview.png"
         preview.save(preview_path)
@@ -730,8 +796,11 @@ class TilemapWorkflow:
         project = {
             "format": "pixel-anim-tilemap",
             "category": "building",
+            "family": "wall-16",
             "tile_size": params.tile_size,
-            "pieces": list(p.keys()),
+            "pieces": list(pieces.keys()),
+            "wall_thickness": params.wall_thickness,
+            "atlas_slots": session.atlas_meta.get("slots") if session.atlas_meta else None,
             "prompts": session.prompts,
         }
         project_file = export_dir / "tilemap_project.json"
@@ -739,6 +808,7 @@ class TilemapWorkflow:
         session.result = TilemapResult(
             output_dir=session.params.output_dir, session=session,
             sheet_path=session.sheet_path, pieces_dir=pieces_dir,
+            atlas_path=atlas_path, atlas_meta_path=meta_path,
             map_preview_path=preview_path, project_file=project_file,
             tile_size=params.tile_size, atlas_mode=params.atlas_mode, category="building",
         )

@@ -54,7 +54,22 @@ from .autotile import (
     mask_from_neighbors,
     nearest_mask,
 )
-from .buildings import PIECE_NAMES, opaque_ratio, process_building_sheet, rotate_piece
+from .buildings import PIECE_NAMES, opaque_ratio, process_building_sheet
+from .walls import (
+    EXTRA_SLOTS,
+    SOLID_SLOT,
+    W16,
+    W16_SLOTS,
+    WallArt,
+    build_piece_set as build_wall_pieces,
+    build_wall_atlas,
+    compose_wall_piece,
+    mask16,
+    rotate_piece,
+    slot_for_mask,
+    wall16_index,
+    wall_art_from_sheet,
+)
 from .blob47 import (
     BLOB_TILE_COLS,
     BLOB_TILE_ROWS,
@@ -120,6 +135,18 @@ __all__ = [
     "mask_from_neighbors",
     "PIECE_NAMES",
     "opaque_ratio",
+    "WallArt",
+    "W16",
+    "W16_SLOTS",
+    "EXTRA_SLOTS",
+    "SOLID_SLOT",
+    "mask16",
+    "wall16_index",
+    "slot_for_mask",
+    "compose_wall_piece",
+    "build_wall_pieces",
+    "build_wall_atlas",
+    "wall_art_from_sheet",
     "MASK_TO_INDEX",
     "FORBIDDEN_TILE_INDEX",
     "FALLBACK_TILE_INDEX",

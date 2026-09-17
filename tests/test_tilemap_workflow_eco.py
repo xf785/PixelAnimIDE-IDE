@@ -92,9 +92,19 @@ def test_building_end_to_end(tmp_path):
     result = TilemapWorkflow(image_api=MockImageAPI()).run(params)
     session = result.session
     assert session.pieces is not None
-    assert set(session.pieces["pieces"]) == {"straight", "end", "corner", "pillar"}
+    # 墙体 16-tile 族：16 件 + solid + 门（横/竖）+ 立柱 = 20
+    names = set(session.pieces["pieces"])
+    assert {"nesw", "ns", "ew", "ne", "none", "solid", "door_ew", "door_ns", "pillar"} <= names
+    assert len(names) == 20
     assert result.pieces_dir.exists()
-    assert len(list(result.pieces_dir.glob("*.png"))) == 4
+    assert len(list(result.pieces_dir.glob("*.png"))) == 20
+    # 图集与元数据（4×5 = 20 槽；掩码 -> 槽位；外部透明）
+    assert result.atlas_path is not None and result.atlas_path.exists()
+    meta = json.loads(result.atlas_meta_path.read_text(encoding="utf-8"))
+    assert meta["family"] == "wall-16"
+    assert len(meta["mask8_to_slot"]) == 256
+    assert meta["transparent_outside"] is True
+    assert len(meta["slots"]) == 20
     assert result.map_preview_path.exists()
     proj = json.loads(result.project_file.read_text(encoding="utf-8"))
     assert proj["category"] == "building"
