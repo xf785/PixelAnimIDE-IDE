@@ -284,3 +284,10 @@ def build_building_prompts(
         "tile_size": tile_size,
         "cell_px": cell_px,
     }
+
+
+def build_prop_prompts(*args, **kwargs):
+    """转发到 `core.tilemap.props.build_prop_prompts`（素材提示词，便于统一从 prompts 导入）。"""
+    from .props import build_prop_prompts as _impl
+
+    return _impl(*args, **kwargs)

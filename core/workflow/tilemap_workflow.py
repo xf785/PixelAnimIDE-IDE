@@ -49,6 +49,7 @@ from core.tilemap import (
 )
 from core.tilemap.prompts import (
     build_building_prompts,
+    build_prop_prompts,
     build_ecosystem_prompts,
     build_tileset_prompts,
 )
@@ -104,7 +105,7 @@ class TilemapParams:
 
     description: str
     style: str = "game sprite"       # 风格描述（嵌入严格提示词）
-    category: str = "classic"        # "ground" 地块生态 | "building" 建筑 | "classic" 经典 3×3
+    category: str = "classic"        # "ground" 地块生态 | "building" 建筑 | "prop" 素材（UI 已隐藏 classic）
     features: dict = field(default_factory=dict)  # 地块生态：{特征名: 特征描述}（≤3 个）
     base_block: str = "auto"         # 基础地形块位置：auto/tl/tr/bl/br（AI 常不守位置要求）
     tile_size: int = 32              # 目标单格像素（偶数）
@@ -116,6 +117,8 @@ class TilemapParams:
     line_width: int = 1              # 边界线宽（像素）
     edge_noise: float = 0.09         # 边缘噪声幅度（占瓦片尺寸比例，0=完全平直）
     wall_thickness: float = 0.56     # 建筑：墙体厚度（占瓦片边长比例）
+    prop_variants: int = 4           # 素材：一次生成几个变体
+    prop_name: str = "prop"          # 素材：命名前缀（导出为 名字_1.png …）
     detail_keep: float = 0.3         # AI 转角内部细节混合比例（0~1）
     map_width: int = 14              # 演示地图宽度（格）
     map_height: int = 10             # 演示地图高度（格）
@@ -138,6 +141,7 @@ class TilemapSession:
     base: Optional[BaseTileSet] = None             # 经典 3×3：裁切后的原始 9 片（可编辑）
     processed: Optional[BaseTileSet] = None        # 经典：无缝化处理后的 9 片
     ecosystem: Optional[EcosystemSheet] = None     # 地块生态：1 基础 + 3 特征（可编辑）
+    props: Dict[str, Image.Image] = field(default_factory=dict)  # 素材（道具）：名字 -> RGBA
     building: Optional[BuildingSheet] = None       # 建筑：墙体/顶面/开口/立柱（可编辑）
     terrain_sets: Dict[int, BaseTileSet] = field(default_factory=dict)  # 生态处理后各地形瓦片组
     pieces: Optional[dict] = None                  # 建筑：处理后的拼件 {"pieces":..., "core":..., ...}
@@ -370,6 +374,17 @@ class TilemapWorkflow:
                 "info",
                 tr("地块生态提示词已生成（2×2 块 × 3×3 = 6×6 格，单格 {0}px）").format(cell_px),
             )
+        elif params.category == "prop":
+            session.prompts = build_prop_prompts(
+                params.prop_name or params.description, style=params.style,
+                variants=params.prop_variants, tile_size=params.tile_size, cell_px=cell_px,
+            )
+            self._log_msg(
+                "info",
+                tr("素材提示词已生成（{0} 个变体，{1}×{2} 格，单格 {3}px）").format(
+                    session.prompts["variants"], session.prompts["grid_cols"],
+                    session.prompts["grid_rows"], cell_px),
+            )
         elif params.category == "building":
             session.prompts = build_building_prompts(
                 params.description, style=params.style,
@@ -517,6 +532,20 @@ class TilemapWorkflow:
                 )
             # 文字/水印兜底已在裁切时（源分辨率四块中心格）完成
             eco_items = None
+        elif params.category == "prop":
+            from core.tilemap.props import process_prop_sheet, prop_names
+
+            n = int(session.prompts.get("variants", params.prop_variants))
+            names = prop_names(params.prop_name or params.description, n)
+            session.props = process_prop_sheet(
+                sheet, int(session.prompts.get("grid_rows", 2)),
+                int(session.prompts.get("grid_cols", 2)), names,
+                tile_size=params.tile_size,
+            )
+            self._log_msg(
+                "info",
+                tr("素材处理完成：{0} 个（已抠背景，alpha 只有 0/255，底部对齐）").format(len(session.props)),
+            )
         elif params.category == "building":
             blocks, cell = crop_blocks(sheet)
             bld_items = []
@@ -559,6 +588,8 @@ class TilemapWorkflow:
 
     def _do_seamless(self, params: TilemapParams, session: TilemapSession) -> None:
         """步骤 4/6：对齐化处理（生态=各特征纹理 + 实测条带/描边；建筑=墙体拼件；经典=单地形）。"""
+        if params.category == "prop":
+            return
         if params.category == "ground":
             if session.ecosystem is None:
                 raise WorkflowError("尚未裁切瓦片，请先执行上一步", step="seamless")
@@ -628,6 +659,8 @@ class TilemapWorkflow:
 
     def _do_atlas(self, params: TilemapParams, session: TilemapSession) -> None:
         """步骤 5/6：生成瓦片集（生态=每地形艺术片 47 集；建筑=无需；经典=程序化）。"""
+        if params.category == "prop":
+            return
         if params.category == "ground":
             if not session.terrain_sets:
                 raise WorkflowError("尚未完成无缝化，请先执行上一步", step="atlas")
@@ -670,7 +703,9 @@ class TilemapWorkflow:
         out = Path(params.output_dir)
         export_dir = out / "export"
         export_dir.mkdir(parents=True, exist_ok=True)
-        if params.category == "ground":
+        if params.category == "prop":
+            self._export_prop(params, session, export_dir)
+        elif params.category == "ground":
             self._export_ground(params, session, export_dir)
         elif params.category == "building":
             self._export_building(params, session, export_dir)
@@ -766,6 +801,35 @@ class TilemapWorkflow:
             sheet_path=session.sheet_path, terrain_atlas_paths=terrain_paths,
             map_preview_path=preview_path, project_file=project_file,
             tile_size=params.tile_size, atlas_mode=params.atlas_mode, category="ground",
+        )
+
+    def _export_prop(self, params: TilemapParams, session: TilemapSession, export_dir: Path) -> None:
+        """素材导出：逐个 PNG + 打进一个瓦片包（预览里可直接「添加瓦片包」使用）。"""
+        from core.tilemap.pack import TilePack, save_tilepack
+
+        if not session.props:
+            raise WorkflowError("尚未生成素材，请先执行上一步", step="export")
+        props_dir = export_dir / "props"
+        props_dir.mkdir(parents=True, exist_ok=True)
+        for name, img in session.props.items():
+            img.save(props_dir / f"{name}.png")
+        pack = TilePack(
+            name=params.prop_name or params.description or "props",
+            category="prop", tile_size=params.tile_size, pieces=dict(session.props),
+            meta={"description": params.description, "variants": len(session.props)},
+        )
+        pack_path = save_tilepack(export_dir / f"{pack.name}.tilepack", pack)
+        manifest = export_dir / "props.json"
+        manifest.write_text(
+            json.dumps({"format": "pixel-anim-props", "tile_size": params.tile_size,
+                        "props": sorted(session.props.keys()), "pack": pack_path.name},
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        session.result = TilemapResult(
+            output_dir=session.params.output_dir, session=session,
+            sheet_path=session.sheet_path, pieces_dir=props_dir, atlas_path=pack_path,
+            project_file=manifest, tile_size=params.tile_size, category="prop",
         )
 
     def _export_building(self, params: TilemapParams, session: TilemapSession, export_dir: Path) -> None:

@@ -89,8 +89,10 @@ from .blob47 import (
     tile16_index,
 )
 from .map import TileMapModel
+from .props import process_prop_sheet, prop_names
 from .prompts import (
     build_building_prompts,
+    build_prop_prompts,
     build_ecosystem_prompts,
     build_tileset_prompts,
 )
@@ -169,4 +171,7 @@ __all__ = [
     "build_tileset_prompts",
     "build_ecosystem_prompts",
     "build_building_prompts",
+    "build_prop_prompts",
+    "process_prop_sheet",
+    "prop_names",
 ]

@@ -500,9 +500,11 @@ def align_terrain_set(
             band=band_px,
             radius=band_px,
             base_texture=(base_texture or texture),
-            art_meta={"band_px": band_px, "rim_px": 2, "plain": True, "tile_size": tile_size,
-                      "outline": [list(darkest), list(soft)], "bevel": [],
-                      "outline_px": 2, "bevel_px": 0},
+            # no_border：基础地形不该有边界艺术 —— 地图外缘（邻居为空）也不画条带/
+            # 描边，否则预览图左下角会出现一圈深色硬边（草地这类高饱和地形尤其明显）。
+            art_meta={"band_px": band_px, "rim_px": 0, "plain": True, "tile_size": tile_size,
+                      "outline": [], "bevel": [], "outline_px": 0, "bevel_px": 0,
+                      "no_border": True, "edge_noise_px": 0},
         )
     measured = measure_terrain_art(base, ground_rgb=ground_rgb)
     band = max(1, min(tile_size // 2, int(round(measured["band_frac"] * tile_size))))

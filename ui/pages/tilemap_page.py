@@ -56,7 +56,7 @@ STYLE_PRESETS = ["game sprite", "retro", "pixel", "top-down RPG", "platformer", 
 CATEGORY_LABELS = {
     "ground": "地块生态",
     "building": "建筑类",
-    "classic": "经典 3×3",
+    "prop": "素材（道具）",
 }
 
 # 基础地形块位置（AI 常不遵守「左上」要求，默认自动识别）
@@ -79,6 +79,7 @@ class TilemapPage(QWidget):
         self._result = None
         self._session = None
         self._params: TilemapParams | None = None
+        self._prop_pack = None      # 素材包（跨多次生成累积）
         self._local_wf = TilemapWorkflow(image_api=None)  # 编辑后本地重跑（无需 API）
         self._build_ui()
 
@@ -145,6 +146,15 @@ class TilemapPage(QWidget):
             tr("生图返回的 2×2 底图中哪一块是纯基础地形；默认自动识别（AI 常不遵守位置要求）")
         )
         f.addRow(self._base_pos_label, self._base_pos_combo)
+
+        self._prop_name_label = T(QLabel(), "素材名称")
+        self._prop_name_edit = QLineEdit("tree")
+        f.addRow(self._prop_name_label, self._prop_name_edit)
+        self._prop_count_label = T(QLabel(), "变体数")
+        self._prop_count_spin = QSpinBox()
+        self._prop_count_spin.setRange(1, 9)
+        self._prop_count_spin.setValue(4)
+        f.addRow(self._prop_count_label, self._prop_count_spin)
 
         self._style_combo = QComboBox()
         self._style_combo.setEditable(True)
@@ -278,19 +288,25 @@ class TilemapPage(QWidget):
         for name_edit, desc_edit in self._feature_rows:
             name_edit.setVisible(is_ground)
             desc_edit.setVisible(is_ground)
-        self._line_label.setVisible(cat == "classic")
-        self._line_spin.setVisible(cat == "classic")
+        self._line_label.setVisible(cat == "building")
+        self._line_spin.setVisible(cat == "building")
         self._base_pos_label.setVisible(is_ground)
         self._base_pos_combo.setVisible(is_ground)
         self._mode_label.setVisible(cat != "building")
         self._mode_combo.setVisible(cat != "building")
         self._map_src_label.setVisible(is_ground)
         self._map_src_combo.setVisible(is_ground)
+        is_prop = cat == "prop"
+        for widget in (self._prop_name_label, self._prop_name_edit,
+                       self._prop_count_label, self._prop_count_spin):
+            widget.setVisible(is_prop)
         self._desc_edit.setPlaceholderText(
             tr("例如：草地、沙漠、雪原……（生态基础地形）")
             if is_ground
             else tr("例如：石墙、木栅栏、房屋……（建筑主体）")
             if is_building
+            else tr("例如：一棵松树、一丛野花、一块石头……（单个素材描述）")
+            if cat == "prop"
             else tr("例如：草地、石砖墙、熔岩地面、水面……")
         )
         # 切换类别：收起「接受」按钮、恢复生成按钮文案
@@ -317,7 +333,9 @@ class TilemapPage(QWidget):
             tile_size=self._tile_spin.value(),
             sheet_size=self._sheet_spin.value(),
             atlas_mode=self._mode_combo.currentData(),
-            map_source=self._map_src_combo.currentData() or "hand",
+            map_source=self._map_src_combo.currentData() or "showcase",
+            prop_name=self._prop_name_edit.text().strip() or "prop",
+            prop_variants=self._prop_count_spin.value(),
             line_width=self._line_spin.value(),
             edge_noise=self._noise_spin.value() / 100.0,
             map_width=self._map_w_spin.value(),
@@ -407,6 +425,14 @@ class TilemapPage(QWidget):
     def _on_done(self, result) -> None:
         self._result = result
         self._session = result.session
+        # 素材模式：把本次生成的素材**并入素材包**（可继续生成别的素材，最后导出包）
+        if result.category == "prop" and getattr(result.session, "props", None):
+            from core.tilemap.pack import TilePack
+
+            if self._prop_pack is None:
+                self._prop_pack = TilePack(name=result.session.params.prop_name or "props",
+                                           category="prop", tile_size=result.session.params.tile_size)
+            self._prop_pack.pieces.update(result.session.props)
         self._gen_btn.setEnabled(True)
         self._gen_btn.setText(tr("生成瓦片集"))
         self._accept_btn.setVisible(False)
@@ -533,6 +559,20 @@ class TilemapPage(QWidget):
         """把当前会话保存成瓦片包（.tilepack），之后可在任意预览里叠加。"""
         if self._session is None:
             QMessageBox.information(self, tr("保存瓦片包"), tr("请先生成瓦片集"))
+            return
+        if self._prop_pack is not None and self._session.params.category == "prop":
+            default = Path(DEFAULT_OUTPUT_DIR) / "tilemap" / f"{self._prop_pack.name}.tilepack"
+            path, _f = QFileDialog.getSaveFileName(
+                self, tr("保存瓦片包"), str(default), tr("瓦片包 (*.tilepack)")
+            )
+            if not path:
+                return
+            try:
+                saved = save_tilepack(path, self._prop_pack)
+            except Exception as exc:  # noqa: BLE001
+                QMessageBox.warning(self, tr("保存瓦片包失败"), str(exc))
+                return
+            self._status.setText(tr("瓦片包已保存：{0}（素材 {1} 个）").format(saved, len(self._prop_pack.pieces)))
             return
         default = Path(DEFAULT_OUTPUT_DIR) / "tilemap" / f"{self._session.params.description or 'tilepack'}.tilepack"
         path, _f = QFileDialog.getSaveFileName(

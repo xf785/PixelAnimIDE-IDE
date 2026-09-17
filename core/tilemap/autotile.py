@@ -640,6 +640,11 @@ def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
     rim_w = max(0, min(int(base.line_width or 0), max(1, band - 1)))
 
     ys, xs = np.mgrid[0:s, 0:s]
+    if (getattr(base, "art_meta", {}) or {}).get("no_border"):
+        # 纯填充地形（基础地形）：不画条带/描边/阴影，整格就是无缝纹理
+        out = feat.copy()
+        out[..., 3] = 255
+        return Image.fromarray(out, "RGBA")
     band_mask = np.zeros((s, s), dtype=bool)
     # 边缘噪声（手绘感）：只向内加深、两端渐变到 0，因此共享边像素依旧完全一致。
     meta0 = dict(getattr(base, "art_meta", {}) or {})

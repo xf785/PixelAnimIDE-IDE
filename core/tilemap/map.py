@@ -42,6 +42,9 @@ class TileMapModel:
         self.tile_size = int(tile_size)
         self.grid = np.zeros((self.height, self.width), dtype=np.uint8)
         self.terrain_sets: Dict[int, BaseTileSet] = {}
+        # 墙体层（建筑类实时自动拼接）：占用网格 + 16-tile 件注册表
+        self.wall_grid: Optional[np.ndarray] = None
+        self.wall_pieces: Dict[str, Image.Image] = {}
         self.base_terrain: Optional[int] = None
         # 建筑 overlay：{(x,y): (拼件图, 旋转 0..3, 拼件名或 None)}
         self.overlay: Dict[Tuple[int, int], Tuple[Image.Image, int, Optional[str]]] = {}
@@ -134,8 +137,53 @@ class TileMapModel:
                     if self.grid[y, x]:
                         tile = compose_tile(center, self.mask(x, y), line_color, line_width)
                         canvas.paste(tile, (x * s, y * s), tile)
+        self._render_walls(canvas)
         self._paste_overlay(canvas)
         return canvas
+
+    # ------------------------------------------------------------------ #
+    def enable_wall_layer(self, pieces: Dict[str, Image.Image]) -> None:
+        """开启墙体层：铺墙时按四邻域**实时**选件（自动无缝拼接）。"""
+        self.wall_pieces = dict(pieces or {})
+        if self.wall_grid is None:
+            self.wall_grid = np.zeros((self.height, self.width), dtype=np.uint8)
+
+    def paint_wall(self, x: int, y: int, present: bool = True) -> None:
+        if self.wall_grid is None:
+            self.enable_wall_layer(self.wall_pieces)
+        if 0 <= x < self.width and 0 <= y < self.height:
+            self.wall_grid[y, x] = 1 if present else 0
+
+    def wall_mask(self, x: int, y: int) -> int:
+        """该格的 16-tile 掩码（只看四个正交方向是否也是墙）。"""
+        if self.wall_grid is None:
+            return 0
+        # 16-tile 位约定（n=1 e=2 s=4 w=8），与 W16_SLOTS 槽位一致
+        bits = {"T": 1, "B": 4, "L": 8, "R": 2}
+        mask = 0
+        for name, (dx, dy) in (("T", (0, -1)), ("B", (0, 1)), ("L", (-1, 0)), ("R", (1, 0))):
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < self.width and 0 <= ny < self.height and self.wall_grid[ny, nx]:
+                mask |= bits[name]
+        return mask
+
+    def _render_walls(self, canvas: Image.Image) -> None:
+        """墙体层渲染：按掩码取 16 族件逐格贴上（透明外部 -> 露出地块）。"""
+        from .walls import W16_SLOTS
+
+        if self.wall_grid is None or not self.wall_pieces:
+            return
+        s = self.tile_size
+        for y in range(self.height):
+            for x in range(self.width):
+                if not self.wall_grid[y, x]:
+                    continue
+                piece = self.wall_pieces.get(W16_SLOTS[self.wall_mask(x, y) & 0b1111])
+                if piece is None:
+                    continue
+                canvas.alpha_composite(
+                    piece.convert("RGBA").resize((s, s), Image.Resampling.NEAREST), (x * s, y * s)
+                )
 
     def _paste_overlay(self, canvas: Image.Image) -> None:
         """把建筑 overlay 拼件按旋转叠放到画布上。"""
@@ -212,6 +260,8 @@ class TileMapModel:
         }
         if self.base_terrain is not None:
             data["base_terrain"] = int(self.base_terrain)
+        if self.wall_grid is not None:
+            data["wall_grid"] = self.wall_grid.astype(int).tolist()
         # 建筑 overlay：按拼件名 + 旋转序列化（恢复时用 pieces 注册表还原图像）
         overlays = [
             {"x": x, "y": y, "piece": name, "rot": rot}
@@ -235,6 +285,13 @@ class TileMapModel:
                 model.grid[y, x] = int(v) if v else EMPTY
         if data.get("base_terrain") is not None:
             model.base_terrain = int(data["base_terrain"])
+        if data.get("wall_grid") is not None and pieces:
+            walls = data["wall_grid"]
+            model.enable_wall_layer(pieces)
+            for y, row in enumerate(walls[: model.height]):
+                for x, v in enumerate(row[: model.width]):
+                    if int(v):
+                        model.paint_wall(x, y, True)
         for item in data.get("overlay") or []:
             name = item.get("piece")
             if pieces and name in pieces:

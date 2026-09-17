@@ -75,6 +75,7 @@ class TilemapView(QWidget):
         self._zoom = 3
         self._erase = False
         self._grid_visible = True
+        self._auto_wall = False
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(220, 180)
@@ -115,6 +116,11 @@ class TilemapView(QWidget):
             self._toolbar.addWidget(self._rot_btn)
         self._toolbar.addWidget(self._zoom_label)
 
+        self._auto_wall_check = T(QCheckBox(), "自动墙")
+        self._auto_wall_check.setToolTip(tr("开启后左键涂墙：按四邻域实时自动选 16-tile 件（无缝拼接）"))
+        self._auto_wall_check.toggled.connect(self._on_auto_wall)
+        if any(n in self._pieces for n in ("nesw", "ns", "ew", "ne")):
+            self._toolbar.addWidget(self._auto_wall_check)
         self._grid_check = T(QCheckBox(), "网格")
         self._grid_check.setChecked(True)
         self._grid_check.toggled.connect(self.set_grid_visible)
@@ -203,6 +209,23 @@ class TilemapView(QWidget):
         self._paint_btn.setChecked(not erase)
         self._erase_btn.setChecked(erase)
 
+    def _on_auto_wall(self, on: bool) -> None:
+        self._auto_wall = bool(on)
+        if on:
+            self._model.enable_wall_layer(self._wall_pieces())
+            self._rebuild()
+
+    def _wall_pieces(self) -> dict:
+        """从已加载的拼件里挑出 16-tile 墙件（去掉包名前缀）。"""
+        from core.tilemap.walls import W16_SLOTS
+
+        out = {}
+        for name, piece in self._pieces.items():
+            short = name.split("·")[-1]
+            if short in W16_SLOTS:
+                out.setdefault(short, piece)
+        return out
+
     def _on_piece_changed(self, _index: int) -> None:
         self._current_piece = self._piece_combo.currentData()
 
@@ -273,6 +296,11 @@ class TilemapView(QWidget):
         if self._erase:
             self._model.set_cell(cell[0], cell[1], 0)
             self._model.remove_overlay(cell[0], cell[1])
+            if self._auto_wall and self._model.wall_grid is not None:
+                self._model.paint_wall(cell[0], cell[1], False)
+        elif self._auto_wall and self._wall_pieces():
+            self._model.enable_wall_layer(self._wall_pieces())
+            self._model.paint_wall(cell[0], cell[1], True)
         elif self._current_piece:
             piece = self._pieces.get(self._current_piece)
             if piece is not None:

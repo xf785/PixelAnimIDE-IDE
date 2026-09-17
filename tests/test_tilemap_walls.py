@@ -229,3 +229,32 @@ def test_rotation_keeps_transparency_aligned():
     r = rotate_piece(p, 2)
     assert r.size == p.size
     assert (np.asarray(r)[..., 3] == 0).mean() == (np.asarray(p)[..., 3] == 0).mean()
+
+
+def test_wall_layer_auto_stitches_in_realtime():
+    """模型墙体层：涂/擦墙后按四邻域实时自动选件，且能序列化恢复。"""
+    from core.tilemap import TileMapModel
+    from core.tilemap.walls import build_piece_set
+
+    pieces = build_piece_set(_art())
+    m = TileMapModel(12, 9, tile_size=S)
+    m.enable_wall_layer(pieces)
+    for x in range(2, 9):
+        m.paint_wall(x, 3, True)
+    for y in range(3, 7):
+        m.paint_wall(2, y, True)
+        m.paint_wall(8, y, True)
+    # 端点/直墙/转角的掩码应自动区分
+    assert m.wall_mask(2, 3) == (W16["e"] | W16["s"])          # 左上角 -> 转角
+    assert m.wall_mask(5, 3) == (W16["e"] | W16["w"])          # 中段 -> 直墙
+    assert m.wall_mask(2, 6) == (W16["n"])                     # 末端 -> 端头
+    m.paint_wall(5, 3, False)                    # 擦掉中段 -> 端头/转角重新自动选型
+    assert m.wall_mask(4, 3) == W16["w"]         # 只剩西邻 -> 端头
+    assert m.wall_mask(6, 3) == W16["e"]         # 擦除处只剩东邻 -> 反向端头
+    img = m.render()
+    assert img.size == (12 * S, 9 * S)
+    data = m.to_dict()
+    assert "wall_grid" in data
+    restored = TileMapModel.from_dict(data, pieces=pieces)
+    assert (restored.wall_grid == m.wall_grid).all()
+    assert (np.asarray(restored.render()) == np.asarray(img)).all()
