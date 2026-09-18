@@ -511,3 +511,29 @@
   `grid()` 返回 `(kinds, masks)`；柏林噪声大地图功能不受影响。
 - 现在瓦片地图只有两套自研布局：**47-tile 8×6 图集**与**双网格**；
   建筑侧是自研的 **16-tile 墙体族**（与已删除的第三方 16 图集无关）。
+## 22. 第十八轮：项目更名为 PixelFoundry IDE（像素铸造 IDE）
+
+| 用途 | 名称 |
+|---|---|
+| 中文名 | 像素铸造 IDE |
+| 英文名 | PixelFoundry IDE |
+| 仓库名 | PixelFoundry-IDE（`https://github.com/xf785/PixelFoundry-IDE`） |
+| 全称 | PixelFoundry — Pixel Game Asset Foundry |
+
+- **代码**：`config/settings.py` 拆分为四个常量 —— `APP_NAME = "PixelFoundry"`（数据/输出目录）、
+  `APP_DISPLAY_NAME = "PixelFoundry IDE"`（窗口标题）、`APP_FULL_NAME`（全称，logo 提示/关于）、
+  `APP_NAME_ZH = "像素铸造 IDE"`；打包配置改名 `PixelFoundry.spec`，产物为
+  `dist/PixelFoundry/PixelFoundry.exe`；日志名、CLI `prog`、演示模式标题、QSS 注释等 61 个文件统一替换。
+- **数据目录迁移**：`app_data_dir()` 在新目录不存在而旧名目录存在时**自动重命名迁移**
+  （失败则复制），因此更名不会丢配置与密钥；环境变量 `PIXELFOUNDRY_DATA_DIR` 生效，
+  旧的 `PIXELANIMIDE_DATA_DIR` 仍兼容。
+- **文档**：README（中英）标题与简介改用全称；ROADMAP（中英）标题更新；
+  徽章与链接指向新仓库 slug（GitHub 旧地址自动重定向）。
+- **仓库**：通过 API 将 `xf785/PixelAnimIDE-IDE` 改名为 `xf785/PixelFoundry-IDE`，
+  本地 remote 同步更新；v0.3.0 Release 的标题与说明文字改为新名
+  （其中已上传的二进制仍是旧名构建，历史版本资产文件名保持不变）。
+- **测试**：新增 `tests/test_project_naming.py`（6 项）——四个名称常量、窗口标题、
+  旧目录迁移、新旧环境变量、新目录已存在时不动旧目录、以及**全仓不得残留旧项目名**的扫描。
+
+> 注意：v0.3.0 的发行 zip（`PixelAnimIDE-v0.3.0-win64.zip`）是更名前构建的，界面与 exe 仍是旧名；
+> 需要新名的安装包时，重新打包上传即可（建议作为 v0.4.0 发布）。
