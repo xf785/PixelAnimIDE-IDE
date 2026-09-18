@@ -101,8 +101,9 @@ def test_docker_column_collapse_fills_other_panels(qtbot):
         QApplication.processEvents()
     sizes = column._splitter.sizes()
     assert sizes[1] <= 40, f"折叠后应只剩标题条：{sizes}"
-    assert sum(sizes) == total or abs(sum(sizes) - total) <= 8, sizes
-    assert sizes[0] + sizes[2] >= total - 45, f"腾出的空间应给其余面板：{sizes}"
+    # 容器总高不应因为折叠而缩水（无字体的 CI 环境里标题条高度会不同，故留余量）
+    assert abs(sum(sizes) - total) <= 24, sizes
+    assert sizes[0] + sizes[2] >= total - 60, f"腾出的空间应给其余面板：{sizes}"
 
     b.set_collapsed(False)
     for _ in range(3):

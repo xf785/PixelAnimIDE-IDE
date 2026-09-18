@@ -1,12 +1,26 @@
 """项目命名与数据目录迁移的回归测试（改名后防回退）。"""
 import importlib
 import os
+import sys
 from pathlib import Path
 
 
+def _data_base_env(tmp: Path):
+    """把「用户数据根目录」指到临时目录，返回 (要设的环境变量, 期望的 DATA_DIR)。
 
-def _reload_settings(tmp_appdata: Path):
-    os.environ["APPDATA"] = str(tmp_appdata)
+    三个平台的数据根不同（Windows `%APPDATA%` / macOS `~/Library/Application Support` /
+    Linux `$XDG_CONFIG_HOME`），只设 APPDATA 在 Linux 上不生效（CI 曾因此长期红灯）。
+    """
+    if sys.platform == "win32":
+        return {"APPDATA": str(tmp)}, tmp / "PixelFoundry"
+    if sys.platform == "darwin":
+        return {"HOME": str(tmp)}, tmp / "Library" / "Application Support" / "PixelFoundry"
+    return {"XDG_CONFIG_HOME": str(tmp)}, tmp / "PixelFoundry"
+
+
+def _reload_settings(env: dict):
+    for key, value in env.items():
+        os.environ[key] = value
     os.environ.pop("PIXELFOUNDRY_DATA_DIR", None)
     os.environ.pop("PIXELANIMIDE_DATA_DIR", None)
     import config.settings as settings
@@ -46,20 +60,21 @@ def test_window_title_uses_display_name(qtbot, tmp_path):
 
 def test_data_dir_migrates_from_legacy_name(tmp_path):
     """改名不应该丢用户配置：旧目录会自动迁移到新名下。"""
-    appdata = tmp_path / "AppData"
-    legacy = appdata / "PixelAnimIDE"
+    env, target = _data_base_env(tmp_path / "AppData")
+    legacy = target.parent / "PixelAnimIDE"
     legacy.mkdir(parents=True)
     (legacy / "api_config.json").write_text('{"configs": []}', encoding="utf-8")
     (legacy / ".keyring").write_text("secret", encoding="utf-8")
 
-    settings = _reload_settings(appdata)
+    settings = _reload_settings(env)
     try:
-        assert settings.DATA_DIR == appdata / "PixelFoundry"
+        assert settings.DATA_DIR == target
         assert (settings.DATA_DIR / "api_config.json").exists()
         assert (settings.DATA_DIR / ".keyring").read_text(encoding="utf-8") == "secret"
         assert not legacy.exists(), "旧目录应已迁移（重命名）而不是复制残留"
     finally:
-        os.environ.pop("APPDATA", None)
+        for key in env:
+            os.environ.pop(key, None)
         importlib.reload(settings)
 
 
@@ -80,19 +95,20 @@ def test_data_dir_env_override_supports_both_names(tmp_path):
 
 def test_existing_data_dir_is_not_touched(tmp_path):
     """新目录已存在时不得动它（避免把用户刚存的配置搬走）。"""
-    appdata = tmp_path / "AppData"
-    (appdata / "PixelFoundry").mkdir(parents=True)
-    (appdata / "PixelFoundry" / "ui_settings.json").write_text("{}", encoding="utf-8")
-    legacy = appdata / "PixelAnimIDE"
+    env, target = _data_base_env(tmp_path / "AppData")
+    target.mkdir(parents=True)
+    (target / "ui_settings.json").write_text("{}", encoding="utf-8")
+    legacy = target.parent / "PixelAnimIDE"
     legacy.mkdir(parents=True)
     (legacy / "api_config.json").write_text("{}", encoding="utf-8")
 
-    settings = _reload_settings(appdata)
+    settings = _reload_settings(env)
     try:
         assert (settings.DATA_DIR / "ui_settings.json").exists()
         assert legacy.exists(), "新目录已存在时不应迁移/删除旧目录"
     finally:
-        os.environ.pop("APPDATA", None)
+        for key in env:
+            os.environ.pop(key, None)
         importlib.reload(settings)
 
 
