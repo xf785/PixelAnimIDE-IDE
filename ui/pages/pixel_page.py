@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 from config.settings import DEFAULT_OUTPUT_DIR
 from ui.app_context import AppContext
 from ui.i18n import T, tr
+from ui.widgets.pack_browser import PackBrowser
 from ui.widgets.pixel_editor import PixelEditorWidget
 
 logger = logging.getLogger("PixelFoundry.ui.pixel_page")
@@ -51,6 +52,53 @@ class PixelPage(QWidget):
         super().__init__(parent)
         self._ctx = ctx
         self._build_ui()
+        self._restore_packs()
+
+    # ------------------------------------------------------------------ #
+    # 瓦片包 / 素材包：导入、可视化切换、送入画布
+    # ------------------------------------------------------------------ #
+    def _wrap_asset(self, img: Image.Image) -> Image.Image:
+        """把资源居中合成进当前画布（保持画布尺寸；画布更小时裁切）。"""
+        frame = self._editor.frame().convert("RGBA")
+        if frame.width == 0 or frame.height == 0:
+            return img.convert("RGBA")
+        out = frame.copy()
+        art = img.convert("RGBA")
+        if art.width > out.width or art.height > out.height:
+            art = art.resize((min(art.width, out.width), min(art.height, out.height)),
+                             Image.Resampling.NEAREST)
+        out.alpha_composite(art, ((out.width - art.width) // 2, (out.height - art.height) // 2))
+        return out
+
+    def _on_pack_asset(self, img: Image.Image, name: str) -> None:
+        """放入画布：居中合成，保持画布尺寸。"""
+        self._editor.set_frame(self._wrap_asset(img))
+        self._status_hint(tr("已放入画布：{0}").format(name))
+
+    def _on_pack_asset_replace(self, img: Image.Image, name: str) -> None:
+        """替换画布：画布尺寸随资源改变。"""
+        self._editor.set_frame(img.convert("RGBA"))
+        self._status_hint(tr("已用素材替换画布：{0}").format(name))
+
+    def _status_hint(self, text: str) -> None:
+        logger.info(text)
+
+    def _restore_packs(self) -> None:
+        """恢复上次会话加载过的包（路径存在才加载）。"""
+        paths = self._ctx.ui_settings.get("pixel_pack_paths", []) or []
+        paths = [p for p in paths if Path(p).exists()]
+        if not paths:
+            return
+        ok = self._pack_browser.add_paths(paths)
+        if ok:
+            logger.info(tr("已恢复上次的 {0} 个包").format(ok))
+        self._remember_packs()
+
+    def _remember_packs(self) -> None:
+        try:
+            self._ctx.ui_settings.set("pixel_pack_paths", self._pack_browser.pack_paths())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("包路径保存失败: %s", exc)
 
     # ------------------------------------------------------------------ #
     def _build_ui(self) -> None:
@@ -150,7 +198,18 @@ class PixelPage(QWidget):
         self._btn_export.clicked.connect(self._on_export)
         av.addWidget(self._btn_export)
         lp.addWidget(act_box)
-        lp.addStretch(1)
+
+        # ---------- 瓦片包 / 素材包（导入 + 可视化切换 + 送入画布） ----------
+        self._pack_box = T(QGroupBox(), "瓦片包 / 素材包")
+        pv = QVBoxLayout(self._pack_box)
+        pv.setContentsMargins(8, 18, 8, 8)
+        self._pack_browser = PackBrowser()
+        self._pack_browser.assetChosen.connect(self._on_pack_asset)
+        self._pack_browser.assetReplaceRequested.connect(self._on_pack_asset_replace)
+        self._pack_browser.packChanged.connect(self._remember_packs)
+        pv.addWidget(self._pack_browser)
+        lp.addWidget(self._pack_box, 1)
+        lp.addStretch(0)
 
         # ---------- 右：画布编辑器（分栏可拖拽调宽） ----------
         self._editor = PixelEditorWidget()

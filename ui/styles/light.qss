@@ -337,3 +337,37 @@ QListWidget::item:selected {
 #EditorSidePanel QToolButton:pressed {
     background: rgba(0, 0, 0, 0.10);
 }
+
+/* ---------- 瓦片包浏览器：分段切换器 / 包列表 / 资源网格 ---------- */
+QPushButton#SegmentButton {
+    padding: 3px 10px;
+    border: 1px solid #d0d5dd;
+    border-radius: 10px;
+    background: #f2f4f7;
+    color: #475467;
+    font-size: 12px;
+}
+QPushButton#SegmentButton:hover { background: #e9edf3; color: #1d2939; }
+QPushButton#SegmentButton:checked {
+    background: #2f6bff;
+    border-color: #2f6bff;
+    color: #ffffff;
+    font-weight: 600;
+}
+QListWidget#PackList {
+    background: #ffffff;
+    border: 1px solid #d0d5dd;
+    border-radius: 6px;
+    font-size: 12px;
+}
+QListWidget#AssetGrid {
+    background: #fbfcfe;
+    border: 1px solid #d0d5dd;
+    border-radius: 6px;
+}
+QListWidget#AssetGrid::item { color: #344054; padding: 2px; }
+QListWidget#AssetGrid::item:selected {
+    background: #2f6bff;
+    color: #ffffff;
+    border-radius: 4px;
+}

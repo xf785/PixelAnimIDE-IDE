@@ -90,6 +90,10 @@ A dedicated pixel canvas (reusing the full editor):
 - **Sync from IDE** pulls the current IDE frame for fine pixel editing; **Sync to IDE** sends the canvas as **first frame + i2i reference**.
 - **Use as video first frame** hands it to Solo for image-to-video — if below the API minimum size it is **NEAREST-upscaled** (hard edges, no blur) via `video_image_min_side` (default 256) paired with `video_image_max_side` (default 512).
 - **Export PNG**.
+- **Tile / prop packs**: import `.tilepack`, exported zips or folders into the pixel canvas from the
+  left sidebar, browse them with a category switcher (all / terrain / buildings / props / source sheets)
+  plus search and thumbnails, then **Place on canvas** (centred, canvas size kept) or **Replace canvas**.
+  Loaded packs are remembered per user.
 
 ### Tilemap Mode — text-to-tileset with seamless stitching
 
