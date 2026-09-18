@@ -115,6 +115,8 @@ class TilemapParams:
     line_width: int = 1              # 边界线宽（像素）
     edge_noise: float = 0.09         # 边缘噪声幅度（占瓦片尺寸比例，0=完全平直）
     edge_blend: float = 0.5          # 地形交界融合强度（噪声渗透咬合，0=平滑硬边）
+    reference_image: Optional[str] = None   # 文生瓦片底图的参考图（图生图，可选）
+    terrain_25d: bool = True         # 2.5D 高度层：高台南侧画崖壁（俯视 2.5D）
     wall_thickness: float = 0.56     # 建筑：墙体厚度（占瓦片边长比例）
     prop_variants: int = 4           # 素材：一次生成几个变体
     prop_name: str = "prop"          # 素材：命名前缀（导出为 名字_1.png …）
@@ -141,6 +143,7 @@ class TilemapSession:
     processed: Optional[BaseTileSet] = None        # 经典：无缝化处理后的 9 片
     ecosystem: Optional[EcosystemSheet] = None     # 地块生态：1 基础 + 3 特征（可编辑）
     props: Dict[str, Image.Image] = field(default_factory=dict)  # 素材（道具）：名字 -> RGBA
+    cliff_arts: Dict[int, object] = field(default_factory=dict)  # 2.5D：地形 id -> CliffArt
     building: Optional[BuildingSheet] = None       # 建筑：墙体/顶面/开口/立柱（可编辑）
     terrain_sets: Dict[int, BaseTileSet] = field(default_factory=dict)  # 生态处理后各地形瓦片组
     pieces: Optional[dict] = None                  # 建筑：处理后的拼件 {"pieces":..., "core":..., ...}
@@ -409,11 +412,21 @@ class TilemapWorkflow:
         size = cells * cell_px
         session.cell_px = cell_px
         self._log_msg("info", tr("请求生图尺寸 {0}x{0}（{1}×{1} 格，单格 {2}px）").format(size, cells, cell_px))
+        ref_bytes = None
+        if params.reference_image:
+            try:
+                from core.processing import frame_utils as fu
+
+                ref_bytes = fu.image_to_bytes(fu.load_image(Path(params.reference_image)), "PNG")
+                self._log_msg("info", tr("已附加参考图（图生图）: {0}").format(params.reference_image))
+            except Exception as exc:  # noqa: BLE001
+                raise WorkflowError(tr("参考图读取失败: {0}").format(exc), step="base")
         result = self.image_api.call(
             prompt=session.prompts["image_prompt"],
             size=f"{size}x{size}",
             n=1,
             negative_prompt=session.prompts.get("negative_prompt"),
+            image=ref_bytes,
         )
         if not result.ok:
             raise WorkflowError(tr("瓦片底图生成失败: {0}").format(result.message), step="base")
@@ -613,6 +626,21 @@ class TilemapWorkflow:
                     len(arts), meta.get("band_px", "?"), meta.get("rim_px", "?")
                 ),
             )
+            # 俯视 2.5D：由同一套地形艺术推导崖壁（16-tile 族），无需额外文生图
+            if params.terrain_25d:
+                from core.tilemap.cliff import cliff_art_from_terrain
+
+                noise = max(0, int(round(params.tile_size * min(0.2, max(0.0, params.edge_noise)))))
+                session.cliff_arts = {
+                    int(tid): cliff_art_from_terrain(tset, edge_noise=noise)
+                    for tid, tset in arts.items()
+                }
+                self._log_msg(
+                    "info",
+                    tr("2.5D 崖壁已推导：{0} 个地形（顶面 + 崖壁 16-tile 族，预览里可抬高/降低格子）").format(
+                        len(session.cliff_arts)
+                    ),
+                )
         elif params.category == "building":
             if session.building is None:
                 raise WorkflowError("尚未裁切瓦片，请先执行上一步", step="seamless")
@@ -776,6 +804,7 @@ class TilemapWorkflow:
         for tid, tset in session.terrain_sets.items():
             model.set_terrain(tid, tset)
         model.set_base_terrain(1)
+        model.dual_mode = params.atlas_mode == "dual"    # 双网格模式：演示地图同步用双网格渲染
         model.fill_rect(0, 0, params.map_width - 1, params.map_height - 1, 1)
         feats = sorted(session.terrain_sets.keys())
         if len(feats) > 1:
@@ -787,6 +816,13 @@ class TilemapWorkflow:
             if len(feats) > 3:
                 model.set_cell(cx - 5, cy - 5, feats[3])                    # 岩石
                 model.set_cell(cx - 5, cy - 4, feats[3])
+        # 俯视 2.5D 演示：地图左上抬出一块高原，南缘自动出现崖壁（顶面层 + 崖壁层）
+        if params.terrain_25d and session.cliff_arts:
+            model.enable_height_layer(session.cliff_arts)
+            hx, hy = max(1, params.map_width // 6), max(1, params.map_height // 6)
+            for yy in range(hy, min(params.map_height - 1, hy + 4)):
+                for xx in range(hx, min(params.map_width - 1, hx + 6)):
+                    model.paint_height(xx, yy, 1)
         session.map_model = model
         preview = model.render()
         preview_path = export_dir / "map_preview.png"

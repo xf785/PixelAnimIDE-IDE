@@ -52,6 +52,7 @@ from core.workflow.solo_workflow import WorkflowError
 from ui.app_context import AppContext
 from ui.i18n import T, tr
 from ui.widgets.tile_editor import TileEditorDialog, base_set_with_edits
+from ui.widgets.reference_box import ReferenceImageBox
 from ui.widgets.tilemap_view import TilemapView, pil_to_qpixmap
 from ui.workers import TilemapWorker
 
@@ -163,6 +164,10 @@ class TilemapPage(QWidget):
         self._prop_count_spin.setValue(4)
         f.addRow(self._prop_count_label, self._prop_count_spin)
 
+        self._ref_box = ReferenceImageBox(size=84)
+        self._ref_box.setToolTip(tr("可选：作为图生图参考图（风格/配色参照），留空则纯文生图"))
+        f.addRow(T(QLabel(), "参考图"), self._ref_box)
+
         self._style_combo = QComboBox()
         self._style_combo.setEditable(True)
         self._style_combo.addItems(STYLE_PRESETS)
@@ -209,6 +214,14 @@ class TilemapPage(QWidget):
             tr("不同地形交界的渗透咬合强度：100% 最自然，0% 为平滑描边硬边")
         )
         f.addRow(self._blend_label, self._blend_spin)
+
+        self._env_label = T(QLabel(), "2.5D 高度层")
+        self._env_check = QCheckBox(tr("生成崖壁（高台南侧）"))
+        self._env_check.setChecked(True)
+        self._env_check.setToolTip(
+            tr("俯视 2.5D：高台格子的南侧在低地格上画崖壁立面（同一套 16-tile 族），预览里可抬高/降低格子")
+        )
+        f.addRow(self._env_label, self._env_check)
 
         self._mode_label = T(QLabel(), "瓦片集模式")
         self._mode_combo = QComboBox()
@@ -330,6 +343,19 @@ class TilemapPage(QWidget):
         self._accept_btn.setVisible(False)
         self._gen_btn.setText(tr("生成瓦片集"))
 
+    def _save_ref_temp(self):
+        """参考图另存到输出目录后把路径交给工作流（PIL Image -> 路径）。"""
+        img = self._ref_box.image() if hasattr(self, "_ref_box") else None
+        if img is None:
+            self._ref_path = None
+            return None
+        out = Path(DEFAULT_OUTPUT_DIR) / "tilemap" / "_reference"
+        out.mkdir(parents=True, exist_ok=True)
+        path = out / "reference.png"
+        img.convert("RGBA").save(path)
+        self._ref_path = path
+        return str(path)
+
     def _collect_params(self) -> TilemapParams:
         cat = self._category_combo.currentData()
         desc = self._desc_edit.toPlainText().strip()
@@ -353,6 +379,8 @@ class TilemapPage(QWidget):
             map_source=self._map_src_combo.currentData() or "showcase",
             prop_name=self._prop_name_edit.text().strip() or "prop",
             prop_variants=self._prop_count_spin.value(),
+            terrain_25d=self._env_check.isChecked(),
+            reference_image=(self._save_ref_temp() or None),
             line_width=self._line_spin.value(),
             edge_noise=self._noise_spin.value() / 100.0,
             edge_blend=self._blend_spin.value() / 100.0,

@@ -129,6 +129,13 @@ class TilemapView(QWidget):
         self._auto_wall_check.setToolTip(tr("开启后左键涂墙：按四邻域实时自动选 16-tile 件（无缝拼接）"))
         self._auto_wall_check.toggled.connect(self._on_auto_wall)
         self._toolbar.addWidget(self._auto_wall_check)
+        self._height_label = T(QLabel(), tr("高度"))
+        self._height_spin = QSpinBox()
+        self._height_spin.setRange(-4, 4)
+        self._height_spin.setValue(0)
+        self._height_spin.setToolTip(tr("0 = 地形画笔；正数 = 抬高该格（2.5D 高台），负数 = 降低"))
+        self._toolbar.addWidget(self._height_label)
+        self._toolbar.addWidget(self._height_spin)
         self._grid_check = T(QCheckBox(), "网格")
         self._grid_check.setChecked(True)
         self._grid_check.toggled.connect(self.set_grid_visible)
@@ -312,6 +319,13 @@ class TilemapView(QWidget):
     def _paint_cell(self, pos: QPoint) -> None:
         cell = self._cell_at(pos)
         if cell is None:
+            return
+        height = self._height_spin.value() if hasattr(self, "_height_spin") else 0
+        if height != 0 and self._model.cliff_arts:
+            self._model.enable_height_layer(self._model.cliff_arts)
+            self._model.paint_height(cell[0], cell[1], height)
+            self._rebuild()
+            self.changed.emit()
             return
         if self._erase:
             self._model.set_cell(cell[0], cell[1], 0)

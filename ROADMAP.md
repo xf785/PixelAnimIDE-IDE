@@ -52,6 +52,9 @@ Turn the full "AI generation → pixelization → polish → game assets" flow i
 - **Map preview**: usable **without generating first**; mix several packs (terrain / buildings / props),
   grid toggle, Ctrl+left-drag pan, wheel zoom, brush / eraser / rotate / scale; **Perlin-noise big world**
   (up to 400×400, optional scattered buildings, mask-cached tile composition).
+- **Top-down 2.5D**: a top-face layer (47-tile family) plus a cliff layer (16-tile family derived from the terrain art);
+  height can be painted live in the preview, and long cliffs stay continuous tile-to-tile.
+- **Reference image (i2i)**: tileset generation accepts a reference image to keep palette/style consistent.
 - **Layout compatibility**: 47-tile (8×6 blob convention), 16-tile wall family, and **dual grid** for both
   generation and preview.
 - 64 algorithmic invariants locked down by tests (shared-edge pixel equality, no text/frame residue,

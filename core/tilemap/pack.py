@@ -45,6 +45,7 @@ class TilePack:
     wall_art: Optional[WallArt] = None
     pieces: Dict[str, Image.Image] = field(default_factory=dict)
     atlas_mode: str = "47"
+    sheets: Dict[str, Image.Image] = field(default_factory=dict)   # 文生图原始底图（2×2/2×2×3 网格）
     meta: Dict = field(default_factory=dict)
 
     @property
@@ -118,6 +119,7 @@ def save_tilepack(path, pack: TilePack) -> Path:
             for tid, tset in pack.terrains.items()
         ],
         "walls": _pack_wall_art(pack.wall_art),
+        "sheets": [{"name": n, "file": f"source/{n}.png"} for n in sorted(pack.sheets)],
         "pieces": sorted(pack.pieces.keys()),
     }
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -133,6 +135,8 @@ def save_tilepack(path, pack: TilePack) -> Path:
                 img = getattr(art, key)
                 if img is not None:
                     zf.writestr(f"walls/{key}.png", _png_bytes(img))
+        for name, sheet in pack.sheets.items():
+            zf.writestr(f"source/{name}.png", _png_bytes(sheet))
         sub = "props" if pack.category == "prop" else "pieces"
         for name, piece in pack.pieces.items():
             zf.writestr(f"{sub}/{name}.png", _png_bytes(piece))
@@ -182,6 +186,13 @@ def pack_from_session(session, name: str = "") -> TilePack:
     if getattr(session, "pieces", None):
         pack.pieces = dict(session.pieces.get("pieces", {}))
         pack.wall_art = session.pieces.get("art")
+    # 文生图原始底图（2×2 / 2×2×3 网格）：既存 AI 原图，也存去格线后的版本
+    sheet = getattr(session, "sheet_image", None)
+    cleaned = getattr(session, "sheet_clean", None)
+    if sheet is not None:
+        pack.sheets["ai_sheet"] = sheet
+    if cleaned is not None:
+        pack.sheets["ai_sheet_clean"] = cleaned
     return pack
 
 # --------------------------------------------------------------------------- #
@@ -270,6 +281,12 @@ def export_tileset_dir(
                                 "files": tiles}, ensure_ascii=False, indent=2), encoding="utf-8")
         index["terrains"][str(int(tid))] = entry
 
+    if pack.sheets:
+        sdir = out / "source"
+        sdir.mkdir(parents=True, exist_ok=True)
+        for name, sheet in pack.sheets.items():
+            sheet.save(sdir / f"{name}.png")
+        index["source_sheets"] = {n: f"source/{n}.png" for n in sorted(pack.sheets)}
     if pack.wall_art is not None:
         artifact = pack.wall_art
         (out / "atlas" / "walls_16.png").parent.mkdir(parents=True, exist_ok=True)
@@ -301,7 +318,7 @@ def export_tileset_dir(
         "PixelFoundry 瓦片集导出\n"
         "=======================\n"
         "manifest.json  —— 可再次导入（预览里「添加瓦片包」选本文件夹或其 zip）\n"
-        "textures/      —— 地形纹理（特征纹理 + 另一方地形纹理），重新构图用\n"
+        "source/        —— 文生图原始底图（2×2 / 2×2×3 网格，含去格线后的版本）\n"        "textures/      —— 地形纹理（特征纹理 + 另一方地形纹理），重新构图用\n"
         "atlas/         —— 47-tile 图集（8×6）、建筑 16-tile 图集（附 .json 索引）\n"
         "tiles/         —— 逐张单独瓦片（文件名含槽位与掩码）\n"
         "pieces/ props/ —— 建筑拼件 / 素材（透明 PNG）\n"
@@ -345,6 +362,7 @@ def _manifest_dict(pack: TilePack) -> dict:
             for tid, tset in pack.terrains.items()
         ],
         "walls": (_pack_wall_art(pack.wall_art) or None),
+        "sheets": [{"name": n, "file": f"source/{n}.png"} for n in sorted(pack.sheets)],
         "pieces": sorted(pack.pieces.keys()),
         "prop_kind": "props" if pack.category == "prop" else "pieces",
     }
@@ -413,6 +431,13 @@ def _load_from_reader(manifest: dict, read, default_name: str) -> TilePack:
             edge_noise=int(walls.get("edge_noise", 0)),
             art_meta=dict(walls.get("art_meta", {})),
         )
+    sheets: Dict[str, Image.Image] = {}
+    for item in manifest.get("sheets", []):
+        rel = item.get("file")
+        try:
+            sheets[str(item.get("name"))] = Image.open(io.BytesIO(read(rel))).convert("RGBA")
+        except Exception:  # noqa: BLE001
+            continue
     sub = manifest.get("prop_kind", "pieces")
     pieces: Dict[str, Image.Image] = {}
     for name in manifest.get("pieces", []):
@@ -427,5 +452,5 @@ def _load_from_reader(manifest: dict, read, default_name: str) -> TilePack:
         tile_size=int(manifest.get("tile_size", 32)), terrains=terrains, terrain_names=names,
         base_terrain=(int(manifest["base_terrain"]) if manifest.get("base_terrain") is not None else None),
         wall_art=wall_art, pieces=pieces, atlas_mode=str(manifest.get("atlas_mode", "47")),
-        meta=dict(manifest.get("meta", {})),
+        sheets=sheets, meta=dict(manifest.get("meta", {})),
     )

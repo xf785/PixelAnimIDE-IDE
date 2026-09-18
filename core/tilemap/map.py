@@ -23,6 +23,12 @@ FILLED = 1
 EMPTY = 0
 
 
+def _CLIFF_SLOT(bits: int) -> str:
+    """16-tile 位 -> 槽位名（与墙件同命名）。"""
+    from .walls import W16_SLOTS
+    return W16_SLOTS[int(bits) & 0b1111]
+
+
 class TileMapModel:
     """瓦片地图：多地形网格（0=空白，1..=地形 id）+ 建筑 overlay 层。
 
@@ -45,6 +51,8 @@ class TileMapModel:
         # 墙体层（建筑类实时自动拼接）：占用网格 + 16-tile 件注册表
         self.dual_mode = False          # 地块类：双网格（4 分块）渲染
         self.edge_blend = 0.0           # 不同地块包 / 不同地形交界的块状渗透融合强度
+        self.height_grid: Optional[np.ndarray] = None   # 2.5D 高度层（0=平地，1+=高台）
+        self.cliff_arts: Dict[int, object] = {}         # 地形 id -> CliffArt
         self.wall_grid: Optional[np.ndarray] = None
         self.wall_pieces: Dict[str, Image.Image] = {}
         self.base_terrain: Optional[int] = None
@@ -146,6 +154,7 @@ class TileMapModel:
                         tile = compose_tile(center, self.mask(x, y), line_color, line_width)
                         canvas.paste(tile, (x * s, y * s), tile)
         canvas = self._blend_terrain_edges(canvas)
+        self._render_cliffs(canvas)
         self._render_walls(canvas)
         self._paste_overlay(canvas)
         return canvas
@@ -175,6 +184,55 @@ class TileMapModel:
             if 0 <= nx < self.width and 0 <= ny < self.height and self.wall_grid[ny, nx]:
                 mask |= bits[name]
         return mask
+
+    # ------------------------------------------------------------------ #
+    def enable_height_layer(self, cliff_arts: Dict[int, object]) -> None:
+        """开启 2.5D 高度层（高台南侧在低地格上画崖壁）。"""
+        self.cliff_arts = dict(cliff_arts or {})
+        if self.height_grid is None:
+            self.height_grid = np.zeros((self.height, self.width), dtype=np.uint8)
+
+    def paint_height(self, x: int, y: int, delta: int = 1) -> None:
+        if self.height_grid is None:
+            self.enable_height_layer(self.cliff_arts)
+        if 0 <= x < self.width and 0 <= y < self.height:
+            self.height_grid[y, x] = max(0, min(4, int(self.height_grid[y, x]) + int(delta)))
+
+    def cliff_cells(self):
+        """需要画崖壁的格子：该格比**北邻**低（即北边是高台南缘）。"""
+        if self.height_grid is None:
+            return {}
+        out = {}
+        for y in range(self.height):
+            for x in range(self.width):
+                if y > 0 and int(self.height_grid[y - 1, x]) > int(self.height_grid[y, x]):
+                    out[(x, y)] = True
+        return out
+
+    def _render_cliffs(self, canvas: Image.Image) -> None:
+        """崖壁层：在低地格的上半部叠一块崖壁件（16-tile 按相邻崖壁自动选型）。"""
+        from .cliff import build_cliff_set, cliff_bits_for
+
+        if self.height_grid is None or not self.cliff_arts:
+            return
+        cells = self.cliff_cells()
+        if not cells:
+            return
+        s = self.tile_size
+        cache: Dict[tuple, Image.Image] = {}
+        for (x, y) in cells:
+            tid = int(self.grid[y, x]) or (self.base_terrain or 0)
+            art = self.cliff_arts.get(tid) or next(iter(self.cliff_arts.values()), None)
+            if art is None:
+                continue
+            key = (id(art),)
+            if key not in cache:
+                cache[key] = build_cliff_set(art)          # type: ignore[assignment]
+            piece = cache[key].get(_CLIFF_SLOT(cliff_bits_for(cells, x, y)))  # type: ignore[attr-defined]
+            if piece is None:
+                continue
+            canvas.alpha_composite(piece.convert("RGBA").resize((s, s), Image.Resampling.NEAREST),
+                                   (x * s, y * s))
 
     def _render_walls(self, canvas: Image.Image) -> None:
         """墙体层渲染：按掩码取 16 族件逐格贴上（透明外部 -> 露出地块）。"""
@@ -388,6 +446,8 @@ class TileMapModel:
             data["dual_mode"] = True
         if self.edge_blend:
             data["edge_blend"] = round(float(self.edge_blend), 3)
+        if self.height_grid is not None and self.height_grid.any():
+            data["height_grid"] = self.height_grid.astype(int).tolist()
         # 建筑 overlay：按拼件名 + 旋转序列化（恢复时用 pieces 注册表还原图像）
         overlays = [
             {"x": x, "y": y, "piece": item[2], "rot": item[1],
@@ -416,6 +476,8 @@ class TileMapModel:
             model.dual_mode = True
         if data.get("edge_blend"):
             model.edge_blend = float(data["edge_blend"])
+        if data.get("height_grid") is not None:
+            model.height_grid = np.array(data["height_grid"], dtype=np.uint8)[: model.height, : model.width]
         if data.get("wall_grid") is not None and pieces:
             walls = data["wall_grid"]
             model.enable_wall_layer(pieces)

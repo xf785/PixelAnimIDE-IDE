@@ -102,7 +102,8 @@ def test_no_legacy_name_in_sources():
     """源码/文档里不应再出现旧项目名（数据迁移兼容处除外）。"""
     root = Path(__file__).resolve().parent.parent
     # 允许出现旧名的地方：迁移兼容代码，以及本测试自身（需要引用旧名做检查）
-    allow = {"config/settings.py", "tests/test_project_naming.py"}
+    # 允许出现旧名：迁移兼容代码、本测试自身、以及**变更记录文档**（历史沿革需要写明原名）
+    allow = {"config/settings.py", "tests/test_project_naming.py", "docs/tilemap_mode_design.md"}
     hits = []
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in {".py", ".md", ".toml", ".spec", ".qss", ".bat", ".yml"}:

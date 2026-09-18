@@ -95,12 +95,17 @@ A dedicated pixel canvas (reusing the full editor):
 
 The fifth mode: **one text prompt → a complete, game-ready tileset + playable map preview**.
 
+- **Reference image (i2i)**: feed your own reference image into the tileset generation to lock palette/style across the whole set.
+- **Top-down 2.5D**: two planned layers — the existing 47-tile terrain (top faces) plus a **cliff 16-tile family**
+  derived from the same art (no extra generation); the cliff face is drawn on the *lower* tile just south of a plateau,
+  so plateaus read as standing on the ground. Paint height (raise/lower) live in the preview.
 - **Terrain ecosystems (地块生态)**: the AI paints one 2×2×3 sheet (base terrain + 3 features, e.g. lake / mud / rocks); algorithms strip grid frames, detect text marks, splice the texture into a **wrap-equal seamless** tile and derive the whole tile family procedurally.
 - **Aligned composition**: band depth, layered outline, bevel and ambient shadow are measured from the AI art once, then composed per mask — so adjacent tiles are **pixel-identical along their shared edges** and long walls/runs never show per-tile seams.
 - **Edge noise + boundary percolation (交界融合)**: irregular inward noise on non-interior edges, plus **block-noise percolation** where two terrains (even two *different* tile packs) meet — the two sides interlock instead of showing a hard line.
 - **Buildings (建筑类)**: the wall **16-tile family** (straight / corner / inner+outer corner / T / cross / end / isolated) with fixed cross-section geometry, transparent exterior for overlay compositing, procedural 1px outline, top face + front shading, plus AI-derived **door** and **pillar** pieces.
 - **Props (素材/道具)**: trees, flowers, rocks… generated as a variant grid, background removed automatically (pure-white or pure-black key chosen from the prompt: light subjects such as snow get a black key), alpha hardened to 0/255, bottom-aligned so props "stand" on the ground; placement is **scalable** (25–400 %).
-- **Tile packs**: export a **complete tileset folder + zip** (47-tile atlas 8×6, every single tile, all metadata, prop/piece PNGs); import folders, zips or `.tilepack` into any preview.
+- **Tile packs**: export a **complete tileset folder + zip** (47-tile atlas 8×6, every single tile, all metadata, prop/piece PNGs,
+  **plus the raw AI source sheets** under `source/`); import folders, zips or `.tilepack` into any preview.
 - **Map preview**: open it **without generating anything**, load several packs, paint terrain / buildings / props together, toggle the grid, **Ctrl+left-drag to pan**, wheel to zoom, and generate a **Perlin-noise big world** (up to 400×400) with optional scattered buildings.
 - **Dual-grid** and **16-tile** families are supported for both generation and preview.
 
