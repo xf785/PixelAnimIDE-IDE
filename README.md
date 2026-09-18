@@ -26,7 +26,7 @@ Built for indie game devs, pixel artists, and AI tinkerers who want *real* pixel
 - 🎬 **IDE step workspace** — 6 independently runnable steps, step-aware parameter panel, frame timeline, live keying preview.
 - 🧩 **Sprite sheets** — one img2img call produces a whole i×j grid sheet, auto-cropped, loop-closed and keyed.
 - 🖌️ **Krita-style pixel editor** — color-family palette with right-click whole-family replace, right-click color wheel, selection & floating layers, onion skin, palette lock.
-- 🖼️ **Standalone pixel board** — 4th mode with resolution settings, two-way IDE sync, and video-first-frame handoff (NEAREST upscale, never blurry).
+- 🖼️ **Standalone pixel board** — 4th mode with resolution settings, two-way IDE sync, and video-first-frame handoff (NEAREST upscale, never blurry). , left-sidebar **tile/prop pack browser** (category switcher + search + thumbnails + place/replace on canvas + auto-restore) |
 - 🌐 **Bilingual + scalable UI** — Chinese / English, UI scale 0.8×–1.5×, self-drawn DSH-style icons.
 - 🔌 **Provider-agnostic** — one-click presets for DeepSeek, Kimi, Zhipu, SiliconFlow, Ark, DashScope, Hunyuan, Ollama, gpt.ge, Kling… plus proxy & SSL options.
 - 📦 **Open source** — MIT license, CI on GitHub Actions (Win + Linux), Windows releases via PyInstaller.
