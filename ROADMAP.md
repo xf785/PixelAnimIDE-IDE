@@ -18,20 +18,37 @@ Turn the full "AI generation → pixelization → polish → game assets" flow i
 4. **Quality over quantity**: every feature ships at "pixel-grade" completion — no half-finished pile-ups.
 5. **Sustainable maintenance**: tests, CI, i18n, and docs evolve together with features.
 
-## 3. Current State (v0.3.0)
+## 3. Current State (v1.0.0)
 
 | Module | Status |
 |--------|--------|
 | Solo one-click pipeline (text→image→video→pixelize→key→export) | ✅ Working (reference i2i, loop closing, background stability, multi-provider adapters, size auto-fallback) |
 | IDE step workspace (6 steps, timeline, per-step params panel) | ✅ Working |
-| Pixel editor (4 tools + selection/layers, color families, color wheel, import/export) | ✅ Working |
+| Pixel editor (shapes/symmetry/wrap/transforms + selection/layers, color families, color wheel, import/export) | ✅ Working (v1.0 tools below) |
 | Sprite workflow (grid sheet → crop → key → export, IDE sync) | ✅ Working |
 | Standalone pixel board (resolution settings, two-way sync, video first-frame) | ✅ Working (Krita-style three-column docks + in-pack folder browsing) |
 | **Tilemap mode (5th mode, v0.2–v0.3 main line)** | ✅ Working (see below) |
-| **Krita-style shell (menu bar / contextual toolbar / docker panels / resizable splitters)** | ✅ Working (all 5 modes) |
-| zh/en i18n + UI scaling + DSH-style icons | ✅ Working |
-| CI (GitHub Actions, Py3.11/3.13 × Win/Linux), **527** tests | ✅ Running |
-| Windows packaging (PyInstaller onedir) + GitHub Release | ✅ v0.3.0 |
+| **Krita-style shell (menu bar / contextual toolbar / docker panels / resizable splitters / stacked fill)** | ✅ Working (all 5 modes, v1.0 main line) |
+| zh/en i18n + UI scaling + DSH-style icons | ✅ Working (no residue in either direction) |
+| CI (GitHub Actions, Py3.11/3.13 × Win/Linux), **600** tests | ✅ Running |
+| Windows packaging (PyInstaller onedir) + GitHub Release | ✅ v1.0.0 |
+
+### What's new in v1.0.0
+
+- **Krita-inspired shell**: menu bar + contextual toolbar + mode rail + status bar; one unified docker
+  system (collapsible headers, whole-dock collapse into a vertical tab, drag-resizable and remembered
+  widths, **collapsing frees space** for the other expanded dockers in the same column); every mode's
+  parameter column is a draggable splitter; dark/light QSS rewritten.
+- **Practical pixel-editor tools**: line/rectangle/ellipse shapes with live preview, symmetry drawing
+  (horizontal / vertical / four-quadrant), wrap-around drawing for seamless tiles, canvas transforms
+  (flip / rotate / crop / resize / integer scale), 1×–8× export, copy to clipboard, GIMP `.gpl`
+  palette import/export, tool shortcuts.
+- **In-pack folder browsing**: every level of an imported tile pack (`atlas/`, `tiles/<terrain>/`,
+  `textures/`, `source/`, `pieces/`, `props/`) is browsable and can be placed on the canvas; plain
+  image folders without a manifest are supported too.
+- **Quality**: bilingual switching leaves no residue; the tile cache verifies object identity
+  (no more rare wrong-tile renders); dead code and duplicate implementations removed
+  (English pack 1028 → 977 keys, shared modules extracted); tests 527 → 600.
 
 ### Tilemap mode (shipped)
 
@@ -165,4 +182,4 @@ covered by tests, no Tiled `.tmx/.tsx` import/export yet, map layering limited t
 
 ---
 
-*Last updated: 2026-09-17 (updated alongside v0.3.0: tilemap mode main body shipped)*
+*Last updated: 2026-09-18 (alongside v1.0.0: Krita-style shell, new pixel-editor tools, in-pack folder browsing, i18n and code cleanup)*

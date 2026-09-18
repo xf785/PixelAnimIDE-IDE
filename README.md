@@ -4,7 +4,7 @@
 > 中文文档：[README_CN.md](README_CN.md) · UI 语言可在 设置 → 常规 → 语言 切换
 
 [![CI](https://github.com/xf785/PixelFoundry-IDE/actions/workflows/ci.yml/badge.svg)](https://github.com/xf785/PixelFoundry-IDE/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.0-blue.svg)](https://github.com/xf785/PixelFoundry-IDE/releases)
+[![Release](https://img.shields.io/badge/release-v1.0.0-blue.svg)](https://github.com/xf785/PixelFoundry-IDE/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()

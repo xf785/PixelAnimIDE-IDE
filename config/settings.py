@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "PixelFoundry"                          # 数据目录 / 输出目录用（无空格）
-APP_VERSION = "0.3.0"
+APP_VERSION = "1.0.0"
 APP_DISPLAY_NAME = "PixelFoundry IDE"              # 窗口标题用
 APP_FULL_NAME = "PixelFoundry — Pixel Game Asset Foundry"   # 全称（英文）
 APP_NAME_ZH = "像素铸造 IDE"                        # 中文名
