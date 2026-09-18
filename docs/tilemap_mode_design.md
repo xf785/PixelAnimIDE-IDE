@@ -495,6 +495,8 @@
    编辑瓦片、柏林噪声大地图 + 素材）；截图统一改名归档到 `docs/screenshots/`：
    `01-ecosystem-sheet.png`、`02-map-preview-showcase.png`、`03-map-preview-brushes.png`、
    `04-tile-editor.png`、`05-perlin-world-with-props.png`。
+   （v1.0.0 起截图整体重拍，文件名为 `01-solo-pipeline.png` … `07-map-preview-terrains.png`，
+   另加素材总览 `showcase-trees.png` / `showcase-npcs.png`；上列旧文件名已不再使用。）
 4. 测试：新增 `test_cross_pack_boundary_percolation`（不同包地面色不同时两侧颜色
    互相咬入、仍全不透明、可复现、关闭后恢复原样）；全量测试通过。
 

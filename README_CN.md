@@ -15,8 +15,16 @@
 为独立游戏开发者、像素画师与 AI 玩家打造：要的是**真正的像素画**——边缘锐利、颜色精确——而不是模糊的缩小图。
 
 <p align="center">
-  <img src="docs/screenshots/CN.png" alt="PixelFoundry — 像素编辑器（中文界面）" width="880"/>
+  <img src="docs/screenshots/showcase-trees.png" alt="一次生成的道具素材：8 种树木（32×32，纯白背景）" width="430"/>
+  <img src="docs/screenshots/showcase-npcs.png" alt="一次生成的角色素材：8 个 NPC（32×32，纯白背景）" width="430"/>
 </p>
+<p align="center"><em>项目一次性生成的道具与角色素材：8 种树 + 8 个 NPC，32×32 真像素、纯白背景，抠图后可直接进游戏
+（原始素材与元信息见 <code>docs/screenshots/tree/</code>、<code>docs/screenshots/npc/</code>）。</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/01-solo-pipeline.png" alt="PixelFoundry — Solo 一键生成模式（中文界面）" width="880"/>
+</p>
+<p align="center"><em>主界面（Solo 一键生成）：左侧参数、中间实时预览与提示词、右侧生成结果与日志。</em></p>
 
 ## ✨ 亮点
 
@@ -100,6 +108,17 @@ python main.py --demo
   再配合分段切换器（全部 / 地形 / 建筑 / 素材 / 底图 / 图集 / 单瓦片 / 纹理）+ 搜索，
   然后「放入画布」（居中合成、保持画布尺寸）或「替换画布」；加载过的包会记住，下次自动进入时恢复。
 
+<p align="center">
+  <img src="docs/screenshots/02-pixel-canvas-pack-browser.png" alt="独立像素画布：瓦片包逐级目录浏览 + 色族调色板" width="880"/>
+</p>
+<p align="center"><em>独立像素画布：左栏是<b>包内目录逐级浏览</b>（全部包 → 地形 → atlas / tiles / textures / source / pieces / props，
+点任意一级即过滤缩略图），右侧是画布设置、画布信息与导出，浮现的是色族调色板。</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/03-pixel-canvas-props.png" alt="素材包：props 目录里的树逐张预览，放入画布" width="880"/>
+</p>
+<p align="center"><em>素材包：<code>props/</code> 里的树逐张预览，选中后「放入画布」即成场景道具（上图的 8 棵树就来自这个包）。</em></p>
+
 ### 瓦片地图模式 —— 文生瓦片集与无缝拼接
 
 第五个模式：**一句提示词 → 一整套可直接用的瓦片集 + 可玩的地图预览**。
@@ -118,29 +137,26 @@ python main.py --demo
 - 生成与预览都支持 **47 图集**、**16 图块族**与**双网格**。
 
 <p align="center">
-  <img src="docs/screenshots/01-ecosystem-sheet.png" alt="一句提示词生成的地块生态底图（基础地形 + 3 个特征）" width="880"/>
+  <img src="docs/screenshots/04-tilemap-ecosystem-generate.png" alt="瓦片集参数与地块生态底图预览（基础地形 + 3 个特征，格线已抹除）" width="880"/>
 </p>
-<p align="center"><em>1 · 地块生态：一句提示词 → 2×2×3 底图（基础地形 + 水塘 / 泥潭 / 岩石），格线已自动抹除。</em></p>
+<p align="center"><em>1 · 地块生态：填好地形与 3 个特征（水塘 / 高草丛 / 岩石）→ 生成 2×2×3 底图，格线已自动抹除；
+左侧还能挂参考图让整套配色保持一致。</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/02-map-preview-showcase.png" alt="地图预览：四种地形铺设，交界处渗透融合" width="880"/>
+  <img src="docs/screenshots/07-map-preview-terrains.png" alt="地图预览：四种地形铺设，交界处渗透融合" width="880"/>
 </p>
-<p align="center"><em>2 · 地图预览：展示地形覆盖 47 类中的约 30 种掩码，湖 / 花丛 / 岩石与基础地形以渗透噪声融合。</em></p>
+<p align="center"><em>2 · 地图预览：四种地形各自铺开，湖 / 花丛 / 岩石与基础地形以渗透噪声融合，不再是硬边。</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/03-map-preview-brushes.png" alt="地图预览画笔：地形、16-tile 自动墙、旋转与缩放" width="880"/>
+  <img src="docs/screenshots/06-map-preview-dialog.png" alt="地图预览画笔：地形、16-tile 自动墙、旋转与缩放" width="880"/>
 </p>
-<p align="center"><em>3 · 画笔：地形铺设、<b>16-tile 自动拼接墙</b>（矩形一次拖出，转角自动选型）、旋转与 25%–400% 缩放。</em></p>
+<p align="center"><em>3 · 画笔：地形铺设、<b>16-tile 自动拼接墙</b>（一次拖出、转角自动选型）、旋转、25%–400% 缩放与网格开关；
+底部还能加载/保存瓦片包、一键生成柏林噪声大地图。</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/04-tile-editor.png" alt="编辑瓦片：从 3×3 底图选格重绘" width="880"/>
+  <img src="docs/screenshots/05-tile-editor-dialog.png" alt="编辑瓦片：从 3×3 底图选格重绘" width="880"/>
 </p>
 <p align="center"><em>4 · 编辑瓦片：可重绘 AI 底图的任意一格（中心格决定无缝地形纹理），带调色板与像素工具。</em></p>
-
-<p align="center">
-  <img src="docs/screenshots/05-perlin-world-with-props.png" alt="柏林噪声大地图预览，素材缩放后放置在地形上" width="880"/>
-</p>
-<p align="center"><em>5 · 柏林噪声大地图：程序化大陆与河流用生成的包渲染，素材（树木 275% 缩放）叠在地形之上。</em></p>
 
 ## 📋 功能一览
 

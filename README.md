@@ -16,8 +16,18 @@
 Built for indie game devs, pixel artists, and AI tinkerers who want *real* pixel art — sharp edges and exact colors — not blurry downscaled images.
 
 <p align="center">
-  <img src="docs/screenshots/EN.png" alt="PixelFoundry — pixel editor (English UI)" width="880"/>
+  <img src="docs/screenshots/showcase-trees.png" alt="Prop assets from a single run: 8 tree types (32x32, pure white background)" width="430"/>
+  <img src="docs/screenshots/showcase-npcs.png" alt="Character assets from a single run: 8 NPCs (32x32, pure white background)" width="430"/>
 </p>
+<p align="center"><em>Prop and character assets generated in a single run: 8 tree types + 8 NPCs, true 32×32 pixel art on a pure white
+background — key them out and they are game-ready (raw files and metadata live in <code>docs/screenshots/tree/</code> and
+<code>docs/screenshots/npc/</code>).</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/01-solo-pipeline.png" alt="PixelFoundry — Solo one-click pipeline (UI shown in Chinese)" width="880"/>
+</p>
+<p align="center"><em>Main window (Solo one-click pipeline): parameters on the left, live preview with the three prompts in the
+middle, results and log on the right.</em></p>
 
 ## ✨ Highlights
 
@@ -102,6 +112,19 @@ A dedicated pixel canvas (reusing the full editor):
   switcher (all / terrain / buildings / props / sheets / atlases / tiles / textures) plus search, then
   **Place on canvas** (centred, canvas size kept) or **Replace canvas**. Loaded packs are remembered.
 
+<p align="center">
+  <img src="docs/screenshots/02-pixel-canvas-pack-browser.png" alt="Standalone pixel canvas: in-pack folder browsing plus the colour-family palette" width="880"/>
+</p>
+<p align="center"><em>Standalone pixel canvas: the left docker browses <b>every folder level inside a pack</b>
+(all packs → terrain → atlas / tiles / textures / source / pieces / props; clicking a level filters the thumbnails),
+the right docker holds canvas settings, canvas info and export, and the colour-family palette floats on top.</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/03-pixel-canvas-props.png" alt="Prop pack: the trees under props/ previewed one by one and placed on the canvas" width="880"/>
+</p>
+<p align="center"><em>Prop pack: every tree under <code>props/</code> previews individually — one click places it on the canvas
+(the 8 trees at the top of this README came from exactly this pack).</em></p>
+
 ### Tilemap Mode — text-to-tileset with seamless stitching
 
 The fifth mode: **one text prompt → a complete, game-ready tileset + playable map preview**.
@@ -121,29 +144,24 @@ The fifth mode: **one text prompt → a complete, game-ready tileset + playable 
 - **Dual-grid** and **16-tile** families are supported for both generation and preview.
 
 <p align="center">
-  <img src="docs/screenshots/01-ecosystem-sheet.png" alt="Terrain ecosystem sheet (base terrain + three features) generated from one prompt" width="880"/>
+  <img src="docs/screenshots/04-tilemap-ecosystem-generate.png" alt="Tileset parameters and the generated terrain ecosystem sheet (base terrain + 3 features, grid frames stripped)" width="880"/>
 </p>
-<p align="center"><em>1 · Terrain ecosystem: one prompt → 2×2×3 sheet (base terrain + lake / mud / rocks), grid frames already stripped.</em></p>
+<p align="center"><em>1 · Terrain ecosystem: fill in the terrain plus three features (lake / tall grass / rocky outcrop) → a 2×2×3 sheet is generated with the grid frames already stripped; an optional reference image keeps the palette consistent.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/02-map-preview-showcase.png" alt="Map preview painting four terrains with percolated boundaries" width="880"/>
+  <img src="docs/screenshots/07-map-preview-terrains.png" alt="Map preview painting four terrains with percolated boundaries" width="880"/>
 </p>
-<p align="center"><em>2 · Map preview: showcase map covering ~30 of the 47 masks — lake, flowers and rocks blended into the base terrain with percolation noise.</em></p>
+<p align="center"><em>2 · Map preview: four terrains painted side by side — lake, flowers and rocks blend into the base terrain with percolation noise instead of a hard line.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/03-map-preview-brushes.png" alt="Map preview brushes: terrain, 16-tile auto walls, rotation and scale" width="880"/>
+  <img src="docs/screenshots/06-map-preview-dialog.png" alt="Map preview brushes: terrain, 16-tile auto walls, rotation and scale" width="880"/>
 </p>
-<p align="center"><em>3 · Brushes: terrain paint, <b>auto-stitched 16-tile walls</b> (the rectangle is one drag, corners chosen automatically), rotation and 25–400 % scaling.</em></p>
+<p align="center"><em>3 · Brushes: terrain paint, <b>auto-stitched 16-tile walls</b> (the rectangle is one drag, corners chosen automatically), rotation, 25–400 % scaling and the grid toggle; the footer loads/saves tile packs and generates a Perlin-noise big world.</em></p>
 
 <p align="center">
-  <img src="docs/screenshots/04-tile-editor.png" alt="Tile editor: pick one of the 3x3 sheet cells and repaint it" width="880"/>
+  <img src="docs/screenshots/05-tile-editor-dialog.png" alt="Tile editor: pick one of the 3x3 sheet cells and repaint it" width="880"/>
 </p>
 <p align="center"><em>4 · Tile editor: repaint any cell of the AI sheet (the centre cell drives the seamless terrain texture) with palette + pixel tools.</em></p>
-
-<p align="center">
-  <img src="docs/screenshots/05-perlin-world-with-props.png" alt="Perlin big world preview with props scaled and placed on terrain" width="880"/>
-</p>
-<p align="center"><em>5 · Perlin-noise big world: procedural continents + rivers rendered with the generated packs, props (trees at 275 %) placed on top.</em></p>
 
 ## 📋 Feature Table
 
