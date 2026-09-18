@@ -16,7 +16,7 @@ import logging
 
 import numpy as np
 
-logger = logging.getLogger("PixelAnimIDE.processing.perfect_pixel")
+logger = logging.getLogger("PixelFoundry.processing.perfect_pixel")
 
 
 # ----------------------------

@@ -40,7 +40,7 @@ from core.workflow.shared import finalize_prompts, generate_prompt_data, resolve
 from core.workflow.solo_workflow import WorkflowError
 from ui.i18n import tr
 
-logger = logging.getLogger("PixelAnimIDE.workflow.ide")
+logger = logging.getLogger("PixelFoundry.workflow.ide")
 
 IDE_STEPS = ["文本生成", "图片生成", "视频动画生成", "像素化处理", "背景去除", "导出"]
 

@@ -32,7 +32,7 @@ from core.workflow.shared import finalize_prompts, generate_prompt_data
 from core.workflow.solo_workflow import WorkflowError
 from ui.i18n import tr
 
-logger = logging.getLogger("PixelAnimIDE.workflow.sprite")
+logger = logging.getLogger("PixelFoundry.workflow.sprite")
 
 # 精灵图强提示词模板：{rows}/{cols}/{total}/{action} 占位。
 # 核心约束：一整张网格图（不是 i×j 张独立图）、首尾格姿势完全一致（循环无缝）、

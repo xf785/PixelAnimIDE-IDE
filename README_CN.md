@@ -1,21 +1,21 @@
-# PixelAnimIDE
+# 像素铸造 IDE（PixelFoundry IDE）
 
-> **Pixel Animation IDE** · English: [README.md](README.md) · UI 语言可在 设置 → 常规 → 语言 切换（中/英）
+> **PixelFoundry — Pixel Game Asset Foundry** · 英文文档：[README.md](README.md) · UI 语言可在 设置 → 常规 → 语言 切换（中/英）
 
-[![CI](https://github.com/xf785/PixelAnimIDE-IDE/actions/workflows/ci.yml/badge.svg)](https://github.com/xf785/PixelAnimIDE-IDE/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.0-blue.svg)](https://github.com/xf785/PixelAnimIDE-IDE/releases)
+[![CI](https://github.com/xf785/PixelFoundry-IDE/actions/workflows/ci.yml/badge.svg)](https://github.com/xf785/PixelFoundry-IDE/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-v0.3.0-blue.svg)](https://github.com/xf785/PixelFoundry-IDE/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
 
-**像素动画 IDE** —— 一款免费开源的桌面工具，把**文本或自备图片一键变成像素级游戏素材**：
+**像素铸造 IDE** —— 一款免费开源的桌面工具，把**文本或自备图片一键变成像素级游戏素材**：
 
 > 文本描述 → 图片生成 → 动画生成 → **严格像素化** → 背景去除 → GIF / APNG / PNG 序列帧 / 精灵图
 
 为独立游戏开发者、像素画师与 AI 玩家打造：要的是**真正的像素画**——边缘锐利、颜色精确——而不是模糊的缩小图。
 
 <p align="center">
-  <img src="docs/screenshots/CN.png" alt="PixelAnimIDE — 像素编辑器（中文界面）" width="880"/>
+  <img src="docs/screenshots/CN.png" alt="PixelFoundry — 像素编辑器（中文界面）" width="880"/>
 </p>
 
 ## ✨ 亮点
@@ -186,7 +186,7 @@ python main.py --demo
 ## 📁 目录结构
 
 ```
-PixelAnimIDE/
+PixelFoundry/
 ├── main.py                 # 程序入口（GUI + --demo）
 ├── requirements.txt
 ├── config/                 # 全局配置、API 配置管理（密钥加密存储）
@@ -226,7 +226,7 @@ PixelAnimIDE/
 
 ## 📄 说明与许可
 
-- 运行期配置与密钥存放在用户数据目录（Windows: `%APPDATA%\PixelAnimIDE\`）。
+- 运行期配置与密钥存放在用户数据目录（Windows: `%APPDATA%\PixelFoundry\`）。
 - 生图/视频 API 因服务商差异较大，视频 API 支持通过配置项适配（端点、轮询、状态字段等），详见 `core/api/video_api.py`。
 - 用户素材与生成结果默认全部保存在本地。
 - **开源/商用合规**：导航图标来自 DeepSeek Harness（MIT License, Copyright (c) 2026 DeepSeek），使用须保留版权声明，详见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。本项目与 DeepSeek 无隶属关系。

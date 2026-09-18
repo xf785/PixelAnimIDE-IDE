@@ -25,7 +25,7 @@ from PIL import Image
 from .tiles import EDGE_NAMES, BaseTileSet
 from .walls import WallArt
 
-logger = logging.getLogger("PixelAnimIDE.tilemap.pack")
+logger = logging.getLogger("PixelFoundry.tilemap.pack")
 
 PACK_FORMAT = "pixel-anim-tilepack"
 PACK_VERSION = 1
@@ -298,7 +298,7 @@ def export_tileset_dir(
         index["pieces_dir"] = pdir.name
     (out / "map" / "info.json").write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
     (out / "README.txt").write_text(
-        "PixelAnimIDE 瓦片集导出\n"
+        "PixelFoundry 瓦片集导出\n"
         "=======================\n"
         "manifest.json  —— 可再次导入（预览里「添加瓦片包」选本文件夹或其 zip）\n"
         "textures/      —— 地形纹理（特征纹理 + 另一方地形纹理），重新构图用\n"

@@ -18,7 +18,7 @@ from .terrain_noise import ProceduralTerrain
 from .map import TileMapModel
 from .walls import W16_SLOTS
 
-logger = logging.getLogger("PixelAnimIDE.tilemap.bigmap")
+logger = logging.getLogger("PixelFoundry.tilemap.bigmap")
 
 
 def generate_perlin_map(

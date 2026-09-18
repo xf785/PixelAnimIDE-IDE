@@ -36,7 +36,7 @@ from core.api.factory import is_mock_config
 from ui.i18n import T, tr
 from ui.workers import FunctionWorker
 
-logger = logging.getLogger("PixelAnimIDE.ui.api_config_widget")
+logger = logging.getLogger("PixelFoundry.ui.api_config_widget")
 
 
 class ModelPickerDialog(QDialog):

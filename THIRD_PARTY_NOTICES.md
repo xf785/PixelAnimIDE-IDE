@@ -42,4 +42,4 @@ SOFTWARE.
 
 ---
 
-**本项目（PixelAnimIDE）与 DeepSeek 无隶属关系，不构成官方背书。**
+**本项目（PixelFoundry）与 DeepSeek 无隶属关系，不构成官方背书。**

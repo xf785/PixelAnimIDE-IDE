@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 import httpx
 
-logger = logging.getLogger("PixelAnimIDE.api")
+logger = logging.getLogger("PixelFoundry.api")
 
 
 class APIError(Exception):

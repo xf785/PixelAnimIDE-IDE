@@ -21,7 +21,7 @@ from PIL import Image
 from core.processing.pixelizer import extract_dominant_palette, map_to_palette
 from .tiles import EDGE_NAMES, BaseTileSet
 
-logger = logging.getLogger("PixelAnimIDE.tilemap.seamless")
+logger = logging.getLogger("PixelFoundry.tilemap.seamless")
 
 RGB = Tuple[int, int, int]
 

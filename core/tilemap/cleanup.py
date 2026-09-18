@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from PIL import Image
 
-logger = logging.getLogger("PixelAnimIDE.tilemap.cleanup")
+logger = logging.getLogger("PixelFoundry.tilemap.cleanup")
 
 Box = Tuple[int, int, int, int]  # (x0, y0, x1, y1) 半开区间
 

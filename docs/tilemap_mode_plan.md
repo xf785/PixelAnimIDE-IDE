@@ -61,4 +61,4 @@
 - 目标 ID：`goal-2d93a8e8-dd65-4602-95e9-a3ff36d79c6e`（当前 paused，revision 4）。
 - 会话中对我说「继续瓦片地图任务」即可；或直接按第 4 节清单逐项推进。
 - 运行验证：`.venv\Scripts\python.exe -m pytest tests -q`；
-  打包：`.venv\Scripts\pyinstaller.exe --noconfirm PixelAnimIDE.spec`。
+  打包：`.venv\Scripts\pyinstaller.exe --noconfirm PixelFoundry.spec`。

@@ -17,7 +17,7 @@ from PIL import Image
 
 from core.processing import background as bg
 
-logger = logging.getLogger("PixelAnimIDE.tilemap.props")
+logger = logging.getLogger("PixelFoundry.tilemap.props")
 
 #: 主体可能含浅色/白色的关键词 —— 这类素材必须用**纯黑底**（否则白底会把主体一起删掉）
 LIGHT_SUBJECT_KEYWORDS = (

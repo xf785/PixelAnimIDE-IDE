@@ -1,4 +1,4 @@
-"""Solo 模式页：一键式全自动生成像素动画。
+"""Solo 模式页：一键式全自动生成像素铸造。
 
 布局（全屏不变形）：
 - 左侧：固定宽度(408px)参数表单，内含纵向滚动，运行按钮固定可见；
@@ -52,7 +52,7 @@ from ui.widgets.image_viewer import ImageViewer
 from ui.widgets.reference_box import ReferenceImageBox
 from ui.workers import SoloWorker
 
-logger = logging.getLogger("PixelAnimIDE.ui.solo_page")
+logger = logging.getLogger("PixelFoundry.ui.solo_page")
 
 _LOG_COLORS = {"info": "#adb2b8", "warn": "#f59e0b", "error": "#f25a5a"}
 

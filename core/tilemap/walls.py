@@ -42,7 +42,7 @@ from core.processing import background as bg
 from .seamless import make_tile_texture
 from .tiles import BuildingSheet
 
-logger = logging.getLogger("PixelAnimIDE.tilemap.walls")
+logger = logging.getLogger("PixelFoundry.tilemap.walls")
 
 #: 16-tile 位约定（槽位 = n | e*2 | s*4 | w*8）
 W16 = {"n": 1, "e": 2, "s": 4, "w": 8}

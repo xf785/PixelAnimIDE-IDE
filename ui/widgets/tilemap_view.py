@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 from core.tilemap import TileMapModel
 from ui.i18n import T, tr
 
-logger = logging.getLogger("PixelAnimIDE.ui.tilemap_view")
+logger = logging.getLogger("PixelFoundry.ui.tilemap_view")
 
 GRID_LINE = QColor(0, 0, 0, 46)
 GRID_LINE_LIGHT = QColor(255, 255, 255, 60)

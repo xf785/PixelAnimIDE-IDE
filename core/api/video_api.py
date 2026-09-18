@@ -32,7 +32,7 @@ from typing import List, Optional
 
 from .base import APIResult, BaseAPI
 
-logger = logging.getLogger("PixelAnimIDE.api.video")
+logger = logging.getLogger("PixelFoundry.api.video")
 
 _DOUBAO_PROVIDERS = ("doubao", "ark", "volcengine")
 _GPTGE_PROVIDER = "gptge"

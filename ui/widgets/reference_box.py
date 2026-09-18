@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QFileDialog, QLabel, QToolButton, QWidget
 
 from ui.i18n import T
 
-logger = logging.getLogger("PixelAnimIDE.ui.reference_box")
+logger = logging.getLogger("PixelFoundry.ui.reference_box")
 
 # 深/浅色主题下均可见的中性色
 _EMPTY_STYLE = (

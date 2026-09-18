@@ -45,7 +45,7 @@ from ui.widgets.action_combo import populate_action_combo
 from ui.widgets.image_viewer import ImageViewer
 from ui.workers import SPRITE_API_KINDS, IdeStepWorker, SpriteWorker, create_api_clients
 
-logger = logging.getLogger("PixelAnimIDE.ui.sprite_page")
+logger = logging.getLogger("PixelFoundry.ui.sprite_page")
 
 _LOG_COLORS = {"info": "#adb2b8", "warn": "#f59e0b", "error": "#f25a5a"}
 FORM_WIDTH = 380

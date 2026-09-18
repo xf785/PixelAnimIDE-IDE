@@ -1,4 +1,4 @@
-﻿# PixelAnimIDE - 阶段1 (MVP) 依赖清单
+﻿# PixelFoundry - 阶段1 (MVP) 依赖清单
 # GUI
 PySide6>=6.6,<7
 # 图像处理

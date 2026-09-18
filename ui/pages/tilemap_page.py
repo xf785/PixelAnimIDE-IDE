@@ -55,7 +55,7 @@ from ui.widgets.tile_editor import TileEditorDialog, base_set_with_edits
 from ui.widgets.tilemap_view import TilemapView, pil_to_qpixmap
 from ui.workers import TilemapWorker
 
-logger = logging.getLogger("PixelAnimIDE.ui.tilemap_page")
+logger = logging.getLogger("PixelFoundry.ui.tilemap_page")
 
 FORM_WIDTH = 380
 STYLE_PRESETS = ["game sprite", "retro", "pixel", "top-down RPG", "platformer", "16-bit"]

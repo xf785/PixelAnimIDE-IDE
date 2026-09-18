@@ -10,7 +10,7 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet
 
-logger = logging.getLogger("PixelAnimIDE.storage.keyring")
+logger = logging.getLogger("PixelFoundry.storage.keyring")
 
 
 class Keyring:

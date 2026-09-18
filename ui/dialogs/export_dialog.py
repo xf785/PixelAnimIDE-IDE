@@ -27,7 +27,7 @@ from core.processing import frame_utils as fu
 from core.workflow import SoloResult
 from ui.i18n import tr
 
-logger = logging.getLogger("PixelAnimIDE.ui.export_dialog")
+logger = logging.getLogger("PixelFoundry.ui.export_dialog")
 
 
 class ExportDialog(QDialog):

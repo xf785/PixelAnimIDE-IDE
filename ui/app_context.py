@@ -10,7 +10,7 @@ from typing import Any
 from config.api_config import APIConfigManager
 from config.settings import UI_SETTINGS_FILE
 
-logger = logging.getLogger("PixelAnimIDE.ui.context")
+logger = logging.getLogger("PixelFoundry.ui.context")
 
 
 class UISettings:

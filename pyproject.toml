@@ -1,7 +1,7 @@
 [project]
-name = "PixelAnimIDE"
+name = "PixelFoundry"
 version = "0.3.0"
-description = "像素动画 IDE —— 从文本描述到像素动画的一站式桌面工具"
+description = "像素铸造 IDE —— 从文本描述到像素铸造的一站式桌面工具"
 requires-python = ">=3.10"
 
 [tool.pytest.ini_options]

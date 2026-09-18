@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional
 from config.settings import API_CONFIG_FILE, API_KINDS, KEYRING_FILE
 from core.storage.keyring import Keyring
 
-logger = logging.getLogger("PixelAnimIDE.config.api_config")
+logger = logging.getLogger("PixelFoundry.config.api_config")
 
 CONFIG_VERSION = 1
 

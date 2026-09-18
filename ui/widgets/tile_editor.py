@@ -26,7 +26,7 @@ from ui.i18n import T, tr
 from ui.widgets.pixel_editor import PixelEditorWidget
 from ui.widgets.tilemap_view import pil_to_qpixmap
 
-logger = logging.getLogger("PixelAnimIDE.ui.tile_editor")
+logger = logging.getLogger("PixelFoundry.ui.tile_editor")
 
 TILE_NAMES = [
     ("tl", "左上角"), ("top", "上边"), ("tr", "右上角"),

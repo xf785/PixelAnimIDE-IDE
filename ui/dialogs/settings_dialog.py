@@ -34,7 +34,7 @@ from ui.widgets.api_config_widget import ApiConfigWidget
 from ui.widgets.shortcuts_panel import ShortcutSettingsPanel
 from ui.widgets.switch_button import SwitchButton
 
-logger = logging.getLogger("PixelAnimIDE.ui.settings_dialog")
+logger = logging.getLogger("PixelFoundry.ui.settings_dialog")
 
 _CATEGORIES = [
     ("llm", "通用文本 API"),

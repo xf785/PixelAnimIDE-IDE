@@ -25,7 +25,7 @@ from PIL import Image, ImageFilter
 
 from core.processing.pixelizer import extract_dominant_palette, map_to_palette
 
-logger = logging.getLogger("PixelAnimIDE.tilemap.autotile")
+logger = logging.getLogger("PixelFoundry.tilemap.autotile")
 
 BIT = {"TL": 1, "T": 2, "TR": 4, "L": 8, "R": 16, "BL": 32, "B": 64, "BR": 128}
 

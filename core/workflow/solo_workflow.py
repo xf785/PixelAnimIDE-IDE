@@ -44,7 +44,7 @@ from core.processing.prompt_utils import (
 from core.storage.project import Project, save_project
 from core.workflow.shared import finalize_prompts, generate_prompt_data, resolve_api_image_size
 
-logger = logging.getLogger("PixelAnimIDE.workflow.solo")
+logger = logging.getLogger("PixelFoundry.workflow.solo")
 
 RGB = Tuple[int, int, int]
 

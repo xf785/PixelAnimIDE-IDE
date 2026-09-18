@@ -18,7 +18,7 @@ import numpy as np
 
 from .autotile import BIT, canonical_mask
 
-logger = logging.getLogger("PixelAnimIDE.tilemap.terrain_noise")
+logger = logging.getLogger("PixelFoundry.tilemap.terrain_noise")
 
 IMG_MTN = 0
 IMG_NORM = 1

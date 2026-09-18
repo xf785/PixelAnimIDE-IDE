@@ -1,4 +1,4 @@
-﻿"""PixelAnimIDE 程序入口。
+﻿"""PixelFoundry 程序入口。
 
 用法：
     python main.py                     # 启动 GUI（缺依赖时自动改用 .venv）
@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("PixelAnimIDE")
+logger = logging.getLogger("PixelFoundry")
 
 
 def _ensure_venv() -> None:
@@ -121,8 +121,8 @@ def _demo_log(level: str, message: str) -> None:
 def main(argv: Optional[list] = None) -> int:
     _ensure_venv()  # 缺 PySide6 时自动改用 .venv 解释器
     parser = argparse.ArgumentParser(
-        prog="PixelAnimIDE",
-        description="像素动画 IDE —— 从文本描述到像素动画（Solo 一键 + IDE 分步编辑）",
+        prog="PixelFoundry",
+        description="像素铸造 IDE —— 从文本描述到像素铸造（Solo 一键 + IDE 分步编辑）",
     )
     parser.add_argument("--demo", action="store_true", help="无 GUI 演示：用模拟 API 跑通全流程")
     parser.add_argument("--desc", default="一只拿着剑的橙色小猫，Q 版，侧身站立", help="演示文本描述")
@@ -142,7 +142,7 @@ def main(argv: Optional[list] = None) -> int:
     )
 
     if args.demo:
-        print(f"=== PixelAnimIDE 演示模式（模拟 API）===")
+        print(f"=== PixelFoundry 演示模式（模拟 API）===")
         print(f"描述: {args.desc}")
         print(f"动作: {args.action} | 帧数: {args.frames} | 帧率: {args.fps} | 倍速: {args.speed} | 颜色: {args.colors}")
         try:

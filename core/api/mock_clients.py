@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw
 
 from .base import APIResult, BaseAPI
 
-logger = logging.getLogger("PixelAnimIDE.api.mock")
+logger = logging.getLogger("PixelFoundry.api.mock")
 
 
 def _hash_seed(text: str) -> int:

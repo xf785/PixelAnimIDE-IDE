@@ -1,9 +1,10 @@
-# PixelAnimIDE
+# PixelFoundry IDE
 
-> **像素动画 IDE** · 中文版：[README_CN.md](README_CN.md) · UI 语言可在 设置 → 常规 → 语言 切换
+> **PixelFoundry — Pixel Game Asset Foundry** · 像素铸造 IDE
+> 中文文档：[README_CN.md](README_CN.md) · UI 语言可在 设置 → 常规 → 语言 切换
 
-[![CI](https://github.com/xf785/PixelAnimIDE-IDE/actions/workflows/ci.yml/badge.svg)](https://github.com/xf785/PixelAnimIDE-IDE/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.0-blue.svg)](https://github.com/xf785/PixelAnimIDE-IDE/releases)
+[![CI](https://github.com/xf785/PixelFoundry-IDE/actions/workflows/ci.yml/badge.svg)](https://github.com/xf785/PixelFoundry-IDE/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-v0.3.0-blue.svg)](https://github.com/xf785/PixelFoundry-IDE/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)]()
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)]()
@@ -15,7 +16,7 @@
 Built for indie game devs, pixel artists, and AI tinkerers who want *real* pixel art — sharp edges and exact colors — not blurry downscaled images.
 
 <p align="center">
-  <img src="docs/screenshots/EN.png" alt="PixelAnimIDE — pixel editor (English UI)" width="880"/>
+  <img src="docs/screenshots/EN.png" alt="PixelFoundry — pixel editor (English UI)" width="880"/>
 </p>
 
 ## ✨ Highlights
@@ -186,7 +187,7 @@ Provider differences are configured in **Settings** — no code changes:
 ## 📁 Project Layout
 
 ```
-PixelAnimIDE/
+PixelFoundry/
 ├── main.py                 # entry (GUI + --demo)
 ├── requirements.txt
 ├── config/                 # global + API config (encrypted keys)
@@ -226,7 +227,7 @@ See [**ROADMAP.md**](ROADMAP.md) (English) / [**ROADMAP_CN.md**](ROADMAP_CN.md) 
 
 ## 📄 Notes & License
 
-- Runtime config & keys live in the user data dir (Windows: `%APPDATA%\PixelAnimIDE\`).
+- Runtime config & keys live in the user data dir (Windows: `%APPDATA%\PixelFoundry\`).
 - Video providers differ; adapt via config (endpoints, polling, status fields) — see `core/api/video_api.py`.
 - User assets and outputs are stored locally by default.
 - **Open-source / commercial compliance**: nav icons come from DeepSeek Harness (MIT License, Copyright (c) 2026 DeepSeek) — keep the attribution, see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). This project is not affiliated with DeepSeek.

@@ -69,7 +69,7 @@ from ui.widgets.reference_box import ReferenceImageBox
 from ui.widgets.timeline import TimelineWidget
 from ui.workers import IdeStepWorker
 
-logger = logging.getLogger("PixelAnimIDE.ui.ide_page")
+logger = logging.getLogger("PixelFoundry.ui.ide_page")
 
 _LOG_COLORS = {"info": "#adb2b8", "warn": "#f59e0b", "error": "#f25a5a"}
 

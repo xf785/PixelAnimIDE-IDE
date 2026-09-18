@@ -11,7 +11,7 @@ from .llm_api import LLMAPI
 from .mock_clients import MockImageAPI, MockLLMAPI, MockVideoAPI
 from .video_api import VideoAPI
 
-logger = logging.getLogger("PixelAnimIDE.api.factory")
+logger = logging.getLogger("PixelFoundry.api.factory")
 
 _REAL = {"llm": LLMAPI, "image": ImageAPI, "video": VideoAPI}
 _MOCK = {"llm": MockLLMAPI, "image": MockImageAPI, "video": MockVideoAPI}

@@ -36,7 +36,7 @@ from core.editing import PixelCanvas
 from ui.i18n import T, tr
 from ui.layout import scaled
 
-logger = logging.getLogger("PixelAnimIDE.ui.pixel_editor")
+logger = logging.getLogger("PixelFoundry.ui.pixel_editor")
 
 
 class Tool(Enum):

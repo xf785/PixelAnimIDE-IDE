@@ -34,7 +34,7 @@ from ui.app_context import AppContext
 from ui.i18n import T, tr
 from ui.widgets.pixel_editor import PixelEditorWidget
 
-logger = logging.getLogger("PixelAnimIDE.ui.pixel_page")
+logger = logging.getLogger("PixelFoundry.ui.pixel_page")
 
 RESOLUTION_PRESETS = [16, 32, 64, 128, 256, 512]
 _BG_FILLS = {"透明": (0, 0, 0, 0), "白色": (255, 255, 255, 255), "黑色": (0, 0, 0, 255)}

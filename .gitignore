@@ -39,4 +39,4 @@ perfectPixel-main/
 Thumbs.db
 .DS_Store
 # Release artifacts (built locally, uploaded to GitHub Releases -- never committed)
-PixelAnimIDE-v*.zip
+PixelFoundry-v*.zip

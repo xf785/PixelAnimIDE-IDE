@@ -17,7 +17,7 @@ from typing import List, Optional, Tuple
 
 from config.settings import ASSETS_DIR
 
-logger = logging.getLogger("PixelAnimIDE.processing.prompt_utils")
+logger = logging.getLogger("PixelFoundry.processing.prompt_utils")
 
 _PRESETS_CACHE: Optional[dict] = None     # {分类: {动作: 提示词}}
 _DURATIONS_CACHE: Optional[dict] = None   # {动作: 建议时长（秒）}

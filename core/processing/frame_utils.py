@@ -11,7 +11,7 @@ import httpx
 import numpy as np
 from PIL import Image, ImageSequence
 
-logger = logging.getLogger("PixelAnimIDE.processing.frame_utils")
+logger = logging.getLogger("PixelFoundry.processing.frame_utils")
 
 
 # --------------------------------------------------------------------------- #

@@ -68,7 +68,7 @@ from core.tilemap.tiles import (
 from core.workflow.solo_workflow import WorkflowError
 from ui.i18n import tr
 
-logger = logging.getLogger("PixelAnimIDE.workflow.tilemap")
+logger = logging.getLogger("PixelFoundry.workflow.tilemap")
 
 TILEMAP_STEPS = ("prompts", "base", "crop", "seamless", "atlas", "export")
 

@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from config.settings import APP_DISPLAY_NAME, APP_VERSION
+from config.settings import APP_DISPLAY_NAME, APP_FULL_NAME, APP_NAME_ZH, APP_VERSION
 from core.workflow import IDE_STEPS
 from ui import layout as ui_layout
 from ui import shortcuts as sc
@@ -43,7 +43,7 @@ from ui.pages.tilemap_page import TilemapPage
 from ui.styles import apply_theme
 from ui.widgets.segmented_toggle import SegmentedToggle
 
-logger = logging.getLogger("PixelAnimIDE.ui.main_window")
+logger = logging.getLogger("PixelFoundry.ui.main_window")
 
 # 侧边栏两种宽度：Solo/精灵图/像素 内缩 / IDE 展开
 RAIL_COLLAPSED = 128
@@ -97,7 +97,7 @@ class MainWindow(QMainWindow):
         self._logo_label = QLabel()
         self._logo_label.setPixmap(logo_icon().pixmap(28, 28))
         self._logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._logo_label.setToolTip("PixelAnimIDE")
+        self._logo_label.setToolTip(f"{APP_FULL_NAME}\n{APP_NAME_ZH}")
         sb.addWidget(self._logo_label, 0, Qt.AlignmentFlag.AlignHCenter)
         sb.addSpacing(8)
 

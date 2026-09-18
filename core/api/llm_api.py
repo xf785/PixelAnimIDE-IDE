@@ -6,7 +6,7 @@ from typing import Optional
 
 from .base import APIResult, BaseAPI
 
-logger = logging.getLogger("PixelAnimIDE.api.llm")
+logger = logging.getLogger("PixelFoundry.api.llm")
 
 
 class LLMAPI(BaseAPI):

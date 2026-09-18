@@ -18,7 +18,7 @@ import numpy as np
 
 from core.processing.pixelizer import resize_nearest
 
-logger = logging.getLogger("PixelAnimIDE.tilemap.tiles")
+logger = logging.getLogger("PixelFoundry.tilemap.tiles")
 
 # 九宫格语义位置（行, 列）：角 / 边 / 中心
 GRID_POSITIONS = {

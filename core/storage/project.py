@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("PixelAnimIDE.storage.project")
+logger = logging.getLogger("PixelFoundry.storage.project")
 
 PROJECT_FORMAT_VERSION = 1
 

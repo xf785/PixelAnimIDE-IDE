@@ -1,4 +1,4 @@
-# PixelAnimIDE Roadmap
+# PixelFoundry IDE — Roadmap
 
 > Audience: maintainers and prospective contributors. This is a living document, updated as the project evolves.
 > 中文版（Chinese）: [ROADMAP_CN.md](ROADMAP_CN.md)。

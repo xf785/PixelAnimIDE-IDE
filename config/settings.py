@@ -1,13 +1,17 @@
 """全局配置：应用路径、常量、默认值。"""
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
 
-APP_NAME = "PixelAnimIDE"
+APP_NAME = "PixelFoundry"                          # 数据目录 / 输出目录用（无空格）
 APP_VERSION = "0.3.0"
-APP_DISPLAY_NAME = "PixelAnimIDE"
+APP_DISPLAY_NAME = "PixelFoundry IDE"              # 窗口标题用
+APP_FULL_NAME = "PixelFoundry — Pixel Game Asset Foundry"   # 全称（英文）
+APP_NAME_ZH = "像素铸造 IDE"                        # 中文名
+APP_LEGACY_NAME = "PixelAnimIDE"                   # 旧名（数据目录迁移用）
 
 # ---------------------------------------------------------------------------
 # 路径
@@ -28,7 +32,7 @@ def app_root() -> Path:
 
 def app_data_dir() -> Path:
     """用户数据目录：存放配置、密钥、日志。可通过环境变量覆盖（便于测试）。"""
-    override = os.environ.get("PIXELANIMIDE_DATA_DIR")
+    override = os.environ.get("PIXELFOUNDRY_DATA_DIR") or os.environ.get("PIXELANIMIDE_DATA_DIR")
     if override:
         return Path(override)
     if sys.platform == "win32":
@@ -37,7 +41,18 @@ def app_data_dir() -> Path:
         base = Path.home() / "Library" / "Application Support"
     else:
         base = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
-    return base / APP_NAME
+    target = base / APP_NAME
+    # 旧版本名下的用户数据（配置 / 密钥 / 界面设置）自动迁移，改名不丢配置
+    legacy = base / APP_LEGACY_NAME
+    if not target.exists() and legacy.exists():
+        try:
+            legacy.rename(target)
+        except OSError:
+            import shutil
+
+            shutil.copytree(legacy, target, dirs_exist_ok=True)
+        logging.getLogger(APP_NAME).info("用户数据目录已从 %s 迁移到 %s", legacy, target)
+    return target
 
 
 DATA_DIR = app_data_dir()

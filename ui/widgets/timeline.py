@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 from ui.i18n import T, tr
 
-logger = logging.getLogger("PixelAnimIDE.ui.timeline")
+logger = logging.getLogger("PixelFoundry.ui.timeline")
 
 THUMB_SIZE = 56
 

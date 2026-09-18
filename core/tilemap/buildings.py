@@ -17,7 +17,7 @@ from core.processing import background as bg
 from .seamless import make_texture_seamless
 from .tiles import BuildingSheet
 
-logger = logging.getLogger("PixelAnimIDE.tilemap.buildings")
+logger = logging.getLogger("PixelFoundry.tilemap.buildings")
 
 PIECE_NAMES = ("straight", "end", "corner", "pillar")
 

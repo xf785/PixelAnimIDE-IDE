@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from .base import APIError, APIResult, BaseAPI
 
-logger = logging.getLogger("PixelAnimIDE.api.image")
+logger = logging.getLogger("PixelFoundry.api.image")
 
 
 class ImageAPI(BaseAPI):

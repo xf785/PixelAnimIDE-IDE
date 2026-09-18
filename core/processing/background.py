@@ -15,7 +15,7 @@ from typing import Optional, Tuple
 import numpy as np
 from PIL import Image, ImageFilter
 
-logger = logging.getLogger("PixelAnimIDE.processing.background")
+logger = logging.getLogger("PixelFoundry.processing.background")
 
 RGB = Tuple[int, int, int]
 
