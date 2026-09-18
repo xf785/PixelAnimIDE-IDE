@@ -610,3 +610,18 @@
 **已知限制**：目前只画**南侧**崖壁（俯视 2.5D 的常规做法）；东西侧壁、斜坡/楼梯、多级高度差
 尚未实现；相邻瓦片在"条带 + 边缘噪声"宽度内允许有差异（这是边界有机起伏的来源），
 最外圈像素与条带外区域仍严格逐像素一致。
+## 25. 第二十一轮：特征块深色框 + 预览 2.5D 无效
+
+1. **特征块瓦片边缘的深色框**：AI 底图在格子四周画了框/描边（或去格线残留 1~3px）时，
+   纹理提取会把这一圈当成艺术的一部分 —— 深色被 `measure_edge_profile` 实测成"描边色"，
+   于是整族瓦片边缘出现深色框，且与底图观感不符。现在 `faithful_tile_texture()` 先做
+   **残留边框检测**：外圈平均亮度低于内部 86% 且方差小（说明是均匀暗线而不是艺术细节）时，
+   自动裁掉 1~2px 再提取；测试同时保证"正常艺术不被误裁"。
+2. **预览里 2.5D 无效果**：`CliffArt` 是运行时对象、不进地图 JSON，页面预览从 JSON 重建模型后
+   没有崖壁艺术 → `_render_cliffs()` 直接返回，高度画笔也没反应。现在：
+   - 页面预览在 `model.set_terrain(...)` 之后**重新挂载** `session.cliff_arts` 与 `terrain_heights`；
+   - `TilemapView.add_pack()` 加载地块包时自动推导崖壁艺术（并读取包 `meta.terrain_heights`）；
+   - 瓦片包 `meta` 新增 `terrain_heights`，跨包加载也能恢复水/岩的高度语义。
+   
+   测试：`test_preview_model_needs_cliff_arts_rebuilt_from_session`（未挂崖壁 = 平面渲染，
+   挂上后水岸出现崖壁）、`test_pack_meta_carries_terrain_heights`。

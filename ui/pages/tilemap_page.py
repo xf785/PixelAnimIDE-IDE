@@ -678,6 +678,10 @@ class TilemapPage(QWidget):
         center = None
         if has_session and not model.terrain_sets and session.processed is not None:
             center = session.processed.center  # 仅经典单地形程序化渲染需要
+        # 2.5D：崖壁艺术是运行时对象（不进 JSON），预览里必须重建，否则高度层不显示
+        if has_session and getattr(session, "cliff_arts", None) and model.terrain_sets:
+            model.enable_height_layer(session.cliff_arts)
+            model.terrain_heights = dict(getattr(session, "terrain_heights", {}) or {})
         view = TilemapView(
             model,
             center,

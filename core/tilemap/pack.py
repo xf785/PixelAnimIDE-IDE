@@ -157,13 +157,15 @@ def pack_from_session(session, name: str = "") -> TilePack:
     params = getattr(session, "params", None)
     category = getattr(params, "category", "classic")
     tile_size = int(getattr(params, "tile_size", 32) or 32)
+    heights = {int(k): int(v) for k, v in (getattr(session, "terrain_heights", {}) or {}).items()}
     pack = TilePack(
         name=name or (getattr(params, "description", "") or "tilepack"),
         category=category,
         tile_size=tile_size,
         atlas_mode=str(getattr(params, "atlas_mode", "47")),
         meta={"wall_thickness": getattr(params, "wall_thickness", None),
-              "edge_noise": getattr(params, "edge_noise", None)},
+              "edge_noise": getattr(params, "edge_noise", None),
+              "terrain_heights": heights or None},
     )
     if category == "ground" and getattr(session, "terrain_sets", None):
         features = list(getattr(params, "features", {}) or {})

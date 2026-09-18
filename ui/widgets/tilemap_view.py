@@ -200,6 +200,18 @@ class TilemapView(QWidget):
             used.add(new_id)
         for name, piece in (pack.pieces or {}).items():
             self._pieces[f"{prefix}·{name}"] = piece
+        # 地块包里的地形若带 2.5D 参数，重建崖壁艺术（高度画笔/崖壁才可用）
+        if pack.terrains and not self._model.cliff_arts:
+            try:
+                from core.tilemap.cliff import cliff_art_from_terrain
+
+                arts = {int(tid): cliff_art_from_terrain(ts) for tid, ts in pack.terrains.items()}
+                self._model.enable_height_layer(arts)
+                hints = (pack.meta or {}).get("terrain_heights")
+                if isinstance(hints, dict):
+                    self._model.terrain_heights = {int(k): int(v) for k, v in hints.items()}
+            except Exception:  # noqa: BLE001
+                pass
         # 空地图 + 地块包：直接把整张图铺上该包的基础地形，并切到该地形画笔
         if pack.terrains and not np.asarray(self._model.grid).any():
             base_id = self._model.base_terrain or next(iter(sorted(pack.terrains)))

@@ -57,6 +57,19 @@ def faithful_tile_texture(
     rgba = tile.convert("RGBA")
     src = np.asarray(rgba)
     h, w = src.shape[:2]
+    # 残留深色边框（AI 画了格框 / 描边，或去格线没清干净）会被当成"描边色"实测出来，
+    # 让整个瓦片边缘出现深色框 —— 这里先检测并裁掉：外圈平均亮度明显低于内部就裁 1~2px。
+    for _ in range(2):
+        if min(h, w) < target + 8:
+            break
+        ring = np.concatenate([src[0, :, :3].reshape(-1, 3), src[-1, :, :3].reshape(-1, 3),
+                               src[:, 0, :3].reshape(-1, 3), src[:, -1, :3].reshape(-1, 3)])
+        inner = src[2:-2, 2:-2, :3].reshape(-1, 3)
+        if ring.mean() < inner.mean() * 0.86 and ring.std() < 26:
+            src = src[1:-1, 1:-1]
+            h, w = src.shape[:2]
+        else:
+            break
     # 优先：整格正好是瓦片的整数倍（我们请求的生图尺寸就是 cells×cell_px，通常成立）
     #         —— 此时用**整格**、不裁边、倍率精确，保真度最高（AI 按 k 倍画的像素格被逐格还原）
     full = min(h, w)
