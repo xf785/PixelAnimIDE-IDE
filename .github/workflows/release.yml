@@ -17,6 +17,8 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       PYTHONUNBUFFERED: "1"
+      PYTHONUTF8: "1"            # 控制台按 UTF-8，避免中文输出抛 UnicodeEncodeError
+      PYTHONIOENCODING: utf-8
     steps:
       - uses: actions/checkout@v4
 
