@@ -42,10 +42,9 @@ def test_tileset_dir_export_contains_atlas_tiles_and_meta(tmp_path):
     paths = export_tileset_dir(tmp_path / "雪原", pack)
     out = paths["dir"]
     assert (out / "manifest.json").exists() and (out / "README.txt").exists()
-    # 47 图集 + FrameRonin 布局 + 逐张瓦片 + 全部元信息
+    # 47 图集 + 逐张瓦片 + 全部元信息
     assert (out / "atlas" / "terrain_1_47.png").exists()
     assert (out / "atlas" / "terrain_1_47.json").exists()
-    assert (out / "atlas" / "terrain_1_blob47.png").exists()
     tiles = sorted((out / "tiles" / "terrain_1").glob("tile_*.png"))
     assert len(tiles) == 47, len(tiles)
     assert (out / "tiles" / "terrain_1" / "index.json").exists()

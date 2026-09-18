@@ -214,8 +214,6 @@ class TilemapPage(QWidget):
         self._mode_combo = QComboBox()
         self._mode_combo.addItem(T(None, "47-tile 瓦片集"), "47")
         self._mode_combo.addItem(T(None, "双网格地图"), "dual")
-        self._mode_combo.addItem(T(None, "FrameRonin 47（3×24 布局）"), "blob47")
-        self._mode_combo.addItem(T(None, "16 图块族（4×4）"), "tile16")
         f.addRow(self._mode_label, self._mode_combo)
 
         self._map_src_label = T(QLabel(), "演示地图来源")

@@ -30,8 +30,6 @@ from core.tilemap import (
     align_terrain_set,
     build_47_sheet,
     build_47_sheet_art,
-    build_blob47_atlas,
-    build_tile16_atlas,
     build_dual_pieces_sheet_art,
     building_from_blocks,
     crop_base_3x3,
@@ -110,10 +108,10 @@ class TilemapParams:
     base_block: str = "auto"         # 基础地形块位置：auto/tl/tr/bl/br（AI 常不守位置要求）
     tile_size: int = 32              # 目标单格像素（偶数）
     sheet_size: int = 768            # 生图请求边长（3 格总边长）
-    atlas_mode: str = "47"           # "47" | "dual" | "blob47"（FrameRonin 3×24 布局）| "tile16"
+    atlas_mode: str = "47"           # "47"（8×6 图集）| "dual"（双网格）
     map_source: str = "showcase"     # 演示地图："showcase" 覆盖 47 类 | "filled" 铺满
-    sea_level: float = 0.38          # 程序化地形：海平面（FrameRonin 原值 0.42，演示取更均衡的 0.38）
-    mountain_threshold: float = 0.55  # 程序化地形：山地阈值（FrameRonin 原值 0.48，演示取 0.55）
+    sea_level: float = 0.38          # 程序化地形：海平面
+    mountain_threshold: float = 0.55  # 程序化地形：山地阈值
     line_width: int = 1              # 边界线宽（像素）
     edge_noise: float = 0.09         # 边缘噪声幅度（占瓦片尺寸比例，0=完全平直）
     edge_blend: float = 0.5          # 地形交界融合强度（噪声渗透咬合，0=平滑硬边）
@@ -270,7 +268,7 @@ def _demo_map(model: TileMapModel, params: Optional[TilemapParams] = None) -> No
     f1 = feature_ids[0] if feature_ids else base
     f2 = feature_ids[1] if len(feature_ids) > 1 else f1
     if params is not None and params.map_source == "procedural":
-        from core.tilemap.blob47 import ProceduralTerrain
+        from core.tilemap.terrain_noise import ProceduralTerrain
 
         terrain = ProceduralTerrain(
             seed=params.description or "default",
@@ -671,14 +669,10 @@ class TilemapWorkflow:
             for tid, tset in session.terrain_sets.items():
                 if params.atlas_mode == "dual":
                     sheet, meta = build_dual_pieces_sheet_art(tset)
-                elif params.atlas_mode == "blob47":
-                    sheet, meta = build_blob47_atlas(tset)
-                elif params.atlas_mode == "tile16":
-                    sheet, meta = build_tile16_atlas(tset)
                 else:
                     sheet, meta = build_47_sheet_art(tset)
                 session.terrain_sheets[tid] = (sheet, meta)
-            mode_zh = {"blob47": "FrameRonin 3×24 布局", "tile16": "16 图块族 4×4"}.get(params.atlas_mode, "9×6")
+            mode_zh = {"dual": tr("双网格（16 块）")}.get(params.atlas_mode, "8×6")
             self._log_msg(
                 "info",
                 tr("生态瓦片集已生成：{0} 套（对齐式构图；布局 {1}）").format(len(session.terrain_sheets), mode_zh),
@@ -768,7 +762,7 @@ class TilemapWorkflow:
                 json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
             )
             terrain_paths[tid] = path
-        # 完整瓦片集目录导出（47 图集 + FrameRonin 布局 + 逐张瓦片 + 全部元信息；另附 zip）
+        # 完整瓦片集目录导出（47 图集 + 逐张瓦片 + 全部元信息；另附 zip）
         try:
             from core.tilemap.pack import export_tileset_dir, pack_from_session
 

@@ -47,12 +47,12 @@ Turn the full "AI generation → pixelization → polish → game assets" flow i
 - **Props**: variant-grid generation → background key chosen from the prompt (pure white, or pure black
   for light subjects such as snow) with range deletion + border flood fill → alpha hardened to 0/255 →
   trimmed and bottom-aligned; placement is scalable (25–400 %).
-- **Tile packs & export**: complete tileset folder + zip (47-tile atlas 8×6, FrameRonin 3×24 layout, every
-  single tile, textures/pieces/props, all metadata, README); import from folder / zip / `.tilepack`.
+- **Tile packs & export**: complete tileset folder + zip (47-tile atlas 8×6, every single tile,
+  textures/pieces/props, all metadata, README); import from folder / zip / `.tilepack`.
 - **Map preview**: usable **without generating first**; mix several packs (terrain / buildings / props),
   grid toggle, Ctrl+left-drag pan, wheel zoom, brush / eraser / rotate / scale; **Perlin-noise big world**
   (up to 400×400, optional scattered buildings, mask-cached tile composition).
-- **Layout compatibility**: 47-tile (FrameRonin mask convention), 16-tile, and **dual grid** for both
+- **Layout compatibility**: 47-tile (8×6 blob convention), 16-tile wall family, and **dual grid** for both
   generation and preview.
 - 64 algorithmic invariants locked down by tests (shared-edge pixel equality, no text/frame residue,
   47-class coverage, transparent exteriors, zero background residue, deterministic output).
@@ -71,8 +71,8 @@ covered by tests, no Tiled `.tmx/.tsx` import/export yet, map layering limited t
 - Frame stripping (expected-position ± tolerance darkest-run search + residual sweep), text detection and
   patching, offset-quilt splicing (wrap-equal), 9-cell median texture; aligned composition derives the whole
   tile family (band / outline / bevel / AO measured from the AI art);
-- Export a **complete tileset folder + zip** (47-tile atlas, 3×24 layout, every single tile, metadata),
-  compatible with common Tiled layouts.
+- Export a **complete tileset folder + zip** (47-tile atlas 8×6, every single tile, metadata), compatible
+  with common Tiled layouts.
 - DoD met: adjacent tiles are pixel-identical along shared edges; long runs and walls show no per-tile seam.
 
 **A2 Tile-map editor** ✅ Done (5th mode)

@@ -206,7 +206,7 @@ def export_tileset_dir(
     pack: TilePack,
     *,
     make_zip: bool = True,
-    atlas_modes: Sequence[str] = ("47", "blob47"),
+    atlas_modes: Sequence[str] = ("47",),
 ) -> Dict[str, Path]:
     """导出**完整瓦片集目录**（不是单一后缀文件）：
 
@@ -217,7 +217,6 @@ def export_tileset_dir(
       textures/terrain_<id>.png      # 地形特征纹理（供再次导入/再构图）
       textures/terrain_<id>_base.png # 另一方地形纹理（地块类的条带）
       atlas/terrain_<id>_47.png      # 47-tile 图集（8×6）+ 同名 .json（掩码→槽位）
-      atlas/terrain_<id>_blob47.png  # FrameRonin 3×24 布局图集 + .json
       tiles/terrain_<id>/tile_<n>_mask_<m>.png   # 逐张单独瓦片 + index.json
       atlas/walls_16.png + .json     # 建筑：16-tile 族图集
       pieces/<名字>.png              # 建筑拼件 / 素材
@@ -235,7 +234,6 @@ def export_tileset_dir(
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     from .autotile import build_47_sheet_art
-    from .blob47 import build_blob47_atlas
 
     index: Dict[str, object] = {"format": "pixel-anim-tileset-folder", "tile_size": pack.tile_size,
                                 "category": pack.category, "terrains": {}, "atlas_modes": list(atlas_modes)}
@@ -246,10 +244,7 @@ def export_tileset_dir(
         (out / "textures" / f"terrain_{int(tid)}_base.png").write_bytes(_png_bytes(base))
         entry: Dict[str, object] = {"name": name, **_mask_list_for(tset), "atlas": {}, "tiles": {}}
         for mode in atlas_modes:
-            if mode == "blob47":
-                sheet, meta = build_blob47_atlas(tset)
-            else:
-                sheet, meta = build_47_sheet_art(tset)
+            sheet, meta = build_47_sheet_art(tset)
             stem = f"terrain_{int(tid)}_{mode}"
             sheet.save(out / "atlas" / f"{stem}.png")
             (out / "atlas" / f"{stem}.json").write_text(
@@ -307,7 +302,7 @@ def export_tileset_dir(
         "=======================\n"
         "manifest.json  —— 可再次导入（预览里「添加瓦片包」选本文件夹或其 zip）\n"
         "textures/      —— 地形纹理（特征纹理 + 另一方地形纹理），重新构图用\n"
-        "atlas/         —— 47-tile 图集（8×6）、FrameRonin 3×24 布局图集、建筑 16-tile 图集（附 .json 索引）\n"
+        "atlas/         —— 47-tile 图集（8×6）、建筑 16-tile 图集（附 .json 索引）\n"
         "tiles/         —— 逐张单独瓦片（文件名含槽位与掩码）\n"
         "pieces/ props/ —— 建筑拼件 / 素材（透明 PNG）\n"
         "map/info.json  —— 全部元信息（掩码→槽位、拼件清单、实测艺术参数）\n",

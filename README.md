@@ -99,9 +99,9 @@ The fifth mode: **one text prompt → a complete, game-ready tileset + playable 
 - **Edge noise + boundary percolation (交界融合)**: irregular inward noise on non-interior edges, plus **block-noise percolation** where two terrains (even two *different* tile packs) meet — the two sides interlock instead of showing a hard line.
 - **Buildings (建筑类)**: the wall **16-tile family** (straight / corner / inner+outer corner / T / cross / end / isolated) with fixed cross-section geometry, transparent exterior for overlay compositing, procedural 1px outline, top face + front shading, plus AI-derived **door** and **pillar** pieces.
 - **Props (素材/道具)**: trees, flowers, rocks… generated as a variant grid, background removed automatically (pure-white or pure-black key chosen from the prompt: light subjects such as snow get a black key), alpha hardened to 0/255, bottom-aligned so props "stand" on the ground; placement is **scalable** (25–400 %).
-- **Tile packs**: export a **complete tileset folder + zip** (47-tile atlas, FrameRonin 3×24 layout, every single tile, all metadata, prop/piece PNGs); import folders, zips or `.tilepack` into any preview.
+- **Tile packs**: export a **complete tileset folder + zip** (47-tile atlas 8×6, every single tile, all metadata, prop/piece PNGs); import folders, zips or `.tilepack` into any preview.
 - **Map preview**: open it **without generating anything**, load several packs, paint terrain / buildings / props together, toggle the grid, **Ctrl+left-drag to pan**, wheel to zoom, and generate a **Perlin-noise big world** (up to 400×400) with optional scattered buildings.
-- **Dual-grid** and **FrameRonin 47/16 layouts** are supported for both generation and preview.
+- **Dual-grid** and **16-tile** families are supported for both generation and preview.
 
 <p align="center">
   <img src="docs/screenshots/01-ecosystem-sheet.png" alt="Terrain ecosystem sheet (base terrain + three features) generated from one prompt" width="880"/>

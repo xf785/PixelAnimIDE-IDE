@@ -1,4 +1,4 @@
-"""柏林噪声大地图：把 FrameRonin 风格的程序化地形铺成一张大预览图。
+"""柏林噪声大地图：把程序化地形（Perlin/FBM/河谷/山地）铺成一张大预览图。
 
 - `generate_perlin_map()`：按 `ProceduralTerrain`（Perlin + FBM + 河谷 + 山地场）生成
   一张 `width×height` 的地形网格，映射到「水 / 平原 / 山地」三类地形 id；
@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from .autotile import canonical_mask
-from .blob47 import ProceduralTerrain
+from .terrain_noise import ProceduralTerrain
 from .map import TileMapModel
 from .walls import W16_SLOTS
 
@@ -35,7 +35,7 @@ def generate_perlin_map(
     """把程序化地形写进模型（返回 kinds 网格：0=水 1=平原 2=山地）。"""
     w, h = model.width, model.height
     terrain = ProceduralTerrain(seed=seed, sea_level=sea_level, mountain_threshold=mountain_threshold)
-    kinds, _slots = terrain.grid(w, h, origin=origin)
+    kinds, _masks = terrain.grid(w, h, origin=origin)
     mapping = {0: int(water_id), 1: int(plain_id)}
     if mountain_id is not None:
         mapping[2] = int(mountain_id)

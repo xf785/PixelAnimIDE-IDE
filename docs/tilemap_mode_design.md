@@ -110,7 +110,7 @@
 - 新增测试：`test_two_stage_base_then_accept`、`test_classic_map_preview_
   fully_opaque`、GUI 两段式接受流程测试；全量测试通过。
 
-## 8. 第四轮：参照 FrameRonin 修正（关键 bug）
+## 8. 第四轮：参照公开 blob autotiling 参考实现修正（关键 bug）
 
 参考对象：`frameronin.com` 为 SPA（无源码可爬），改用其开源仓库
 `systemchester/FrameRonin` 的实现（本地 `.tmp/refs/FrameRonin`），
@@ -327,46 +327,6 @@
 - `tests/test_tilemap_eco.py` 中原「按四分之一块抠图」的断言改写为对齐式构图的
   几何断言（全邻=纯纹理、暴露侧条带/描边位置、外角相切圆弧、内角凹口长度）。
 
-## 13. 第九轮：搬运 FrameRonin 的 blob 16/47 图块逻辑（`core/tilemap/blob47.py`）
-
-**来源**：<https://github.com/systemchester/FrameRonin>
-`frontend/src/components/infiniteMap/blobTerrain.ts` 与 `frontend/public/map/blob/map.html`
-（站点 <https://frameronin.com/> 的构建产物里，该逻辑位于「无限地图」相关 chunk）。
-
-**许可说明（重要）**：该仓库**未附开源许可证**。因此本轮只搬运其**算法与数据约定**，
-Python 代码全部由本项目重写；若要直接引用其源码或美术资源
-（`frontend/public/map/blob/frame_*.png`），请先与原作者确认授权。
-
-搬运内容（逐条对应其实现）：
-
-| 项 | 内容 |
-|---|---|
-| 八邻掩码 | N=2 S=64 W=8 E=16；对角 TL=1 TR=4 BL=32 BR=128，**仅当两个相邻正交位同为同类时置位**（`compute_blob_mask`） |
-| 47 掩码 → 图集槽位 | 数据表 `MASK_TO_INDEX` 原样搬运（47 项、槽位 0..70；孤立格→13、四面全满→4；**槽位 71 = 占位空底，禁止选用**） |
-| 就近回退 | `nearest_tile_index()`：精确未命中时在 47 个合法键上取汉明距离最小者；仍不可用回退 `FALLBACK_TILE_INDEX = 4` |
-| 图集几何 | 3 列 × 24 行 = 72 槽；子块 = (宽//3, 高//24)；行 0 在上、不垂直翻转；`atlas_cell_box()` / `slice_atlas_tile()` 与原实现同约定 |
-| 程序化地形 | `ProceduralTerrain`：字符串→FNV-1a 种子、Mulberry32、自研 2D Perlin + FBM；陆高（26/3oct/0.52/2.05）、山地场（42/3/0.5/2.02）、河谷走廊（12.5/2/0.48/2.02，abs(rv)<0.1 且高度带 0.16）→ 水/山/平原；32×32 分块 + FIFO 淘汰；`sample_tile_index()`、`is_walkable()`（仅平地）、`is_land()` |
-| 16 图块族 | FrameRonin 只做 47 槽；这里按同一套约定补齐 4 位版本：槽位 `n | e*2 | s*4 | w*8`，4×4 图集，`canonical_tile16_mask()` 把对角位取「两正交位都为满」，因此不产生内凹角 |
-
-**与本项目对齐式构图的结合**：`build_blob47_atlas()` / `build_tile16_atlas()` 用本项目
-`compose_art_tile()`（AI 纹理 + 程序化几何、构造性无缝）逐掩码合成，再按 FrameRonin
-的槽位布局摆放，因此导出的图集**既保持无缝保证，又能直接喂给 FrameRonin 的运行时**。
-
-**接入点**：
-- `TilemapParams.atlas_mode` 新增 `"blob47"` / `"tile16"`；`_do_atlas` 分支调用上述构建器，
-  元数据带 `format / forbidden_index / fallback_index / mask_to_index / all_masks_to_index /
-  slot_to_mask`，可直接给引擎做「mask → 槽位」查表；
-- `TilemapParams.map_source = "procedural"`（+ `sea_level` / `mountain_threshold`）：
-  演示地图改用程序化地形（水→特征1、山→特征2、平原→基础地形）；默认阈值取 0.38/0.55
-  （FrameRonin 原值 0.42/0.48 在本项目演示尺度下山地占比偏高）；
-- UI：瓦片集模式下拉新增「FrameRonin 47（3×24 布局）」「16 图块族（4×4）」；
-  地块生态类别下新增「演示地图来源」下拉（手绘示例 / 程序化地形）。
-
-**验证**：`tests/test_tilemap_blob47.py`（11 项）——掩码位与对角规则、映射表完整性
-（47 项、槽位唯一、71 禁用）、就近回退、3×24 几何与切片、blob47/tile16 图集布局
-（空槽透明、全满槽=纯纹理）、程序化地形确定性与阈值单调性、可走性判定，
-以及工作流端到端导出（两种布局 + 程序化演示地图）。
-
 ## 14. 第十轮：建筑类链路重写为「墙体 16-tile 族 + 透明外部」
 
 ### 旧实现的问题
@@ -432,7 +392,7 @@ Python 代码全部由本项目重写；若要直接引用其源码或美术资�
   滚轮缩放、**网格显示/隐藏**开关（工具栏复选框）、**「添加瓦片包」**把一个包并入当前
   预览（地形分配空闲 id、拼件加包名前缀，工具栏自动重建）；绘制坐标改走 `mapFrom`，
   滚动后落笔不偏移。
-- **柏林噪声大地图**（`core/tilemap/bigmap.py`）：`generate_perlin_map()` 用 FrameRonin 同款
+- **柏林噪声大地图**（`core/tilemap/bigmap.py` + `core/tilemap/terrain_noise.py`）：`generate_perlin_map()` 用
   Perlin/FBM/河谷/山地场生成 24~400 格的地形网格并映射到水/平原/山地三类；`scatter_walls()`
   可在平原上自动散布小屋（16-tile 族自动选型 + 门洞），用于预览「地块 + 建筑」叠加。
   渲染新增 `compose_art_tile_cached()`（按掩码缓存合成结果），96×64 大地图秒级出图。
@@ -499,12 +459,12 @@ Python 代码全部由本项目重写；若要直接引用其源码或美术资�
 1. **导出改成「完整瓦片集目录/压缩包」**（不再是 `.tilepack` 本体）：
    `export_tileset_dir()` 输出 `manifest.json`（可再次导入）+ `README.txt` +
    `textures/`（地形特征纹理与另一方地形纹理）+ `atlas/`（47-tile 8×6 图集、
-   FrameRonin 3×24 布局图集、建筑 16-tile 图集，各带 .json 掩码索引）+
+   建筑 16-tile 图集，各带 .json 掩码索引）+
    `tiles/terrain_<id>/`（**逐张单独瓦片**，文件名含槽位与掩码 + index.json）+
    `pieces/` 或 `props/` + `map/info.json`（全部元信息），并另存一份同名 `.zip`。
    工作流三个类别（地块/建筑/素材）都改为导出该目录；页面按钮改为「导出瓦片集」。
    **导入**统一走 `load_tileset()`：文件夹、导出 zip、旧 `.tilepack` 都能读。
-   同时移除演示地图来源里的「程序化地形（FrameRonin）」选项。
+   同时移除演示地图来源里的程序化地形选项。
 2. **不同地形交界渗透融合**：新增 `edge_blend`（默认 0.5，界面「交界融合 %」），
    `compose_art_tile` 在边界两侧用确定性噪声互相「咬合」（地形吃进地面带、地面吃进
    地形侧），交界呈不规则渗透状而非一条硬边；噪声幅度在瓦片边缘衰减到 0，
@@ -537,3 +497,17 @@ Python 代码全部由本项目重写；若要直接引用其源码或美术资�
    `04-tile-editor.png`、`05-perlin-world-with-props.png`。
 4. 测试：新增 `test_cross_pack_boundary_percolation`（不同包地面色不同时两侧颜色
    互相咬入、仍全不透明、可复现、关闭后恢复原样）；全量测试通过。
+
+## 21. 第十七轮：移除 FrameRonin 图集布局约定
+
+早前（第九轮）搬运进来的 FrameRonin **3×24 blob47 图集布局**与 **16 图块族图集**已整体删除：
+
+- **删除**：`core/tilemap/blob47.py`（掩码→槽位表、3×24 图集构建、16 图块族图集、就近回退、
+  槽位切片工具）与其 11 项测试；界面「FrameRonin 47（3×24 布局）」「16 图块族（4×4）」两个模式选项；
+  导出目录里的 `atlas/terrain_<id>_blob47.png`；`ui/i18n.py` 对应词条。
+- **保留并迁出**：世界生成部分（Perlin + FBM + 河谷 + 山地场）迁到新模块
+  `core/tilemap/terrain_noise.py`（`Perlin2D` / `ProceduralTerrain` / `neighbour_mask`），
+  去掉对第三方图集槽位的依赖：`sample_tile()` 直接返回**本项目的 canonical 掩码**，
+  `grid()` 返回 `(kinds, masks)`；柏林噪声大地图功能不受影响。
+- 现在瓦片地图只有两套自研布局：**47-tile 8×6 图集**与**双网格**；
+  建筑侧是自研的 **16-tile 墙体族**（与已删除的第三方 16 图集无关）。
