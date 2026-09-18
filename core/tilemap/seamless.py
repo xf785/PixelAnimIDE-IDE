@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -214,19 +214,6 @@ def _requantize_rgba_palette(img: Image.Image, palette) -> Image.Image:
     q = map_to_palette(rgba.convert("RGB"), palette).convert("RGBA")
     q.putalpha(alpha)
     return q
-
-
-# --------------------------------------------------------------------------- #
-# 纹理提取与「对齐式」地形艺术（第 8 轮：构造性无缝 47 拼接）
-# --------------------------------------------------------------------------- #
-def _inset_crop(img: Image.Image, frac: float) -> Image.Image:
-    """去掉四周 frac 比例的外框（AI 的格线/描边/边缘脏像素都在外侧）。"""
-    w, h = img.size
-    dx = max(1, int(round(w * float(frac))))
-    dy = max(1, int(round(h * float(frac))))
-    if w - 2 * dx < 8 or h - 2 * dy < 8:
-        return img
-    return img.crop((dx, dy, w - dx, h - dy))
 
 
 def make_tile_texture(
@@ -474,9 +461,6 @@ def align_terrain_set(
     if plain:
         darkest = _darkest_color(texture)
         band_px = max(2, tile_size // 4)
-        soft = tuple(
-            int(c) for c in (np.asarray(darkest, np.float32) * 0.35 + np.asarray(texture.convert("RGB").getpixel((0, 0)), np.float32) * 0.65)
-        )
         return BaseTileSet(
             size=texture.size[0],
             center=texture,

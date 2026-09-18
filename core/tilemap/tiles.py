@@ -20,13 +20,6 @@ from core.processing.pixelizer import resize_nearest
 
 logger = logging.getLogger("PixelFoundry.tilemap.tiles")
 
-# 九宫格语义位置（行, 列）：角 / 边 / 中心
-GRID_POSITIONS = {
-    "tl": (0, 0), "top": (0, 1), "tr": (0, 2),
-    "left": (1, 0), "center": (1, 1), "right": (1, 2),
-    "bl": (2, 0), "bottom": (2, 1), "br": (2, 2),
-}
-
 EDGE_NAMES = ("top", "bottom", "left", "right")
 CORNER_NAMES = ("tl", "tr", "bl", "br")
 

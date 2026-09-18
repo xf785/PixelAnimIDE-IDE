@@ -1,10 +1,9 @@
 """画质保真 + 2.5D 自动高度（水岸/岩石）回归测试。"""
 import numpy as np
-import pytest
 from PIL import Image, ImageDraw
 
-from core.tilemap import BIT, TileMapModel, compose_art_tile
-from core.tilemap.fidelity import faithful_tile_texture, weld_edges
+from core.tilemap import TileMapModel
+from core.tilemap.fidelity import weld_edges
 from core.tilemap.seamless import make_tile_texture, median_tile_texture
 from core.tilemap.tiles import EDGE_NAMES, BaseTileSet
 

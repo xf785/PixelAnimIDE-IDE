@@ -10,12 +10,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 from PIL import Image
 
-from core.processing import background as bg
 
 logger = logging.getLogger("PixelFoundry.tilemap.props")
 

@@ -2,7 +2,6 @@
 import io
 
 import httpx
-import pytest
 from PIL import Image
 
 from config.api_config import FIELD_DEFS

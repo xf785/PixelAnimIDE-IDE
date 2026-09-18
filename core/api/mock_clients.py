@@ -27,7 +27,7 @@ def _hash_seed(text: str) -> int:
 # --------------------------------------------------------------------------- #
 def build_mock_prompts(description: str, action: str = "") -> dict:
     """根据用户描述生成结构化提示词。"""
-    from core.processing.prompt_utils import build_animation_prompt, get_preset, preset_duration
+    from core.processing.prompt_utils import get_preset, preset_duration
 
     desc = _clean_description(description)
     if action.strip():

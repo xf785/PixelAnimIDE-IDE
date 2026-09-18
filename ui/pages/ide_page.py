@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from PIL import Image
-from PySide6.QtCore import QTimer, QUrl, Qt, Signal
-from PySide6.QtGui import QDesktopServices, QImage, QPixmap
+from PySide6.QtCore import QSize, QTimer, QUrl, Qt, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QSplitter,
     QStackedWidget,
     QTabWidget,
     QTextEdit,
@@ -62,7 +63,10 @@ from core.workflow import (
 from core.workflow.solo_workflow import WorkflowError
 from ui.app_context import AppContext
 from ui.i18n import T, tr
+from ui.layout import scaled
+from ui.qt_image import pil_to_qpixmap as _pil_to_qpixmap
 from ui.widgets.action_combo import populate_action_combo
+from ui.widgets.dock import RAIL_W, SideDock
 from ui.widgets.image_viewer import ImageViewer
 from ui.widgets.pixel_editor import PixelEditorWidget
 from ui.widgets.reference_box import ReferenceImageBox
@@ -77,14 +81,6 @@ PARAM_WIDTH = 360
 
 # 步骤 -> 执行按钮文案（zh 原文 + 运行时翻译）
 STEP_ACTIONS_ZH = ["生成提示词", "生成首帧图片", "生成动画", "像素化处理", "去除背景", "导出"]
-STEP_ACTIONS = [tr(s) for s in STEP_ACTIONS_ZH]
-
-
-def _pil_to_qpixmap(img: Image.Image) -> QPixmap:
-    rgba = img.convert("RGBA")
-    data = rgba.tobytes("raw", "RGBA")
-    qimg = QImage(data, rgba.width, rgba.height, QImage.Format.Format_RGBA8888).copy()
-    return QPixmap.fromImage(qimg)
 
 
 class IdePage(QWidget):
@@ -103,6 +99,7 @@ class IdePage(QWidget):
         self._play_timer.timeout.connect(self._on_play_tick)
         self._dirty = False
         self._build_ui()
+        self._restore_layout()
         self._restore_settings()
         self._refresh_all()
 
@@ -114,20 +111,26 @@ class IdePage(QWidget):
         root.setContentsMargins(12, 12, 12, 10)
         root.setSpacing(8)
 
-        top = QHBoxLayout()
-        top.setSpacing(10)
+        # ---------- 工作区：预览/编辑/提示词 | 参数停靠栏（两栏可拖动调宽） ----------
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.setObjectName("Workspace")
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.setHandleWidth(scaled(5))
 
-        # ---------- 中：预览 / 编辑 / 提示词 ----------
+        # 中：预览 / 编辑 / 提示词
         self._tabs = QTabWidget()
         self._build_preview_tab()
         self._build_editor_tab()
         self._build_prompt_tab()
-        top.addWidget(self._tabs, 1)
+        self._splitter.addWidget(self._tabs)
 
-        # ---------- 右：参数面板 ----------
-        top.addWidget(self._build_params_panel())
-
-        root.addLayout(top, 1)
+        # 右：参数停靠栏（默认整栏收起成竖排标签，可拖动调宽、面板可折叠）
+        self._splitter.addWidget(self._build_params_panel())
+        self._splitter.setStretchFactor(0, 1)
+        self._splitter.setStretchFactor(1, 0)
+        self._right_dock.bind_splitter(self._splitter, 1, default_width=PARAM_WIDTH)
+        self._splitter.setSizes([scaled(820), scaled(PARAM_WIDTH)])
+        root.addWidget(self._splitter, 1)
 
         # ---------- 底：时间轴 + 状态 + 日志 ----------
         self._timeline = TimelineWidget()
@@ -169,6 +172,45 @@ class IdePage(QWidget):
         self._log_view.setMaximumHeight(110)
         self._log_collapsed = False
         root.addWidget(self._log_view)
+
+    # ------------------------------------------------------------------ #
+    # 主窗口工具条协议（Krita 风格：工具条内容随工作区变化）
+    # ------------------------------------------------------------------ #
+    def toolbar_actions(self) -> list:
+        """返回 [(图标, 文本, 提示, 回调, 是否主按钮), …] 供主窗口工具条渲染。"""
+        step = max(0, min(self._current_step, len(STEP_ACTIONS_ZH) - 1))
+        step_text = self._btn_run.text() or tr(STEP_ACTIONS_ZH[step])
+        return [
+            (self._step_icon(step), step_text,
+             tr("执行步骤：{0} …").format(tr(STEP_ACTIONS_ZH[step])), self._on_run_step, True),
+            ("play", self._btn_play.text(),
+             tr("播放") if not self._playing else tr("暂停"), self._on_toggle_play, False),
+            ("undo", tr("撤销（Ctrl+Z）"), tr("撤销（Ctrl+Z）"), self._editor.undo, False),
+            ("redo", tr("重做（Ctrl+Shift+Z）"), tr("重做（Ctrl+Shift+Z）"), self._editor.redo, False),
+        ]
+
+    @staticmethod
+    def _step_icon(step: int) -> str:
+        """当前步骤对应的工具条图标（editor_icon 的 kind）。"""
+        return {
+            0: "pencil",        # 生成提示词
+            1: "import_image",  # 生成首帧图片
+            2: "play",          # 生成动画
+            3: "grid",          # 像素化处理
+            4: "eraser",        # 去除背景
+            5: "export_image",  # 导出
+        }.get(int(step), "play")
+
+    def workspace_status(self) -> str:
+        """工具条右侧的状态标识：当前步骤 + 帧数 / 帧率（无帧时也能安全返回）。"""
+        try:
+            step = max(0, min(self._current_step, len(STEP_ACTIONS_ZH) - 1))
+            fps = max(1, int(self._session.fps or 0))
+            return "{} · {} · {}fps".format(
+                tr(STEP_ACTIONS_ZH[step]), tr("{0} 帧").format(len(self._session.frames)), fps
+            )
+        except Exception:  # noqa: BLE001
+            return ""
 
     # ------------------------------------------------------------------ #
     def _build_preview_tab(self) -> None:
@@ -257,21 +299,30 @@ class IdePage(QWidget):
         T(self._tabs, "提示词", attr="tab", index=2)
 
     # ------------------------------------------------------------------ #
-    # 右侧参数面板：默认收起（仅一个三角钮），点击展开提示词/文生图等参数
+    # 右侧参数停靠栏：默认整栏收起（只剩竖排标签），点击展开提示词/文生图等参数
     # ------------------------------------------------------------------ #
     def _on_toggle_params(self) -> None:
         self._params_collapsed = not self._params_collapsed
         self._apply_params_collapsed()
+
+    def _on_dock_collapsed_changed(self, collapsed: bool) -> None:
+        """停靠栏自己收起/展开（点竖排标签）-> 同步参数面板状态。"""
+        if self._params_collapsed != bool(collapsed):
+            self._params_collapsed = bool(collapsed)
+            self._apply_params_collapsed()
 
     def _apply_params_collapsed(self) -> None:
         from ui.icons import editor_icon
 
         self._params_scroll.setVisible(not self._params_collapsed)
         kind = "chevron_left" if self._params_collapsed else "chevron_right"
-        self._params_toggle_btn.setIcon(editor_icon(kind, "#9aa0a8", size=14))
+        self._params_toggle_btn.setIcon(editor_icon(kind, "#9aa0a8", size=scaled(14)))
         self._params_toggle_btn.setToolTip(
             tr("展开参数面板") if self._params_collapsed else tr("收起参数面板")
         )
+        # 整栏一起收起：宽度让给画布/预览（SideDock 会自行重排 splitter，可再拖回来）
+        if hasattr(self, "_right_dock"):
+            self._right_dock.set_collapsed(self._params_collapsed)
 
     def _on_toggle_log(self) -> None:
         """底部日志框收起/展开。"""
@@ -280,35 +331,59 @@ class IdePage(QWidget):
         self._log_toggle_btn.setText("▴" if self._log_collapsed else "▾")
 
     def apply_ui_scale(self, scale: float) -> None:
-        """按界面比例调整右侧参数面板宽度。"""
+        """按界面比例调整参数停靠栏与分隔条（接口比例由全局 scaled() 取值）。"""
         if hasattr(self, "_params_scroll"):
-            self._params_scroll.setFixedWidth(max(240, int(PARAM_WIDTH * scale)))
+            self._params_scroll.setMinimumWidth(scaled(200))
+        if hasattr(self, "_params_toggle_btn"):
+            self._params_toggle_btn.setFixedSize(scaled(20), scaled(20))
+            self._params_toggle_btn.setIconSize(QSize(scaled(14), scaled(14)))
+        if hasattr(self, "_right_dock"):
+            self._right_dock.apply_ui_scale()
+        if hasattr(self, "_splitter"):
+            self._splitter.setHandleWidth(scaled(5))
+
+    # ------------------------------------------------------------------ #
+    # 布局持久化（停靠栏宽度 + 收起状态）
+    # ------------------------------------------------------------------ #
+    def _restore_layout(self) -> None:
+        """恢复上次的停靠栏宽度与参数栏收起状态。"""
+        try:
+            s = self._ctx.ui_settings
+            sizes = s.get("ide_dock_sizes") or []
+            if (isinstance(sizes, (list, tuple)) and len(sizes) == 2
+                    and int(sizes[0]) >= scaled(320)):
+                # 预览区过窄说明上次保存的是病态布局 -> 退回默认宽度
+                self._splitter.setSizes([int(v) for v in sizes])
+                if int(sizes[1]) > scaled(RAIL_W):
+                    # 展开时按上次拖动的宽度还原（而不是默认宽度）
+                    self._right_dock.bind_splitter(self._splitter, 1, default_width=int(sizes[1]))
+            saved = s.get("ide_params_collapsed")
+            if saved is not None:
+                self._params_collapsed = bool(saved)
+                self._apply_params_collapsed()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("IDE 页布局恢复失败: %s", exc)
+
+    def _remember_layout(self) -> None:
+        try:
+            s = self._ctx.ui_settings
+            s.set("ide_dock_sizes", list(self._splitter.sizes()))
+            s.set("ide_params_collapsed", bool(self._params_collapsed))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("IDE 页布局保存失败: %s", exc)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self._remember_layout()
+        super().hideEvent(event)
 
     # ------------------------------------------------------------------ #
     def _build_params_panel(self) -> QWidget:
-        """右侧参数面板容器：三角钮 + 可收起参数滚动区。"""
-        wrap = QWidget()
-        wl = QHBoxLayout(wrap)
-        wl.setContentsMargins(0, 0, 0, 0)
-        wl.setSpacing(0)
+        """右侧参数停靠栏：项目 / 参考图 / 步骤参数 三块可折叠面板。"""
+        dock = SideDock(tr("参数"), side="right", default_width=PARAM_WIDTH)
+        self._right_dock = dock
+        dock.collapsedChanged.connect(self._on_dock_collapsed_changed)
 
-        self._params_toggle_btn = QToolButton()
-        self._params_toggle_btn.setFixedSize(22, 44)
-        self._params_toggle_btn.clicked.connect(self._on_toggle_params)
-        wl.addWidget(self._params_toggle_btn)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setFixedWidth(PARAM_WIDTH)
-        self._params_scroll = scroll
-        wl.addWidget(scroll)
-
-        host = QWidget()
-        layout = QVBoxLayout(host)
-        layout.setContentsMargins(0, 0, 6, 0)
-        layout.setSpacing(10)
-
+        # ---- 项目 ----
         proj_box = QGroupBox(tr("项目"))
         pf = QHBoxLayout(proj_box)
         pf.setContentsMargins(12, 18, 12, 12)
@@ -322,8 +397,20 @@ class IdePage(QWidget):
         self._btn_save = QPushButton(tr("保存"))
         self._btn_save.clicked.connect(self._on_save_project)
         pf.addWidget(self._btn_save)
-        layout.addWidget(proj_box)
+        proj_panel = dock.add_docker("项目", proj_box, icon_kind="layers")
+        proj_panel.set_icon("layers")
 
+        # 标题栏里的「收起整栏」三角钮（收起后点竖排标签即可展开）
+        self._params_toggle_btn = QToolButton()
+        self._params_toggle_btn.setObjectName("DockToggle")
+        self._params_toggle_btn.setAutoRaise(True)
+        self._params_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._params_toggle_btn.setIconSize(QSize(scaled(14), scaled(14)))
+        self._params_toggle_btn.setFixedSize(scaled(20), scaled(20))
+        self._params_toggle_btn.clicked.connect(self._on_toggle_params)
+        proj_panel.add_header_widget(self._params_toggle_btn)
+
+        # ---- 参考图 / 首帧图 ----
         img_box = QGroupBox(tr("参考图 / 首帧图"))
         ib = QVBoxLayout(img_box)
         ib.setContentsMargins(12, 18, 12, 12)
@@ -342,7 +429,20 @@ class IdePage(QWidget):
         col.addWidget(hint)
         ref_row.addLayout(col, 1)
         ib.addLayout(ref_row)
-        layout.addWidget(img_box)
+        img_panel = dock.add_docker("参考图 / 首帧图", img_box, icon_kind="import_image")
+        img_panel.set_icon("import_image")
+
+        # ---- 分步骤参数（随步骤切换）+ 执行按钮 ----
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setMinimumWidth(scaled(200))
+        self._params_scroll = scroll
+
+        host = QWidget()
+        layout = QVBoxLayout(host)
+        layout.setContentsMargins(0, 0, 6, 0)
+        layout.setSpacing(10)
 
         # 分步骤参数：随左侧步骤切换只显示本步骤相关参数
         self._step_params = QStackedWidget()
@@ -362,10 +462,13 @@ class IdePage(QWidget):
         layout.addWidget(self._btn_run)
 
         scroll.setWidget(host)
-        # 默认收起参数面板（仅三角钮），点击展开
+        step_panel = dock.add_docker("步骤参数", scroll, icon_kind="palette", stretch=1)
+        step_panel.set_icon("palette")
+
+        # 默认收起整栏（仅竖排标签），点击展开
         self._params_collapsed = True
         self._apply_params_collapsed()
-        return wrap
+        return dock
 
     # ------------------------------------------------------------------ #
     # 分步骤参数面板
@@ -1063,6 +1166,12 @@ class IdePage(QWidget):
     # ------------------------------------------------------------------ #
     def retranslate_ui(self) -> None:
         populate_action_combo(self._action_combo)
+        # 编辑器里的动态提示（色族色块、对称/环绕开关）也要跟着换语言
+        editor = getattr(self, "_editor", None)
+        if editor is not None and hasattr(editor, "retranslate_ui"):
+            editor.retranslate_ui()
+        # 参数栏三角钮的图标/提示随语言重刷
+        self._apply_params_collapsed()
         current = self._preview_speed_combo.currentData()
         self._preview_speed_combo.blockSignals(True)
         self._preview_speed_combo.clear()
@@ -1071,3 +1180,8 @@ class IdePage(QWidget):
         idx = self._preview_speed_combo.findData(current)
         self._preview_speed_combo.setCurrentIndex(idx if idx >= 0 else 1)
         self._preview_speed_combo.blockSignals(False)
+        # 状态行/时间轴提示是「帧 {cur}/{n} · {w}×{h}」这类拼接文案，需重算
+        self._update_status()
+        hint = getattr(self._timeline, "retranslate_ui", None)
+        if callable(hint):
+            hint()

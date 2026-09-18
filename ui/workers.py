@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 import threading
-from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Tuple
 
 from PySide6.QtCore import QThread, Signal
 
@@ -11,10 +10,8 @@ from config.api_config import APIConfigManager
 from core.api.factory import create_api_client
 from core.workflow import (
     SoloParams,
-    SoloResult,
     SoloWorkflow,
     SpriteParams,
-    SpriteResult,
     SpriteWorkflow,
     WorkflowCancelled,
     WorkflowError,
@@ -58,7 +55,7 @@ class FunctionWorker(QThread):
             result = self._fn(*self._args, **self._kwargs)
             self.succeeded.emit(result)
         except Exception as exc:  # noqa: BLE001
-            self.failed.emit(str(exc))
+            self.failed.emit(tr(str(exc)))
 
 
 class SoloWorker(QThread):
@@ -112,7 +109,7 @@ class SoloWorker(QThread):
             self.failed.emit(tr("任务已取消"))
         except WorkflowError as exc:
             step = tr("（步骤：{0}）").format(exc.step) if exc.step else ""
-            self.failed.emit(f"{exc.message}{step}")
+            self.failed.emit(f"{tr(exc.message)}{step}")
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(tr("未知错误: {0}").format(exc))
         finally:
@@ -126,7 +123,8 @@ class SoloWorker(QThread):
         self.progress.emit(step, total, name, pct, message)
 
     def _on_log(self, level: str, message: str) -> None:
-        self.log.emit(level, message)
+        # 工作流里的提示/错误文案统一在这里过一遍翻译（未收录的原文原样透传）
+        self.log.emit(level, tr(message))
 
     def _on_prompts(self, prompts: dict) -> None:
         self.prompts_generated.emit(dict(prompts))
@@ -156,12 +154,13 @@ class IdeStepWorker(QThread):
             self.succeeded.emit(result)
         except WorkflowError as exc:
             step = tr("（步骤：{0}）").format(exc.step) if exc.step else ""
-            self.failed.emit(f"{exc.message}{step}")
+            self.failed.emit(f"{tr(exc.message)}{step}")
         except Exception as exc:  # noqa: BLE001
-            self.failed.emit(str(exc))
+            self.failed.emit(tr(str(exc)))
 
     def _on_log(self, level: str, message: str) -> None:
-        self.log.emit(level, message)
+        # 工作流里的提示/错误文案统一在这里过一遍翻译（未收录的原文原样透传）
+        self.log.emit(level, tr(message))
 
 
 class SpriteWorker(QThread):
@@ -200,7 +199,7 @@ class SpriteWorker(QThread):
             self.failed.emit(tr("任务已取消"))
         except WorkflowError as exc:
             step = tr("（步骤：{0}）").format(exc.step) if exc.step else ""
-            self.failed.emit(f"{exc.message}{step}")
+            self.failed.emit(f"{tr(exc.message)}{step}")
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(tr("未知错误: {0}").format(exc))
         finally:
@@ -211,7 +210,8 @@ class SpriteWorker(QThread):
                     pass
 
     def _on_log(self, level: str, message: str) -> None:
-        self.log.emit(level, message)
+        # 工作流里的提示/错误文案统一在这里过一遍翻译（未收录的原文原样透传）
+        self.log.emit(level, tr(message))
 
 
 TILEMAP_API_KINDS = ("image",)
@@ -268,7 +268,7 @@ class TilemapWorker(QThread):
             self.failed.emit(tr("任务已取消"))
         except WorkflowError as exc:
             step = tr("（步骤：{0}）").format(exc.step) if exc.step else ""
-            self.failed.emit(f"{exc.message}{step}")
+            self.failed.emit(f"{tr(exc.message)}{step}")
         except Exception as exc:  # noqa: BLE001
             self.failed.emit(tr("未知错误: {0}").format(exc))
         finally:
@@ -279,4 +279,5 @@ class TilemapWorker(QThread):
                     pass
 
     def _on_log(self, level: str, message: str) -> None:
-        self.log.emit(level, message)
+        # 工作流里的提示/错误文案统一在这里过一遍翻译（未收录的原文原样透传）
+        self.log.emit(level, tr(message))

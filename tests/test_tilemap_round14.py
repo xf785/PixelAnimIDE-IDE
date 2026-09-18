@@ -2,13 +2,12 @@
 import json
 
 import numpy as np
-import pytest
 from PIL import Image, ImageDraw
 
 from core.tilemap import BIT, TileMapModel, compose_art_tile, mask_for_terrain
 from core.tilemap.pack import export_tileset_dir, load_tileset
-from core.tilemap.seamless import align_terrain_set, make_tile_texture, median_tile_texture
-from core.tilemap.tiles import EDGE_NAMES, BaseTileSet, crop_blocks, ecosystem_from_blocks
+from core.tilemap.seamless import make_tile_texture
+from core.tilemap.tiles import EDGE_NAMES, BaseTileSet
 
 S = 32
 
@@ -83,7 +82,7 @@ def test_edge_blend_makes_boundary_percolated_but_keeps_seams():
     flat = np.asarray(compose_art_tile(_art(blend=0.0), mask))
     blend = np.asarray(compose_art_tile(_art(blend=0.9), mask))
     # 交界处出现互相咬合的像素（融合开启后边界不再是直线）
-    band = art_band = 8
+    band = 8
     row = flat[band - 2:band + 3, :, :3]
     brow = blend[band - 2:band + 3, :, :3]
     assert not (row == brow).all(), "开启融合后交界应有变化"

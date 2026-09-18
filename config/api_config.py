@@ -34,7 +34,7 @@ logger = logging.getLogger("PixelFoundry.config.api_config")
 CONFIG_VERSION = 1
 
 # 各类型 API 的字段定义（供 UI 表单复用）
-# type: text/password/int/float/bool/choice；choice 的 options 为 [(value, label)]
+# 字段类型 type 取值：text/password/int/float/bool/choice；choice 的 options 为 [(value, label)]
 # group: "advanced" 表示归入可折叠的「高级选项」分组，缺省为基础字段
 FIELD_DEFS: Dict[str, List[dict]] = {
     "llm": [

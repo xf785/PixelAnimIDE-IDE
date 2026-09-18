@@ -21,7 +21,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image
 
 from core.processing.pixelizer import extract_dominant_palette, map_to_palette
 
@@ -582,7 +582,7 @@ def _side_seed(mask: int, side: str, salt: int = 0) -> int:
     return (int(mask) * 2654435761 + (ord(side[0]) << 8) + ord(side[-1]) + salt) & 0xFFFFFFFF
 
 
-_TILE_CACHE: Dict[Tuple[int, int, int, int, int], Image.Image] = {}
+_TILE_CACHE: Dict[Tuple[int, int, int, int, int], Tuple[object, Image.Image]] = {}
 _TILE_CACHE_MAX = 4096
 
 
@@ -591,17 +591,20 @@ def compose_art_tile_cached(base, mask: int) -> Image.Image:
 
     大地图预览（如柏林噪声 160×120 格）会重复用到同一批瓦片，缓存后渲染从
     「每格一次 numpy 合成」降到「每种掩码一次」，几十万格也能秒开。
+
+    缓存键含 ``id(base)``，因此**必须同时保存对象本身并做同一性校验**：否则旧地形
+    被回收后新对象可能落到同一地址，从而取到上一套地形的旧瓦片（地图上偶发「串图」）。
     """
     key = (id(base), int(mask) & 255, int(getattr(base, "band", 0) or 0),
            int(getattr(base, "line_width", 0) or 0),
            int((getattr(base, "art_meta", {}) or {}).get("edge_noise_px", 0) or 0))
     got = _TILE_CACHE.get(key)
-    if got is not None:
-        return got
+    if got is not None and got[0] is base:
+        return got[1]
     tile = compose_art_tile(base, mask)
     if len(_TILE_CACHE) >= _TILE_CACHE_MAX:
         _TILE_CACHE.clear()
-    _TILE_CACHE[key] = tile
+    _TILE_CACHE[key] = (base, tile)
     return tile
 
 
@@ -711,21 +714,6 @@ def compose_art_tile(base, mask: int, blend: int = 1) -> Image.Image:
             grown = _disc_dilate(prev, 1)
             depth[grown & ~prev] = k
         return depth
-
-    def _box_mean(mask: np.ndarray, r: int) -> np.ndarray:
-        """3×3/5×5 局部占空比（边界法线方向用）。"""
-        m = mask.astype(np.float32)
-        pad = np.pad(m, r, mode="edge")
-        acc = np.zeros_like(m)
-        for dy in range(-r, r + 1):
-            for dx in range(-r, r + 1):
-                acc += pad[r + dy:r + dy + m.shape[0], r + dx:r + dx + m.shape[1]]
-        return acc / ((2 * r + 1) ** 2)
-
-    def _shift(arr: np.ndarray, dy: int, dx: int) -> np.ndarray:
-        """边缘夹取式平移（不能用 np.roll：环绕会让边缘像素依赖瓦片对侧，破坏接缝一致）。"""
-        pad = np.pad(arr, 1, mode="edge")
-        return pad[1 + dy:1 + dy + arr.shape[0], 1 + dx:1 + dx + arr.shape[1]]
 
     # 描边层次：实测色调若过于单一，补一层「向地面过渡」的柔和外圈，
     # 避免出现一条生硬的等宽黑线（手绘 47 图块的边界通常有明暗过渡）。
@@ -838,7 +826,6 @@ def build_47_sheet_art(base, blend: int = 1) -> Tuple[Image.Image, Dict]:
         slot_of_mask[mask] = idx
         index_to_mask.append(mask)
         tiles.append(tile)
-    unique = len(tiles)
     # 经典布局中「孤立瓦片」（mask=0）与「四内角瓦片」（四边满、对角全空）
     # 图形重合（同为四角圆盘切），模板惯例保留双槽位。
     hole_mask = BIT["T"] | BIT["B"] | BIT["L"] | BIT["R"]
@@ -846,7 +833,6 @@ def build_47_sheet_art(base, blend: int = 1) -> Tuple[Image.Image, Dict]:
         tiles.append(tiles[slot_of_mask[hole_mask]])
         slot_of_mask[0] = len(tiles) - 1
         index_to_mask.append(0)
-        unique = len(tiles)
     while len(tiles) < 47:
         tiles.append(tiles[0])
     # 全 256 掩码 -> 槽位（不可达掩码按汉明距离回退）

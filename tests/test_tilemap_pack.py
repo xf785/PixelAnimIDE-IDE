@@ -5,9 +5,9 @@ from PIL import Image, ImageDraw
 
 from core.tilemap import BIT, TileMapModel, compose_art_tile
 from core.tilemap.bigmap import generate_perlin_map, scatter_walls
-from core.tilemap.pack import PACK_FORMAT, TilePack, load_tilepack, pack_from_session, save_tilepack
+from core.tilemap.pack import TilePack, load_tilepack, pack_from_session, save_tilepack
 from core.tilemap.seamless import align_terrain_set, median_tile_texture
-from core.tilemap.tiles import EDGE_NAMES, BaseTileSet, crop_blocks, ecosystem_from_blocks
+from core.tilemap.tiles import BaseTileSet, crop_blocks, ecosystem_from_blocks
 from core.tilemap.walls import build_piece_set, wall_art_from_sheet
 
 S = 32

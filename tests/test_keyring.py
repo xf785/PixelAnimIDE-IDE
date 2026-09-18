@@ -1,7 +1,5 @@
 """密钥加密存储测试。"""
-from pathlib import Path
 
-import pytest
 
 from core.storage.keyring import Keyring
 

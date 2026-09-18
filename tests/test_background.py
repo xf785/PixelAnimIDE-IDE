@@ -15,7 +15,7 @@ def make_image_with_white_bg():
 
 def test_white_background_removed():
     img = make_image_with_white_bg()
-    out = bg.remove_white_background(img, tolerance=30)
+    out = bg.remove_background(img, (255, 255, 255), tolerance=30)
     assert out.mode == "RGBA"
     arr = np.array(out)
     # 角落（背景）透明
@@ -56,7 +56,7 @@ def test_feather_gives_partial_alpha():
 
 def test_input_rgba_passthrough():
     img = Image.new("RGBA", (10, 10), (255, 255, 255, 255))
-    out = bg.remove_white_background(img)
+    out = bg.remove_background(img, (255, 255, 255))
     assert out.mode == "RGBA"
     assert np.array(out)[0, 0, 3] == 0
 

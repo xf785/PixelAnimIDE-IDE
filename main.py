@@ -1,4 +1,4 @@
-﻿"""PixelFoundry 程序入口。
+"""PixelFoundry 程序入口。
 
 用法：
     python main.py                     # 启动 GUI（缺依赖时自动改用 .venv）
@@ -12,9 +12,12 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 logger = logging.getLogger("PixelFoundry")
+
+if TYPE_CHECKING:  # 仅类型检查期导入：运行期保持惰性导入，避免 _ensure_venv() 之前加载重依赖
+    from core.workflow import SoloResult
 
 
 def _ensure_venv() -> None:
@@ -51,7 +54,7 @@ def _ensure_venv() -> None:
 def build_context():
     """构建全局共享上下文（API 配置管理 + UI 设置）。"""
     from config.api_config import APIConfigManager
-    from config.settings import API_CONFIG_FILE, KEYRING_FILE, UI_SETTINGS_FILE
+    from config.settings import API_CONFIG_FILE, UI_SETTINGS_FILE
     from ui.app_context import AppContext, UISettings
 
     api = APIConfigManager(API_CONFIG_FILE)
@@ -142,7 +145,7 @@ def main(argv: Optional[list] = None) -> int:
     )
 
     if args.demo:
-        print(f"=== PixelFoundry 演示模式（模拟 API）===")
+        print("=== PixelFoundry 演示模式（模拟 API）===")
         print(f"描述: {args.desc}")
         print(f"动作: {args.action} | 帧数: {args.frames} | 帧率: {args.fps} | 倍速: {args.speed} | 颜色: {args.colors}")
         try:

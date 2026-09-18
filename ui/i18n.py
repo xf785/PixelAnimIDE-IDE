@@ -22,6 +22,241 @@ _LANG: str = "zh"  # 当前语言（LANG_PACKS 的 key）
 LANG_PACKS: dict = {
     "zh": {},
     "en": {
+        # ---------- Krita 风格外壳：菜单栏 / 工具条 / 停靠面板 ----------
+        "主工具条": "Main toolbar",
+        "文件": "File",
+        "工作区": "Workspace",
+        "帮助": "Help",
+        "新建像素画布": "New pixel canvas",
+        "新建 {0}×{0} 像素画布": "Create a new {0}×{0} pixel canvas",
+        "打开项目…": "Open project…",
+        "保存项目": "Save project",
+        "保存 IDE 项目": "Save the IDE project",
+        "导出…": "Export…",
+        "跳到 IDE 的导出步骤并导出": "Jump to the IDE export step",
+        "在文件管理器里打开输出目录": "Open the output folder in the file manager",
+        "退出": "Quit",
+        "退出程序": "Quit the application",
+        "步骤参数": "Step parameters",
+        "瓦片集": "Tileset",
+        "生成 / 结果": "Generate / result",
+        "撤销": "Undo",
+        "撤销上一步像素编辑": "Undo the last pixel edit",
+        "重做": "Redo",
+        "重做被撤销的像素编辑": "Redo the undone pixel edit",
+        "把当前选区复制到剪贴板": "Copy the current selection to the clipboard",
+        "粘贴为浮动图层": "Paste as floating layer",
+        "把剪贴板内容粘贴成半透明浮动图层": "Paste the clipboard as a semi-transparent floating layer",
+        "合并浮动图层": "Merge floating layer",
+        "把浮动图层合并进当前帧": "Merge the floating layer into the current frame",
+        "切换深色 / 浅色主题": "Toggle dark / light theme",
+        "在深色与浅色主题之间切换": "Switch between the dark and light theme",
+        "界面比例": "UI scale",
+        "全屏": "Fullscreen",
+        "切换全屏显示": "Toggle fullscreen",
+        "重置面板布局": "Reset panel layout",
+        "恢复默认的停靠面板宽度": "Restore the default docker widths",
+        "已重置面板布局": "Panel layout reset",
+        "快捷键设置…": "Shortcut settings…",
+        "打开设置里的快捷键面板": "Open the shortcuts page in Settings",
+        "打开使用文档": "Open documentation",
+        "用系统默认程序打开 README": "Open the README with the system default app",
+        "未找到 README 文件": "README file not found",
+        "关于": "About",
+        "版本": "Version",
+        "版本与项目信息": "Version and project info",
+        "像素铸造 IDE": "Pixel Foundry IDE",
+        "PixelFoundry — Pixel Game Asset Foundry\n像素铸造 IDE":
+            "PixelFoundry — Pixel Game Asset Foundry\nPixel Foundry IDE",
+        "视频动画生成": "Video animation",
+        "战斗": "Combat",
+        # ---------- 像素编辑器：形状 / 对称 / 环绕 / 变换 / 导出 ----------
+        "直线": "Line",
+        "矩形": "Rectangle",
+        "椭圆": "Ellipse",
+        "直线（拖动预览，右键笔刷粗细）": "Line (drag to preview; right-click for thickness)",
+        "矩形（右键：描边 / 填充）": "Rectangle (right-click: stroke / fill)",
+        "椭圆（右键：描边 / 填充）": "Ellipse (right-click: stroke / fill)",
+        "形状样式": "Shape style",
+        "描边": "Stroke",
+        "笔刷粗细": "Brush thickness",
+        "对称绘制开关": "Toggle symmetry",
+        "环绕绘制开关": "Toggle wrap-around drawing",
+        "对称轴": "Symmetry axis",
+        "左右镜像": "Mirror horizontally",
+        "上下镜像": "Mirror vertically",
+        "四象限镜像": "Four-quadrant mirror",
+        "对称绘制：关闭（左键切换，右键选轴）":
+            "Symmetry drawing: off (click to cycle, right-click to pick an axis)",
+        "对称绘制：左右镜像（左键关闭，右键选轴）":
+            "Symmetry drawing: horizontal mirror (click to turn off, right-click to pick an axis)",
+        "对称绘制：上下镜像（左键关闭，右键选轴）":
+            "Symmetry drawing: vertical mirror (click to turn off, right-click to pick an axis)",
+        "对称绘制：四象限镜像（左键关闭，右键选轴）":
+            "Symmetry drawing: four-quadrant mirror (click to turn off, right-click to pick an axis)",
+        "环绕绘制：笔刷越过边界回到另一侧（画无缝瓦片）":
+            "Wrap-around drawing: the brush continues on the opposite edge (seamless tiles)",
+        "画布变换：翻转 / 旋转 / 裁剪 / 尺寸 / 缩放":
+            "Canvas transform: flip / rotate / crop / size / scale",
+        "水平翻转": "Flip horizontally",
+        "垂直翻转": "Flip vertically",
+        "顺时针旋转 90°": "Rotate 90° clockwise",
+        "逆时针旋转 90°": "Rotate 90° counter-clockwise",
+        "裁剪到选区": "Crop to selection",
+        "画布尺寸": "Canvas size",
+        "画布尺寸…": "Canvas size…",
+        "宽度(px)": "Width (px)",
+        "高度(px)": "Height (px)",
+        "内容对齐": "Content anchor",
+        "居中": "Centre",
+        "左上": "Top left",
+        "右上": "Top right",
+        "左下": "Bottom left",
+        "右下": "Bottom right",
+        "内容缩放": "Scale content",
+        "内容整数倍缩放…": "Scale content by an integer…",
+        "放大整数倍": "Integer scale factor",
+        "导出倍率": "Export scale",
+        "按最近邻放大导出（像素画放大不失真）":
+            "Export with nearest-neighbour upscaling (pixel art stays crisp)",
+        "按所选倍率导出当前画布为 PNG": "Export the canvas as PNG at the selected scale",
+        "复制到剪贴板": "Copy to clipboard",
+        "把当前画布（含倍率）复制到系统剪贴板，可直接粘进别的软件":
+            "Copy the canvas (at the selected scale) to the clipboard for pasting elsewhere",
+        "已复制到剪贴板（{0}×）": "Copied to clipboard ({0}×)",
+        "导出调色板…": "Export palette…",
+        "导入调色板…": "Import palette…",
+        "导出调色板": "Export palette",
+        "导入调色板": "Import palette",
+        "导出为 GIMP .gpl 调色板（Aseprite / Krita / GIMP 可直接导入）":
+            "Export as a GIMP .gpl palette (importable by Aseprite / Krita / GIMP)",
+        "导入 .gpl / 纯文本调色板并锁定，之后绘制自动吸附到这些颜色":
+            "Import a .gpl / plain-text palette and lock it — drawing then snaps to these colors",
+        "GIMP 调色板 (*.gpl);;所有文件 (*)": "GIMP palette (*.gpl);;All files (*)",
+        "调色板 (*.gpl *.txt *.pal);;所有文件 (*)": "Palettes (*.gpl *.txt *.pal);;All files (*)",
+        "已导出调色板：{0}（{1} 色）": "Palette exported: {0} ({1} colors)",
+        "已导入调色板：{0} 色（已锁定）": "Palette imported: {0} colors (locked)",
+        "导出调色板失败": "Failed to export the palette",
+        "导入调色板失败": "Failed to import the palette",
+        "这个文件里没有解析到颜色": "No colors could be parsed from this file",
+        "旋转": "Rotate",
+        "add_pack 需要 TilePack": "add_pack expects a TilePack",
+        "PNG 图片 (*.png)": "PNG image (*.png)",
+        "图片 (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;所有文件 (*)":
+            "Images (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;All files (*)",
+        "特征 1": "Feature 1",
+        "特征 2": "Feature 2",
+        "特征 3": "Feature 3",
+        "水塘": "Pond",
+        "稀疏草地": "Sparse grass",
+        "岩石": "Rocks",
+        # ---------- 核心层在工作流/日志里展示的错误与提示 ----------
+        "没有可用帧，无法生成 GIF": "No usable frames — cannot build a GIF",
+        "没有可用帧，无法生成 APNG": "No usable frames — cannot build an APNG",
+        "没有可用帧": "No usable frames",
+        "没有可用帧，无法生成元数据": "No usable frames — cannot write metadata",
+        "精灵图与网格参数无效": "Invalid sprite sheet or grid parameters",
+        "地图尺寸必须 ≥1": "Map size must be ≥ 1",
+        "不是瓦片集/瓦片包（manifest.format 不匹配）":
+            "Not a tileset/tile pack (manifest.format mismatch)",
+        "需要 2×2 块图": "A 2×2 block sheet is required",
+        "精灵图流程未产出结果": "The sprite workflow produced no result",
+        "尚未生成对象底图，请先执行上一步": "No base image yet — run the previous step first",
+        "尚未生成精灵图，请先执行上一步": "No sprite sheet yet — run the previous step first",
+        "裁切精灵图失败（0 帧）": "Failed to crop the sprite sheet (0 frames)",
+        "尚未裁切帧序列，请先执行上一步": "Frames are not cropped yet — run the previous step first",
+        "尚未完成像素化，请先执行上一步": "Pixelization is not done — run the previous step first",
+        "没有可导出的帧，请先执行上一步": "No frames to export — run the previous step first",
+        "瓦片地图流程未产出结果": "The tilemap workflow produced no result",
+        "未提供图片 API，无法生成底图": "No image API configured — cannot generate the sheet",
+        "尚未生成底图，请先执行上一步": "No sheet yet — run the previous step first",
+        "尚未裁切瓦片，请先执行上一步": "Tiles are not cropped yet — run the previous step first",
+        "尚未完成无缝化，请先执行上一步": "Seamless stitching is not done — run the previous step first",
+        "尚未完成建筑拼件，请先执行上一步": "Building pieces are not ready — run the previous step first",
+        "尚未生成瓦片集，请先执行上一步": "No tileset yet — run the previous step first",
+        "尚未生成素材，请先执行上一步": "No props yet — run the previous step first",
+        "尚未生成建筑拼件，请先执行上一步": "No building pieces yet — run the previous step first",
+        # ---------- API 配置（预设 / 占位提示） ----------
+        "通用（OpenAI 兼容轮询）": "Generic (OpenAI-compatible polling)",
+        "Doubao Seedance（火山方舟）": "Doubao Seedance (Volcengine Ark)",
+        "gpt.ge (V-API) 豆包视频": "gpt.ge (V-API) Doubao video",
+        "gpt.ge 豆包视频": "gpt.ge Doubao video",
+        "快手可灵 Kling": "Kuaishou Kling",
+        "http://127.0.0.1:7890（直连被拦截时填写）": "http://127.0.0.1:7890 (fill in when direct access is blocked)",
+        "默认 /chat/completions": "Default /chat/completions",
+        "默认 /images/generations": "Default /images/generations",
+        "默认 image；按服务商调整": "Default image; adjust per provider",
+        "默认 data（兼容 b64_json/url）；如 result.images / output.items":
+            "Default data (b64_json/url compatible); e.g. result.images / output.items",
+        "默认自动兼容；如 data.answer / output.0.content":
+            "Auto-detected by default; e.g. data.answer / output.0.content",
+        '如 {"X-API-Key":"abc"}；留空则仅自动加 Authorization Bearer':
+            'e.g. {"X-API-Key":"abc"}; leave empty to only add the Authorization Bearer header',
+        '如 {"X-API-Key": "abc"}；留空则仅自动加 Authorization Bearer':
+            'e.g. {"X-API-Key": "abc"}; leave empty to only add the Authorization Bearer header',
+        '如 {"X-API-Key": "abc", "Accept": "text/plain"}；留空则仅自动加 Authorization Bearer':
+            'e.g. {"X-API-Key": "abc", "Accept": "text/plain"}; leave empty to only add the Authorization Bearer header',
+        '如 {"model": "$model", "messages": [{"role": "user", "content": "$prompt"}]}；占位符 $model/$prompt/$system/$max_tokens/$temperature':
+            'e.g. {"model": "$model", "messages": [{"role": "user", "content": "$prompt"}]}; placeholders $model/$prompt/$system/$max_tokens/$temperature',
+        '如 {"model": "$model", "prompt": "$prompt", "size": "$size", "n": $n}；占位符 $model/$prompt/$size/$n/$image/$negative_prompt/$seed/$steps/$response_format':
+            'e.g. {"model": "$model", "prompt": "$prompt", "size": "$size", "n": $n}; placeholders $model/$prompt/$size/$n/$image/$negative_prompt/$seed/$steps/$response_format',
+        '如 {"model_name":"$model","image":"$image"}，支持 $model/$prompt/$image/$last_image/$frames/$fps/$duration':
+            'e.g. {"model_name":"$model","image":"$image"}; supports $model/$prompt/$image/$last_image/$frames/$fps/$duration',
+        '如 {"resolution":"1080p","watermark":false}': 'e.g. {"resolution":"1080p","watermark":false}',
+        "从文本到像素资产的一站式桌面工作台：文生图 → 动画 → 严格像素化 → 抠图 → GIF / APNG / 序列帧 / 雪碧图。":
+            "A one-stop desktop workbench from text to pixel assets: text-to-image → animation → strict pixelization → keying → GIF / APNG / frames / sprite sheets.",
+        "界面参考 Krita 的停靠面板与工作区布局；MIT 许可，开源免费。":
+            "The interface follows Krita's docker and workspace layout; MIT licensed, free and open source.",
+        "IDE 分步工作区": "IDE step workspace",
+        "Solo 一键生成": "Solo one-click",
+        "独立像素画布": "Standalone pixel canvas",
+        "瓦片地图": "Tilemap",
+        "按当前参数一键生成像素动画": "Run the whole pipeline with the current parameters",
+        "按当前参数生成网格精灵图": "Generate a grid sprite sheet with the current parameters",
+        "继续执行下一步骤": "Run the next step",
+        "打开本次生成结果的输出目录": "Open the output folder of this run",
+        "{0}帧 · {1}fps": "{0} frames · {1} fps",
+        "{0}帧 · {1}×{2}": "{0} frames · {1}×{2}",
+        # ---------- 停靠面板 / 目录浏览 ----------
+        "展开面板": "Expand panel",
+        "收起面板": "Collapse panel",
+        "收起参数栏": "Collapse the parameter column",
+        "资源浏览": "Asset browser",
+        "逻辑资源": "Logical assets",
+        "全部包 · 逻辑资源": "All packs · logical assets",
+        "图集": "Atlases",
+        "单瓦片": "Single tiles",
+        "纹理": "Textures",
+        "数据": "Data",
+        "目录：{0}": "Folder: {0}",
+        "显示 {0}/{1}": "Showing {0}/{1}",
+        "（已达到显示上限 {0}，缩小范围或用搜索）":
+            " (display cap of {0} reached — narrow the scope or use search)",
+        "包内目录：展开到任意一级即可浏览该层资源":
+            "Folders in the pack: expand any level to browse that level's assets",
+        "勾选控制显隐；点选切换当前包": "Tick to show/hide; click to make it the current pack",
+        "导入瓦片包/素材包（.tilepack、导出 zip、导出文件夹或普通图片文件夹）":
+            "Import a tile/prop pack (.tilepack, exported zip, exported folder or a plain image folder)",
+        "包 {0} · 地形 {1} · 拼件 {2} · 素材 {3} · 底图 {4} · 图片 {5}":
+            "Packs {0} · terrain {1} · pieces {2} · props {3} · sheets {4} · images {5}",
+        "（图片文件夹）": " (image folder)",
+        # ---------- 画布信息 ----------
+        "画布": "Canvas",
+        "画布信息": "Canvas info",
+        "宽 × 高": "Width × height",
+        "用作首帧": "Use as first frame",
+        "导出当前画布为 PNG": "Export the current canvas as PNG",
+        "尺寸：{0} × {1} 像素": "Size: {0} × {1} px",
+        "颜色数：{0}": "Colors: {0}",
+        "过多": "too many",
+        "提示：在左侧资源网格里双击资源 = 直接放入画布。":
+            "Tip: double-click an asset in the left grid to place it straight onto the canvas.",
+        # ---------- 瓦片地图补充文案 ----------
+        "瓦片类别": "Tile category",
+        "地块生态": "Terrain ecosystem",
+        "建筑类": "Buildings",
+        "九宫格": "Nine-grid",
+        "2.5D 高度层": "2.5D height layer",
         # ---------- 瓦片地图 / 2.5D / 瓦片集补充 ----------
         "全部": "All",
         "地形": "Terrain",
@@ -30,13 +265,11 @@ LANG_PACKS: dict = {
         "底图": "Sheets",
         "搜索资源…": "Search assets…",
         "添加包…": "Add pack…",
-        "导入瓦片包/素材包（.tilepack、导出 zip 或导出文件夹）": "Import a tile pack / prop pack (.tilepack, exported zip or folder)",
         "放入画布": "Place on canvas",
         "把选中的资源居中合成到当前画布（保持画布尺寸）": "Composite the selected asset centred onto the current canvas (canvas size unchanged)",
         "替换画布": "Replace canvas",
         "用选中的资源替换整张画布（画布尺寸随之改变）": "Replace the whole canvas with the selected asset (canvas is resized)",
         "移除包": "Remove pack",
-        "清空": "Clear",
         "请先在列表里选择一个资源": "Select an asset in the list first",
         "包 {0} · 地形 {1} · 拼件 {2} · 素材 {3} · 底图 {4}": "Packs {0} · terrain {1} · pieces {2} · props {3} · sheets {4}",
         "瓦片包 / 素材包": "Tile & prop packs",
@@ -44,10 +277,6 @@ LANG_PACKS: dict = {
         "已用素材替换画布：{0}": "Canvas replaced with: {0}",
         "已恢复上次的 {0} 个包": "Restored {0} pack(s) from last session",
         "瓦片包": "Tile packs",
-        "动画已生成！\n{0}": "Animation ready!\n{0}",
-        "精灵图已生成！\n{0} 帧\nGIF: {1}\n抠图精灵图: {2}": "Sprite sheet ready!\n{0} frames\nGIF: {1}\nKeyed sprite sheet: {2}",
-        "＋\n参考图": "＋\nReference",
-        "47 拼接采用「对齐式构图」：只有**中心格**会作为该地形的无缝纹理，": "47-tiling uses *aligned composition*: only the **centre cell** becomes the seamless texture of that terrain,",
         "例如：石墙、木栅栏、房屋……（建筑主体）": "e.g. stone wall, wooden fence, house… (building body)",
         "例如：草地、沙漠、雪原……（生态基础地形）": "e.g. grass, desert, snowfield… (ecosystem base terrain)",
         "俯视 2.5D：高台格子的南侧在低地格上画崖壁立面（同一套 16-tile 族），预览里可抬高/降低格子": "Top-down 2.5D: south of a plateau the cliff face is painted on the lower tile (same 16-tile family); raise/lower tiles in the preview",
@@ -69,7 +298,6 @@ LANG_PACKS: dict = {
         "放置缩放：素材不都占一格，放大后仍以格子底部中心为锚点": "Placement scale: props may span several tiles; scaling keeps the tile's bottom-centre as anchor",
         "高度": "Height",
         "（无拼件）": "(no piece)",
-        "提示：AI 视频动作通常较慢，1.5s 以内的片段可能无法完整呈现动作；": "Tip: AI video motion is usually slow — clips under 1.5s may not show the full action;",
         "2.5D 崖壁已推导：{0} 个地形（顶面 + 崖壁 16-tile 族，预览里可抬高/降低格子）": "2.5D cliffs derived for {0} terrains (top faces + a 16-tile cliff family; raise/lower in the preview)",
         "2.5D 自动高度：{0}": "2.5D automatic heights: {0}",
         "47-tile 瓦片集已生成（九宫格艺术片构图，全填充）": "47-tile set generated (aligned composition, fully filled)",
@@ -98,7 +326,6 @@ LANG_PACKS: dict = {
     # ---------- 主窗口 / 模式 ----------
     "Solo": "Solo",
     "IDE": "IDE",
-    "精灵图": "Sprites",
     "像素": "Pixel",
     "Solo — 一键生成": "Solo — One-click generation",
     "IDE — 分步工作区": "IDE — Step-by-step workspace",
@@ -139,11 +366,9 @@ LANG_PACKS: dict = {
     "演示地图": "Demo map",
     "地图宽": "Map W",
     "高": "H",
-    "生成瓦片集": "Generate tileset",
     "重新生成": "Regenerate",
     "接受并生成瓦片集": "Accept & build tileset",
     "处理中…": "Processing…",
-    "生图底图（待确认）": "Generated sheet (pending confirmation)",
     "生图底图（待确认，格线框已抹除）": "Generated sheet (pending confirmation, cell frames removed)",
     "（已抹除 {0} 条格线框）": " ({0} cell frame lines removed)",
     "底图已生成并保存（{0}）{1}。确认满意后点「接受并生成瓦片集」，不满意可「重新生成」": "Sheet generated and saved ({0}){1}. Click \"Accept & build tileset\" to continue, or \"Regenerate\" if not satisfied.",
@@ -153,7 +378,6 @@ LANG_PACKS: dict = {
     "底图检测到疑似文字/水印（{0}），已用纹理修补覆盖；建议重新生成以免误伤艺术纹理": "Suspected text/watermark detected on the sheet ({0}) and patched with texture; regenerate to avoid damaging the artwork.",
     "生态无缝化完成：{0} 套地形纹理（条带 {1}px、描边 {2}px，实测自底图）": "Ecosystem alignment done: {0} terrain textures (band {1}px, outline {2}px, measured from the sheet)",
     "无缝化完成：对齐式纹理（条带 {0}px、描边 {1}px，实测自底图）": "Alignment done: aligned textures (band {0}px, outline {1}px, measured from the sheet)",
-    "底图已生成并保存（{0}）。确认满意后点「接受并生成瓦片集」，不满意可「重新生成」": "Sheet generated and saved ({0}). Click \"Accept & build tileset\" to continue, or \"Regenerate\" if not satisfied.",
     "编辑瓦片": "Edit tiles",
     "地图预览": "Map preview",
     "网格": "Grid",
@@ -170,10 +394,8 @@ LANG_PACKS: dict = {
     "添加瓦片包": "Add tile pack",
     "提示：点「添加瓦片包」加载地块/建筑/素材包后即可直接铺设": "Tip: click \"Add tile pack\" to load terrain / building / prop packs and paint right away",
     "无需先生成瓦片集：进入后可用「添加瓦片包」加载地块/建筑/素材包": "No need to generate first: load terrain / building / prop packs inside with \"Add tile pack\"",
-    "关闭": "Close",
     "保存瓦片包": "Save tile pack",
     "柏林噪声大地图": "Perlin big map",
-    "瓦片包 (*.tilepack);;所有文件 (*)": "Tile pack (*.tilepack);;All files (*)",
     "瓦片包 (*.tilepack)": "Tile pack (*.tilepack)",
     "加载瓦片包失败": "Failed to load tile pack",
     "保存瓦片包失败": "Failed to save tile pack",
@@ -198,15 +420,11 @@ LANG_PACKS: dict = {
     "编辑瓦片（重绘后需重新生成瓦片集）": "Edit tiles (regenerate the tileset after redrawing)",
     "选择瓦片（点击切换）": "Select a tile (click to switch)",
     "应用修改": "Apply changes",
-    "完成": "Done",
     "瓦片已更新并重新生成瓦片集": "Tiles updated and tileset regenerated",
     "重新生成失败": "Regeneration failed",
-    "地图预览（左键铺设 / 右键擦除 / 滚轮缩放）": "Map preview (left paint / right erase / wheel zoom)",
     "应用到会话": "Apply to session",
     "地图已更新并重新导出预览": "Map updated and preview re-exported",
-    "导出失败": "Export failed",
     "画笔": "Brush",
-    "橡皮": "Eraser",
     "清空": "Clear",
     "左上角": "Top-left",
     "上边": "Top",
@@ -226,7 +444,6 @@ LANG_PACKS: dict = {
     "建筑底图左上块的中心格只有 {0}% 被填充：该块应是填满整格的墙体（其余块为白底拼件）。请重新生成，并确认墙体组画在左上、立柱组画在右下": "The centre cell of the building sheet's top-left block is only {0}% filled; it should be a wall segment filling the whole cell (the other blocks are white-background pieces). Regenerate, and make sure the wall set is drawn top-left and the pillar set bottom-right.",
     "无缝化处理": "Make seamless",
     "生成瓦片集": "Build tileset",
-    "导出": "Export",
     "设置 — API 配置 / 常规": "Settings — API config / general",
     "切换主题（深色 / 浅色）": "Toggle theme (dark / light)",
     "就绪": "Ready",
@@ -240,38 +457,22 @@ LANG_PACKS: dict = {
     "图片": "Image",
     "动画": "Animation",
     "像素化": "Pixelate",
-    "背景": "Background",
-    "导出": "Export",
     "文本生成": "Text generation",
     "图片生成": "Image generation",
     "动画生成": "Animation generation",
-    "像素化处理": "Pixelate",
+    "像素化处理": "Pixelization",
     "背景去除": "Background removal",
-    "生成提示词": "Generate prompts",
     "生成首帧图片": "Generate first frame",
     "生成动画": "Generate animation",
-    "去除背景": "Remove background",
-    "新建": "New",
     "打开": "Open",
-    "保存": "Save",
-    "预览": "Preview",
-    "编辑": "Edit",
-    "提示词": "Prompts",
     "项目": "Project",
     "参考图 / 首帧图": "Reference / first frame",
-    "点击添加自备参考图": "Click to add your own reference image",
     "日志": "Log",
     "帧序列": "Frames",
-    "播放": "Play",
-    "暂停": "Pause",
-    "适应": "Fit",
     "缩小预览": "Zoom out",
     "放大预览": "Zoom in",
     "重置为适应窗口": "Reset to fit window",
-    "文字描述": "Description",
     "文本描述": "Description",
-    "动作类型(可选)": "Action (optional)",
-    "动作(可选)": "Action (optional)",
     "宽高比": "Aspect ratio",
     "像素尺寸": "Pixel size",
     "单格尺寸": "Cell size",
@@ -279,28 +480,20 @@ LANG_PACKS: dict = {
     "帧数": "Frames",
     "帧率(fps)": "FPS",
     "播放速度": "Playback speed",
-    "首尾帧一致（循环闭合）": "Loop close (first = last)",
     "背景强制纯色": "Force solid background",
     "背景容差": "BG tolerance",
     "内缩(px)": "Shrink (px)",
     "羽化(px)": "Feather (px)",
     "输出目录": "Output dir",
     "打开输出目录": "Open output dir",
-    "完美像素化": "Perfect pixelate",
     "去除背景": "Remove background",
     "浏览…": "Browse…",
     "搜索": "Search",
-    "查看完整色族调色板": "View full color-family palette",
     "收起调色板": "Collapse palette",
     "显示/隐藏调色板": "Show/hide palette",
-    "从本地导入图片（替换当前帧）": "Import image from disk (replaces frame)",
-    "导出当前帧为 PNG": "Export current frame as PNG",
-    "从本地导入图片": "Import image from disk",
-    "当前颜色": "Current color",
     # ---------- 像素编辑器 ----------
     "铅笔": "Pencil",
     "橡皮": "Eraser",
-    "取色": "Eyedropper",
     "填充": "Fill",
     "选择": "Select",
     "铅笔（右键笔刷大小）": "Pencil (right-click: brush size)",
@@ -317,7 +510,10 @@ LANG_PACKS: dict = {
     "提取调色板并锁定": "Extract palette and lock",
     "显示/隐藏像素网格": "Show/hide pixel grid",
     "背景：灰黑网格（点击切换，右键选档）": "Background: checker (click to cycle, right-click to pick)",
-    "收起/展开控制面板": "Collapse/expand controls",
+    # 背景按钮的提示是「模板 + format」动态生成的（切换背景档时注册），这几个具体档位必须保留
+    "背景：纯白（点击切换，右键选档）": "Background: white (click to cycle, right-click to pick)",
+    "背景：纯黑（点击切换，右键选档）": "Background: black (click to cycle, right-click to pick)",
+    "背景：纯绿（点击切换，右键选档）": "Background: green (click to cycle, right-click to pick)",
     "展开控制面板": "Expand controls",
     "收起控制面板": "Collapse controls",
     "笔刷大小": "Brush size",
@@ -336,56 +532,37 @@ LANG_PACKS: dict = {
     "查看完整色族调色板": "View full color-family palette",
     "色族调色板": "Color-family palette",
     "当前颜色": "Current color",
-    "替换此颜色…": "Replace this color…",
     "设为当前颜色": "Set as current color",
     "自定义颜色…": "Custom color…",
     "关闭": "Close",
-    "透明色不支持整体替换（可用橡皮擦除）": "Transparent cannot be replaced (use eraser)",
     "画布为空": "Canvas is empty",
     "已替换 {n} 像素：": "Replaced {n} pixels: ",
-    "（左键选色，右键替换色族）": "(left: pick, right: replace family)",
     "提示": "Notice",
     "导入图片": "Import image",
     "导入失败": "Import failed",
     "无法读取图片：": "Cannot read image: ",
-    "导出失败": "Export failed",
     "保存失败：": "Save failed: ",
     "导出当前帧为 PNG": "Export current frame as PNG",
     # ---------- Solo 页 ----------
     "开始生成": "Start generating",
     "取消": "Cancel",
-    "同步到 IDE": "Sync to IDE",
     "参数": "Parameters",
     "中间结果": "Progress",
     "参考图": "Reference",
-    "一键抠图（扣除纯色背景）": "Key out background (solid color)",
     "完美像素化": "Perfect pixelate",
-    "背景强制纯色（主体浅色→黑底，否则白底）": "Force solid background (pale subject → black, else white)",
-    "生成 GIF / APNG / 精灵图": "Export GIF / APNG / sprite sheet",
-    "输出": "Output",
     "生成提示词": "Generate prompts",
-    "无参考图": "No reference",
     # ---------- 精灵图页 ----------
     "输入参数": "Input",
     "网格 i×j": "Grid i×j",
-    "帧数 ≤ 行×列；多余格不裁切。如 4×4 网格、16 帧": "Frames ≤ rows×cols; extra cells are skipped. e.g. 4×4 grid, 16 frames",
     "处理选项": "Options",
-    "生成精灵图": "Generate sprite sheet",
-    "对象底图": "Base image",
     "精灵图": "Sprite sheet",
-    "同步到 IDE": "Sync to IDE",
-    "开始生成精灵图：": "Start generating sprite sheet: ",
-    "精灵图完成：": "Sprite sheet done: ",
     "执行方式": "Mode",
     "自动": "Auto",
     "手动": "Manual",
-    "无干涉跑完全流程": "Run the whole pipeline without interruption",
-    "手动模式：逐步执行，每步完成后可重跑或继续": "Manual mode: run step by step; after each step you can rerun it or continue",
     "重跑本步": "Rerun this step",
     "继续下一步": "Next step",
     "步骤 {0}/{1}：{2}…": "Step {0}/{1}: {2}…",
     "步骤 {0}/{1}：{2} 完成 — 可重跑本步或继续": "Step {0}/{1}: {2} done — rerun or continue",
-    "步骤失败": "Step failed",
     "已取消": "Cancelled",
     "正在取消…": "Cancelling…",
     "生成对象底图": "Generate base image",
@@ -398,8 +575,6 @@ LANG_PACKS: dict = {
     "精灵图执行方式：{0}": "Sprite mode: {0}",
     "手动（逐步执行）": "Manual (step-by-step)",
     "自动（无干涉跑完全流程）": "Auto (uninterrupted)",
-    "精灵图执行方式：向左拨=自动，向右拨=手动（当前：{0}）": "Sprite mode: slide left = Auto, right = Manual (current: {0})",
-    "精灵图执行方式：点击切换自动/手动（当前：{0}）": "Sprite mode: click to toggle Auto/Manual (current: {0})",
     # ---------- 快捷键设置 ----------
     "快捷键": "Shortcuts",
     "类别": "Category",
@@ -427,24 +602,15 @@ LANG_PACKS: dict = {
     "复制帧": "Duplicate frame",
     "删除帧": "Delete frame",
     "深色模式": "Dark mode",
-    "按键调整": "Shortcuts",
-    "点击进入，再点展开模式子菜单": "Click to open; click again to expand the mode submenu",
-    "点击收起模式子菜单": "Click to collapse the mode submenu",
     "点击进入；再次点击展开/收起模式子菜单": "Click to open; click again to expand/collapse the mode submenu",
     "当前键位范围：{0}（{1}）": "Current shortcut scope: {0} ({1})",
     "当前键位范围：{0}": "Current shortcut scope: {0}",
     "手动：逐步执行，每步完成后可重跑或继续": "Manual: run step by step; after each step you can rerun it or continue",
     "自动：无干涉跑完全流程": "Auto: run the whole pipeline without interruption",
-    "修改立即生效，点「保存」持久化": "Changes apply immediately; saved with Save",
     # ---------- 像素页 ----------
-    "收起画布设置，画布更大": "Collapse canvas settings for a bigger canvas",
-    "展开画布设置": "Expand canvas settings",
-    "已新建 {w}×{h} 画布": "New canvas {w}×{h} created",
-    "已载入 {w}×{h} 图片": "Image {w}×{h} loaded",
     # ---------- 像素页 ----------
     "画布设置": "Canvas settings",
     "预设": "Presets",
-    "分辨率(宽×高)": "Resolution (W×H)",
     "背景": "Background",
     "透明": "Transparent",
     "白色": "White",
@@ -460,9 +626,6 @@ LANG_PACKS: dict = {
     "用作图生视频首帧": "Use as video first frame",
     "把画布图作为首帧走图生视频（Solo）；过小会自动最近邻放大到 API 最低要求": "Use canvas as video first frame (Solo); auto NEAREST-upscaled to API minimum if too small",
     "导出 PNG": "Export PNG",
-    "已新建 {w}×{h} 画布": "Created {w}×{h} canvas",
-    "已载入 {w}×{h} 图片": "Loaded {w}×{h} image",
-    "已导出：": "Exported: ",
     # ---------- 设置 ----------
     "通用文本 API": "LLM API",
     "图片生成 API": "Image API",
@@ -482,8 +645,6 @@ LANG_PACKS: dict = {
     "中文": "Chinese",
     "English": "English",
     "保存": "Save",
-    "已保存": "Saved",
-    "选择输出目录": "Choose output directory",
     "切换界面语言（重启后全局生效）": "Switch UI language (applies immediately)",
     # ---------- IDE 分步面板 ----------
     "步骤 1 · 文本生成": "Step 1 · Text generation",
@@ -494,7 +655,6 @@ LANG_PACKS: dict = {
     "步骤 6 · 导出": "Step 6 · Export",
     "动作类型(可选)": "Action (optional)",
     "动作(可选)": "Action (optional)",
-    "选择或输入动作…": "Choose or type an action…",
     "步行": "Walk",
     "奔跑": "Run",
     "跳跃": "Jump",
@@ -534,23 +694,13 @@ LANG_PACKS: dict = {
     "就绪 · {w}×{h}": "Ready · {w}×{h}",
     "● 未保存": "● Unsaved",
     "应用提示词到工作区": "Apply prompts to workspace",
-    "GIF 播放速度": "GIF speed",
-    "帧序列缩略图": "Frame strip",
     "首帧图": "First frame",
     "选择参考图": "Choose reference image",
     "点击添加参考图（图生图）；已有图时点击可更换": "Click to add a reference image (i2i); click again to replace",
     "移除参考图": "Remove reference",
     "＋\n参考图": "＋\nReference",
-    "服务商预设": "Provider presets",
-    "查询模型": "Query models",
-    "测试连接": "Test connection",
-    "新建配置": "New config",
-    "删除配置": "Delete config",
-    "设为默认": "Set default",
     "选择模型": "Choose model",
-    "模型名称": "Model name",
     "端点路径(可选)": "Endpoint path (optional)",
-    "温度": "Temperature",
     "超时(秒)": "Timeout (s)",
     "代理(可选)": "Proxy (optional)",
     "校验 SSL 证书": "Verify SSL",
@@ -579,11 +729,7 @@ LANG_PACKS: dict = {
     "成功状态(逗号分隔)": "Success statuses (comma)",
     "失败状态(逗号分隔)": "Failure statuses (comma)",
     "视频URL字段路径": "Video URL path",
-    "请求体模板(JSON, 可选)": "Request template (JSON, optional)",
     "额外字段(JSON, 可选)": "Extra fields (JSON, optional)",
-    "首帧图最小边(过小则最近邻放大)": "First-frame min side (NEAREST upscale)",
-    "首帧图长边上限": "First-frame max side",
-    "使用该模型": "Use this model",
     "输入关键词过滤（如 seedance / kling / image）…": "Filter by keyword (seedance / kling / image)…",
     "（自定义）": "(custom)",
     "新建": "New",
@@ -594,7 +740,6 @@ LANG_PACKS: dict = {
     "火山方舟 Ark": "Volcengine Ark",
     "通义千问 DashScope": "Qwen DashScope",
     "腾讯混元": "Tencent Hunyuan",
-    "硅基流动 SiliconFlow": "SiliconFlow",
     "智谱 Zhipu": "Zhipu",
     "Ollama（本地）": "Ollama (local)",
     "火山方舟 Seedream": "Volcengine Seedream",
@@ -646,7 +791,6 @@ LANG_PACKS: dict = {
     "编辑": "Edit",
     "提示词": "Prompts",
     "对象底图": "Base image",
-    "缩进": "Shrink",
     "已新建 {w}×{h} 画布": "Created {w}×{h} canvas",
     "已载入 {w}×{h} 图片": "Loaded {w}×{h} image",
     "已导出：": "Exported: ",
@@ -661,7 +805,6 @@ LANG_PACKS: dict = {
     "服务商预设": "Provider presets",
     "查询模型": "Query models",
     "测试连接": "Test connection",
-    "新建配置": "New config",
     "删除配置": "Delete config",
     "设为默认": "Set default",
     # ---------- 背景抠图预览 ----------
@@ -686,15 +829,9 @@ LANG_PACKS: dict = {
     "（步骤：{0}）": " (step: {0})",
     "未配置{0} API，请在「设置」中配置或开启模拟 API": "{0} API is not configured — configure it in Settings or enable the mock API",
     "选择输出目录": "Choose output directory",
-    "循环次数(0=无限)": "Loop count (0 = infinite)",
-    "1x（原始）": "1x (original)",
     "GIF 动画": "GIF animation",
     "PNG 序列帧": "PNG frames",
-    "雪碧图 (Sprite Sheet)": "Sprite sheet",
-    "APNG 动画": "APNG animation",
-    "读取帧失败: {0}": "Failed to read frames: {0}",
     "没有可导出的帧": "No frames to export",
-    "帧目录不存在: {0}": "Frame directory not found: {0}",
     "至少保留一帧": "Keep at least one frame",
     "未保存": "Unsaved changes",
     "当前工作区有未保存修改，确定丢弃吗？": "The workspace has unsaved changes. Discard them?",
@@ -779,7 +916,6 @@ LANG_PACKS: dict = {
     "深{0}": "Dark {0}",
     "{0} 色": "{0} colors",
     "· {0} 像素": "· {0} px",
-    "悬停看族名": "hover for family names",
     # ---------- 动作预设（分类 + 名称） ----------
     "待机": "Idle",
     "移动": "Movement",
@@ -833,9 +969,6 @@ LANG_PACKS: dict = {
     "响应文本字段路径(可选)": "Response text field path (optional)",
     "响应图片数组字段路径(可选)": "Response image-array field path (optional)",
     "背景：{0}（点击切换，右键选档）": "Background: {0} (click to cycle, right-click to pick)",
-    "背景：纯白（点击切换，右键选档）": "Background: solid white (click to cycle, right-click to pick)",
-    "背景：纯黑（点击切换，右键选档）": "Background: solid black (click to cycle, right-click to pick)",
-    "背景：纯绿（点击切换，右键选档）": "Background: solid green (click to cycle, right-click to pick)",
     "{0} · {1} 色 · {2} 像素": "{0} · {1} colors · {2} px",
     "灰黑网格": "Checkered gray",
     "纯白": "Solid white",
@@ -846,7 +979,6 @@ LANG_PACKS: dict = {
     "{0} · {1} 色（左键选色，右键替换色族）": "{0} · {1} colors (left: pick, right: replace family)",
     "{0} · {1} 色 · 代表 #{2}（左键选色，右键替换色族）": "{0} · {1} colors · representative #{2} (left: pick, right: replace family)",
     "缩放比例": "Scale",
-    "{0} 张 PNG → {1}": "{0} PNG files → {1}",
     "保存失败": "Save failed",
     "打开失败": "Open failed",
     "选择项目保存目录": "Choose a directory to save the project",
@@ -866,7 +998,6 @@ LANG_PACKS: dict = {
     "LLM 返回无法解析，使用本地模板": "LLM returned unparseable output — using local templates",
     "LLM 调用失败（{0}），使用本地模板": "LLM call failed ({0}) — using local templates",
     "LLM 输出为空或不可解析，提高 max_tokens 重试一次": "LLM output empty or unparseable — retrying with higher max_tokens",
-    "动画提示词过于冗长，按「简洁且忠实于动作」重试一次": "Animation prompt too verbose — retrying with \"concise and faithful to the action\"",
     "已附加参考图（图生图）: {0}": "Reference image attached (i2i): {0}",
     "参考图读取失败，忽略: {0}": "Failed to read reference image, ignored: {0}",
     "下载生图结果: {0}": "Downloading image result: {0}",
@@ -951,7 +1082,6 @@ def available_languages() -> list:
         if code == "zh":
             continue
         langs.append((code, _LANG_NAMES.get(code, code)))
-    import os
     from pathlib import Path
 
     lang_dir = Path(__file__).resolve().parent / "lang"
@@ -965,12 +1095,13 @@ def available_languages() -> list:
 
 def set_language(lang: str) -> None:
     """设置语言（zh / en / 其它语言包 key）；未知语言回退中文。"""
-    global _LANG
+    global _LANG, _REVERSE_LANG
     lang = str(lang or "zh").lower()
     if lang in LANG_PACKS or lang == "zh":
         _LANG = lang
     else:
         _LANG = "zh"
+    _REVERSE_LANG = ""      # 让反向表跟着语言重建
 
 
 def language() -> str:
@@ -986,6 +1117,61 @@ def tr(text: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# 反向表：把「已经是译文」的文案还原成中文 ID
+# --------------------------------------------------------------------------- #
+# 有些地方会把 tr() 的结果再交给 T()（例如 _icon_btn(kind, tr("…"))）。
+# 若界面在英文状态下构建，T() 就会把英文当 ID 注册进表，切回中文再也还原不回来。
+# 这里在 T() 里做一次还原：拿到的是译文就换回它对应的中文 ID。
+_REVERSE: dict = {}
+_REVERSE_LANG: str = ""
+
+
+def canonical_id(text: str) -> str:
+    """把当前语言的译文还原为中文 ID（不是译文则原样返回）。"""
+    global _REVERSE, _REVERSE_LANG
+    if _LANG == "zh" or not text:
+        return text
+    if _REVERSE_LANG != _LANG:
+        pack = _load_pack(_LANG)
+        _REVERSE = {}
+        for key, value in pack.items():
+            if isinstance(value, str) and value and value not in _REVERSE:
+                _REVERSE[value] = key
+        _REVERSE_LANG = _LANG
+    return _REVERSE.get(text, text)
+
+
+def translations_of(key: str) -> set:
+    """某个中文 ID 在所有语言包里的写法（含中文原文），用于识别「未被用户改过的默认值」。"""
+    out = {key}
+    for code, pack in LANG_PACKS.items():
+        if code == "zh":
+            continue
+        value = pack.get(key)
+        if isinstance(value, str) and value:
+            out.add(value)
+    return out
+
+
+_ALL_REVERSE: dict = {}
+
+
+def _all_reverse() -> dict:
+    """所有语言包的「译文 -> 中文 ID」总表（用于兜底重译，见 retranslate_tree）。"""
+    global _ALL_REVERSE
+    if not _ALL_REVERSE:
+        table: dict = {}
+        for code, pack in LANG_PACKS.items():
+            if code == "zh":
+                continue
+            for key, value in pack.items():
+                if isinstance(value, str) and value and value not in table:
+                    table[value] = key
+        _ALL_REVERSE = table
+    return _ALL_REVERSE
+
+
+# --------------------------------------------------------------------------- #
 # 立即重译：T() 设置文本并注册，语言切换后 retranslate_all() 全局重刷。
 # --------------------------------------------------------------------------- #
 _REGISTRY: list = []  # (widget, attr, zh, index)
@@ -995,9 +1181,12 @@ def T(widget, zh_text, attr: str = "text", index: int = None):
     """设置控件文本并注册（attr: text / tooltip / placeholder / tab）。
 
     widget=None 时仅返回翻译文本（等价 tr）；否则设置文本、注册并返回控件本身，
-    便于链式创建：btn = T(QPushButton(), "开始生成")；f.addRow(T(QLabel(), "帧数"), spin)。
+    便于链式创建：btn = T(QPushButton(), "开始生成"); f.addRow(T(QLabel(), "帧数"), spin)。
+
+    传入的文案若已经是当前语言的译文（调用方多写了一次 ``tr()``，或控件是在英文
+    状态下构建的），会自动还原成中文 ID 再注册，避免「切回中文还剩英文」。
     """
-    zh_text = str(zh_text)
+    zh_text = canonical_id(str(zh_text))
     if widget is None:
         return tr(zh_text)
     _apply_text(widget, attr, index, tr(zh_text))
@@ -1023,6 +1212,101 @@ def _apply_text(widget, attr: str, index, text: str) -> None:
 
 
 def retranslate_all() -> None:
-    """按当前语言重刷所有已注册文本（语言切换后立即生效）。"""
+    """按当前语言重刷所有已注册文本（语言切换后立即生效）。
+
+    除了 T() 注册表，还会**整棵控件树再扫一遍**（含所有顶层对话框）：
+    不少文案是构建时用 tr() 直接 setText/setToolTip/setPlaceholderText 设上去的、
+    没有登记到注册表；只刷注册表的话，在英文状态下构建、再切回中文就会残留英文。
+    兜底规则：把「当前文本是某个已知译文」的标签/按钮/提示/占位/标题/c类下拉项
+    还原成中文 ID 再译一遍；**用户输入（QLineEdit 文本、日志正文、列表/树条目）不动**。
+    """
     for widget, attr, zh, index in list(_REGISTRY):
         _apply_text(widget, attr, index, tr(zh))
+    retranslate_tree()
+
+
+def retranslate_tree(root=None) -> int:
+    """遍历控件树重译界面文案，返回被改写的条目数（详见 retranslate_all 注释）。"""
+    from PySide6.QtWidgets import (
+        QAbstractButton,
+        QApplication,
+        QComboBox,
+        QGroupBox,
+        QLabel,
+        QLineEdit,
+        QPlainTextEdit,
+        QTabWidget,
+        QTextEdit,
+        QWidget,
+    )
+
+    reverse = _all_reverse()
+    if not reverse:
+        return 0
+    changed = 0
+    # 已在注册表里的（T() 登记的）文案由注册表那一轮精确重译，这里跳过，
+    # 免得被「同义译文」的反向映射覆盖成另一个近义中文（如 界面布局比例 -> 界面比例）
+    registered = {(id(w), attr) for w, attr, _zh, _i in list(_REGISTRY)}
+
+    def fix(widget, attr: str, getter, setter) -> None:
+        nonlocal changed
+        if (id(widget), attr) in registered:
+            return
+        try:
+            current = getter()
+        except RuntimeError:
+            return
+        if not isinstance(current, str) or not current.strip():
+            return
+        key = reverse.get(current)
+        if key is None:
+            return
+        new = tr(key)
+        if new == current:
+            return
+        try:
+            setter(new)
+        except RuntimeError:
+            return
+        changed += 1
+
+    roots = []
+    if root is not None:
+        roots.append(root)
+    else:
+        roots.extend(w for w in QApplication.topLevelWidgets() if w.isVisible())
+
+    seen = set()
+    for top in roots:
+        for w in [top] + top.findChildren(QWidget):
+            if id(w) in seen:
+                continue
+            seen.add(id(w))
+            # 文本类控件（不含用户输入框的正文）
+            if isinstance(w, QLabel):
+                fix(w, "text", w.text, w.setText)
+            elif isinstance(w, QAbstractButton):
+                fix(w, "text", w.text, w.setText)
+            elif isinstance(w, QGroupBox):
+                fix(w, "text", w.title, w.setTitle)
+            if isinstance(w, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                fix(w, "placeholder", w.placeholderText, w.setPlaceholderText)
+            elif isinstance(w, QComboBox):
+                fix(w, "placeholder", w.placeholderText, w.setPlaceholderText)
+                for i in range(w.count()):
+                    fix(w, f"item{i}", (lambda i=i, c=w: c.itemText(i)),
+                        (lambda text, i=i, c=w: c.setItemText(i, text)))
+            if isinstance(w, QTabWidget):
+                for i in range(w.count()):
+                    fix(w, f"tab{i}", (lambda i=i, t=w: t.tabText(i)),
+                        (lambda text, i=i, t=w: t.setTabText(i, text)))
+            fix(w, "windowTitle", w.windowTitle, w.setWindowTitle)
+            fix(w, "tooltip", w.toolTip, w.setToolTip)
+            for act in getattr(w, "actions", lambda: [])():
+                fix(act, "text", act.text, act.setText)
+                fix(act, "tooltip", act.toolTip, act.setToolTip)
+                menu = act.menu()
+                if menu is not None:
+                    for sub in menu.actions():
+                        fix(sub, "text", sub.text, sub.setText)
+    return changed

@@ -390,6 +390,81 @@ def editor_icon(kind: str, color, size: int = 16) -> QIcon:
         p.drawArc(QRectF(2.8, 2.8, 10.4, 10.4), 180 * 16, 90 * 16)
         p.drawLine(QPointF(2.8, 8.0), QPointF(8.0, 8.0))
         p.drawLine(QPointF(8.0, 2.8), QPointF(8.0, 8.0))
+    # ---------- 形状工具 / 对称 / 环绕 / 变换 ----------
+    elif kind == "line":
+        # 直线 + 两端锚点
+        p.drawLine(QPointF(3.0, 13.0), QPointF(13.0, 3.0))
+        p.drawEllipse(QPointF(3.0, 13.0), 1.5, 1.5)
+        p.drawEllipse(QPointF(13.0, 3.0), 1.5, 1.5)
+    elif kind == "rect":
+        p.drawRect(QRectF(2.8, 3.8, 10.4, 8.4))
+    elif kind == "ellipse":
+        p.drawEllipse(QRectF(2.6, 3.4, 10.8, 9.2))
+    elif kind == "symmetry":
+        # 对称轴（垂直虚线）+ 左右两个镜像点
+        pen = p.pen()
+        pen.setStyle(Qt.PenStyle.DashLine)
+        p.setPen(pen)
+        p.drawLine(QPointF(8.0, 2.4), QPointF(8.0, 13.6))
+        pen.setStyle(Qt.PenStyle.SolidLine)
+        p.setPen(pen)
+        p.drawRect(QRectF(3.4, 6.0, 2.6, 4.0))
+        p.drawRect(QRectF(10.0, 6.0, 2.6, 4.0))
+    elif kind == "wrap":
+        # 环绕平铺：四角折返箭头 + 中心虚线格
+        p.drawLine(QPointF(2.6, 4.0), QPointF(13.4, 4.0))
+        p.drawLine(QPointF(2.6, 12.0), QPointF(13.4, 12.0))
+        p.drawLine(QPointF(4.0, 2.6), QPointF(4.0, 13.4))
+        p.drawLine(QPointF(12.0, 2.6), QPointF(12.0, 13.4))
+        p.drawLine(QPointF(2.6, 4.0), QPointF(4.0, 2.6))
+        p.drawLine(QPointF(13.4, 4.0), QPointF(12.0, 2.6))
+        p.drawLine(QPointF(2.6, 12.0), QPointF(4.0, 13.4))
+        p.drawLine(QPointF(13.4, 12.0), QPointF(12.0, 13.4))
+    elif kind == "transform":
+        # 变换：方框 + 右下角拖拽柄
+        pen = p.pen()
+        pen.setStyle(Qt.PenStyle.DashLine)
+        p.setPen(pen)
+        p.drawRect(QRectF(3.0, 3.0, 10.0, 10.0))
+        pen.setStyle(Qt.PenStyle.SolidLine)
+        p.setPen(pen)
+        p.drawRect(QRectF(9.4, 9.4, 4.2, 4.2))
+    elif kind == "flip_h":
+        p.drawLine(QPointF(8.0, 2.4), QPointF(8.0, 13.6))
+        p.drawPolygon([QPointF(6.6, 4.4), QPointF(6.6, 11.6), QPointF(2.6, 8.0)])
+        p.drawPolygon([QPointF(9.4, 4.4), QPointF(9.4, 11.6), QPointF(13.4, 8.0)])
+    elif kind == "flip_v":
+        p.drawLine(QPointF(2.4, 8.0), QPointF(13.6, 8.0))
+        p.drawPolygon([QPointF(4.4, 6.6), QPointF(11.6, 6.6), QPointF(8.0, 2.6)])
+        p.drawPolygon([QPointF(4.4, 9.4), QPointF(11.6, 9.4), QPointF(8.0, 13.4)])
+    elif kind in ("rotate_cw", "rotate_ccw"):
+        rect = QRectF(3.4, 3.4, 9.2, 9.2)
+        if kind == "rotate_cw":
+            p.drawArc(rect, 60 * 16, 280 * 16)
+            p.drawPolygon([QPointF(11.0, 2.2), QPointF(13.8, 5.4), QPointF(9.8, 5.6)])
+        else:
+            p.drawArc(rect, 200 * 16, 280 * 16)
+            p.drawPolygon([QPointF(5.0, 2.2), QPointF(2.2, 5.4), QPointF(6.2, 5.6)])
+    elif kind == "crop":
+        p.drawLine(QPointF(4.4, 1.8), QPointF(4.4, 11.6))
+        p.drawLine(QPointF(4.4, 11.6), QPointF(14.2, 11.6))
+        p.drawLine(QPointF(1.8, 4.4), QPointF(11.6, 4.4))
+        p.drawLine(QPointF(11.6, 4.4), QPointF(11.6, 14.2))
+    elif kind == "resize":
+        p.drawRect(QRectF(2.6, 2.6, 6.4, 6.4))
+        p.drawRect(QRectF(6.6, 6.6, 6.8, 6.8))
+        p.drawLine(QPointF(9.6, 5.4), QPointF(12.4, 2.6))
+        p.drawLine(QPointF(10.6, 2.6), QPointF(12.4, 2.6))
+        p.drawLine(QPointF(12.4, 2.6), QPointF(12.4, 4.4))
+    elif kind == "clipboard":
+        p.drawRect(QRectF(3.6, 3.4, 8.8, 10.0))
+        p.drawRect(QRectF(6.0, 1.8, 4.0, 2.6))
+        p.drawLine(QPointF(5.6, 7.2), QPointF(10.4, 7.2))
+        p.drawLine(QPointF(5.6, 9.8), QPointF(10.4, 9.8))
+    elif kind == "export_scale":
+        p.drawRect(QRectF(2.6, 2.6, 5.2, 5.2))
+        p.drawRect(QRectF(8.2, 8.2, 5.2, 5.2))
+        p.drawLine(QPointF(6.0, 10.0), QPointF(10.0, 6.0))
     else:
         p.drawRect(QRectF(3, 3, 10, 10))
     p.end()

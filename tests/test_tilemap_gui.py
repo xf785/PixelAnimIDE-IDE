@@ -1,7 +1,6 @@
 """瓦片地图 UI 冒烟测试（QT_QPA_PLATFORM=offscreen）。"""
 import pytest
 from PySide6.QtCore import QPoint
-from PySide6.QtWidgets import QApplication
 
 from config.api_config import APIConfig, APIConfigManager
 from core.storage.keyring import Keyring
@@ -227,7 +226,6 @@ def test_map_preview_available_without_generating(qtbot, ctx, tmp_path):
     import numpy as np
     from PIL import Image
 
-    from core.tilemap import TileMapModel
     from core.tilemap.pack import TilePack
     from core.tilemap.tiles import EDGE_NAMES, BaseTileSet
     from ui.pages.tilemap_page import TilemapPage

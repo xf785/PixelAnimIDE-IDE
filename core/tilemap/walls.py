@@ -38,7 +38,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from PIL import Image
 
-from core.processing import background as bg
+from . import art_utils
 from .seamless import make_tile_texture
 from .tiles import BuildingSheet
 
@@ -100,41 +100,20 @@ def wall16_index(mask8: int) -> int:
     return mask16(mask8)
 
 
-def is_solid(mask8: int) -> bool:
-    """八邻全满（含四对角）。注意：**默认不**自动改用 solid 件 —— 实心块与带子
-    家族的形状不同，混用会在共享边留下透明/不透明错位；只有调用方显式要
-    `SOLID_SLOT` 时才用它（适合整片实心区域）。"""
-    return (int(mask8) & 255) == 255
-
-
 def slot_for_mask(mask8: int) -> int:
     """八邻掩码 → 图集槽位（**始终**落在 16-tile 族内，保证接缝一致）。"""
     return wall16_index(mask8)
-
-
-def slot_name(slot: int) -> str:
-    return W16_SLOTS[slot] if slot < 16 else EXTRA_SLOTS[slot - 16]
 
 
 # --------------------------------------------------------------------------- #
 # 基础工具
 # --------------------------------------------------------------------------- #
 def _key_white(img: Image.Image, tolerance: int = 42) -> Image.Image:
-    return bg.remove_background(
-        img.convert("RGBA"), key_color=(255, 255, 255), tolerance=tolerance,
-        feather=0, edge_clean=True, mode="hybrid",
-    )
+    return art_utils.key_white(img, tolerance)
 
 
 def _outline_color(img: Image.Image) -> Tuple[int, int, int]:
-    arr = np.asarray(img.convert("RGBA"))
-    mask = arr[..., 3] > 32
-    if not mask.any():
-        return (34, 30, 32)
-    rgb = arr[mask][..., :3].astype(np.float32)
-    lum = 0.299 * rgb[:, 0] + 0.587 * rgb[:, 1] + 0.114 * rgb[:, 2]
-    k = max(1, int(len(lum) * 0.15))
-    return tuple(int(c) for c in np.median(rgb[np.argsort(lum)[:k]], axis=0))
+    return art_utils.outline_color(img)
 
 
 def _disc(mask: np.ndarray, radius: int) -> np.ndarray:
@@ -155,12 +134,6 @@ def _disc(mask: np.ndarray, radius: int) -> np.ndarray:
             sh[ys_dst, xs_dst] = mask[ys_src, xs_src]
             out |= sh
     return out
-
-
-def _disc_fill(mask: np.ndarray, cx: float, cy: float, radius: int) -> np.ndarray:
-    ys, xs = np.mgrid[0:mask.shape[0], 0:mask.shape[1]]
-    inside = (xs - cx) ** 2 + (ys - cy) ** 2 <= radius * radius
-    return inside
 
 
 def _dist2(xs: np.ndarray, ys: np.ndarray, cx: float, cy: float) -> np.ndarray:

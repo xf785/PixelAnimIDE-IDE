@@ -1,6 +1,7 @@
-"""Solo / IDE / 精灵图工作流共用的小工具：提示词强制项、生图尺寸解析、LLM 提示词生成。"""
+"""Solo / IDE / 精灵图 / 瓦片地图工作流共用的小工具：日志与取消、提示词强制项、生图尺寸解析。"""
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional, Tuple
 
 from config.settings import ASPECT_RATIOS, DEFAULT_ASPECT
@@ -15,10 +16,40 @@ from core.processing.prompt_utils import (
 )
 from ui.i18n import tr
 
+logger = logging.getLogger("PixelFoundry.core.workflow")
+
 # 动画提示词最大词数：超过则附加「严格纠正」指令重试
 MAX_ANIMATION_PROMPT_WORDS = 40
 _PROMPT_FIRST_TOKENS = 1600
 _PROMPT_RETRY_TOKENS = 4096
+
+
+class WorkflowLogMixin:
+    """工作流共用的「日志转发 + 取消检查」（原先 4 个工作流各写了一份）。
+
+    子类需提供 ``step_log``（记录用）与可选的 ``_log`` 回调、``_cancel`` 事件；
+    ``record_step_log = False`` 的工作流只转发日志、不写入 step_log。
+    """
+
+    record_step_log: bool = True
+
+    def _log_msg(self, level: str, message: str) -> None:
+        if self.record_step_log:
+            self.step_log.append(f"[{level}] {message}")
+        logger.log(getattr(logging, level.upper(), logging.INFO), "%s", message)
+        callback = getattr(self, "_log", None)
+        if callback:
+            try:
+                callback(level, message)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _check_cancel(self) -> None:
+        cancel = getattr(self, "_cancel", None)
+        if cancel is not None and cancel.is_set():
+            from .solo_workflow import WorkflowCancelled
+
+            raise WorkflowCancelled()
 
 
 def parse_size(text: str) -> Optional[Tuple[int, int]]:

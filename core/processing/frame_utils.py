@@ -125,13 +125,11 @@ def _evenly_sample_indices(total: int, count: int) -> List[int]:
     return [round(i * (total - 1) / (count - 1)) for i in range(count)]
 
 
-def _sample_frames(frames: List[Image.Image], max_frames: Optional[int]) -> List[Image.Image]:
+def sample_frames(frames: List[Image.Image], max_frames: Optional[int]) -> List[Image.Image]:
+    """均匀采样到至多 max_frames 帧（帧数不足时原样返回）。"""
     if not max_frames or len(frames) <= max_frames:
         return frames
     return [frames[i] for i in _evenly_sample_indices(len(frames), max_frames)]
-
-
-sample_frames = _sample_frames  # 公开别名
 
 
 # --------------------------------------------------------------------------- #
@@ -247,7 +245,6 @@ def sample_loop_frames(
     frames: List[Image.Image],
     target_count: int,
     loop: bool = True,
-    segment_ratio: float = 3.0,
 ) -> List[Image.Image]:
     """抽帧 + 可选循环闭合。
 

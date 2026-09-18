@@ -24,10 +24,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from config.settings import DATA_DIR, DEFAULT_OUTPUT_DIR, API_KIND_LABELS
+from config.settings import DATA_DIR, DEFAULT_OUTPUT_DIR
 from ui import shortcuts as sc
 from ui.app_context import AppContext
-from ui.i18n import tr
+from ui.i18n import T, tr
 from ui.icons import category_icon, theme_fg
 from ui.styles import apply_theme
 from ui.widgets.api_config_widget import ApiConfigWidget
@@ -175,7 +175,7 @@ class SettingsDialog(QDialog):
         idx = self._scale_combo.findData(scale)
         self._scale_combo.setCurrentIndex(idx if idx >= 0 else 1)
         self._scale_combo.setToolTip(tr("缩放界面字体与布局，适配高分辨率/小屏幕设备"))
-        f.addRow(tr("界面布局比例"), self._scale_combo)
+        f.addRow(T(QLabel(), "界面布局比例"), self._scale_combo)
         v.addWidget(ui_box)
 
         out_box = QGroupBox(tr("输出"))
@@ -190,9 +190,15 @@ class SettingsDialog(QDialog):
         of.addRow(tr("默认输出目录"), out_row)
         v.addWidget(out_box)
 
-        info = QLabel(f"{tr('数据目录：')}{DATA_DIR}")
+        info = QLabel()
         info.setObjectName("HintLabel")
         info.setWordWrap(True)
+
+        def _refresh_data_dir() -> None:
+            info.setText(f"{tr('数据目录：')}{DATA_DIR}")
+
+        _refresh_data_dir()
+        self._refresh_general_labels = _refresh_data_dir
         v.addWidget(info)
         v.addStretch(1)
         return panel
@@ -293,12 +299,36 @@ class SettingsDialog(QDialog):
         # 快捷键持久化（模块缓存已即时生效，这里落盘）
         self._ctx.ui_settings.set("shortcuts", sc.to_settings())
         # 语言与布局立即生效
-        from ui.i18n import set_language
+        from ui.i18n import retranslate_all, set_language
 
         set_language(lang)
+        retranslate_all()          # 含本弹窗（顶层窗口兜底重译）
+        self._retranslate_dynamic()
         parent = self.parent()
         if parent is not None and hasattr(parent, "retranslate_ui"):
             parent.retranslate_ui()
+
+    def _retranslate_dynamic(self) -> None:
+        """重刷「带数据的动态文案」（纯 tr() 拼接、反向表查不到的）。"""
+        refresh = getattr(self, "_refresh_general_labels", None)
+        if callable(refresh):
+            try:
+                refresh()
+            except Exception:  # noqa: BLE001
+                pass
+        widget = getattr(self, "_shortcuts_panel_widget", None)
+        if widget is not None and hasattr(widget, "retranslate_ui"):
+            try:
+                widget.retranslate_ui()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def retranslate_ui(self) -> None:
+        """外部语言切换时调用（主窗口 retranslate_ui -> 各页面/弹窗）。"""
+        from ui.i18n import retranslate_all
+
+        retranslate_all()
+        self._retranslate_dynamic()
 
     def _on_save(self) -> None:
         """保存按钮：写入设置并立即生效。"""

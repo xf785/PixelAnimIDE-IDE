@@ -1,9 +1,10 @@
 """Solo 模式页：一键式全自动生成像素铸造。
 
-布局（全屏不变形）：
-- 左侧：固定宽度(408px)参数表单，内含纵向滚动，运行按钮固定可见；
-- 右侧：预览与「中间结果」面板的纵向分割区，随窗口弹性伸缩；
-- 底部：步骤/进度 + 日志。
+布局参考 Krita：
+- **左停靠栏**：参数拆成 3 个可折叠 docker（输入参数 / 处理选项 / 导出），
+  整栏可收起成竖排标签，宽度由外层 splitter 拖动调整；
+- **右侧工作区**：「预览」与「中间结果」两个页签，随窗口弹性伸缩；
+- **底部**：运行控制 + 步骤/进度 + 日志。
 """
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QSplitter,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -47,7 +49,9 @@ from core.processing.prompt_utils import recommended_frames
 from core.workflow import SoloParams, SoloResult
 from ui.app_context import AppContext
 from ui.i18n import T, tr
+from ui.layout import scaled
 from ui.widgets.action_combo import populate_action_combo
+from ui.widgets.dock import SideDock
 from ui.widgets.image_viewer import ImageViewer
 from ui.widgets.reference_box import ReferenceImageBox
 from ui.workers import SoloWorker
@@ -68,6 +72,7 @@ class SoloPage(QWidget):
         self._worker: SoloWorker | None = None
         self._result: SoloResult | None = None
         self._build_ui()
+        self._restore_layout()
         self._restore_settings()
 
     # ------------------------------------------------------------------ #
@@ -76,23 +81,22 @@ class SoloPage(QWidget):
         root.setContentsMargins(16, 16, 16, 12)
         root.setSpacing(10)
 
-        top = QHBoxLayout()
-        top.setSpacing(14)
+        # ---------- 工作区：左停靠栏（参数）| 右侧 预览 / 中间结果（宽度可拖动） ----------
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.setObjectName("Workspace")
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.setHandleWidth(scaled(5))
 
-        # ---------- 左：参数 / 中间结果（导航栏切换） ----------
-        left_panel = QWidget()
-        lp = QVBoxLayout(left_panel)
-        lp.setContentsMargins(0, 0, 0, 0)
-        lp.setSpacing(10)
+        self._left_dock = SideDock(tr("参数"), side="left", default_width=FORM_WIDTH)
+        self._splitter.addWidget(self._left_dock)
 
+        # Tab 0：预览（参数已迁到左侧停靠栏，原「参数」页签改为「预览」）
         self._tabs = QTabWidget()
-        self._tabs.setFixedWidth(FORM_WIDTH)
-
-        # Tab 0：参数表单
         self._param_tab = QWidget()
         form_scroll = QScrollArea()
         form_scroll.setWidgetResizable(True)
         form_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        form_scroll.setMinimumWidth(scaled(200))
         form_host = QWidget()
         form_layout = QVBoxLayout(form_host)
         form_layout.setContentsMargins(0, 0, 6, 0)
@@ -222,17 +226,29 @@ class SoloPage(QWidget):
         out_row.addWidget(btn_browse)
         ef.addRow(T(QLabel(), "输出目录"), out_row)
 
+        # ---------- 表单分组 -> 左停靠栏的 docker ----------
+        # 「输入参数」+「图转视频参数」共用原来的滚动区（两块都是输入项，字段最多）：
+        # 面板被拖矮时仍可滚动查看全部字段，窗口变高时也由它吃掉多余空间
         form_layout.addWidget(input_box)
         form_layout.addWidget(video_box)
-        form_layout.addWidget(opt_box)
-        form_layout.addWidget(exp_box)
         form_layout.addStretch(1)
         form_scroll.setWidget(form_host)
+        input_docker = self._left_dock.add_docker("输入参数", form_scroll, icon_kind="pencil", stretch=1)
+        input_docker.set_icon("pencil")  # 图标要显式渲染一次才可见（与像素页一致）
+        # 收起按钮放在第一个面板标题里（Krita 的 docker 右上角）
+        input_docker.add_header_widget(self._left_dock.add_toggle_button("chevron_left", "收起参数栏"))
+
+        # 其余分组各自一个可折叠 docker（高度由列 splitter 拖动调整）
+        opt_docker = self._left_dock.add_docker("处理选项", opt_box, icon_kind="layers")
+        opt_docker.set_icon("layers")
+        exp_docker = self._left_dock.add_docker("导出", exp_box, icon_kind="export_image")
+        exp_docker.set_icon("export_image")
+
         param_layout = QVBoxLayout(self._param_tab)
-        param_layout.setContentsMargins(0, 4, 0, 0)
-        param_layout.addWidget(form_scroll)
-        self._tabs.addTab(self._param_tab, T(None, "参数"))
-        T(self._tabs, "参数", attr="tab", index=0)
+        param_layout.setContentsMargins(4, 8, 4, 4)
+        param_layout.setSpacing(6)
+        self._tabs.addTab(self._param_tab, T(None, "预览"))
+        T(self._tabs, "预览", attr="tab", index=0)
 
         # Tab 1：中间结果（提示词 + 首帧 + 帧序列缩略图）
         self._intermediate_tab = QWidget()
@@ -283,9 +299,15 @@ class SoloPage(QWidget):
         self._tabs.addTab(self._intermediate_tab, T(None, "中间结果"))
         T(self._tabs, "中间结果", attr="tab", index=1)
 
-        lp.addWidget(self._tabs, 1)
+        # ---------- 工作区收尾：左停靠栏 | 预览/中间结果 页签 ----------
+        self._splitter.addWidget(self._tabs)
+        self._splitter.setStretchFactor(0, 0)
+        self._splitter.setStretchFactor(1, 1)
+        self._left_dock.bind_splitter(self._splitter, 0, default_width=FORM_WIDTH)
+        self._splitter.setSizes([scaled(FORM_WIDTH), scaled(760)])
+        root.addWidget(self._splitter, 1)
 
-        # 运行控制（固定在左侧底部，不随导航切换）
+        # 运行控制（固定在底部，不随页签切换）
         ctrl = QHBoxLayout()
         ctrl.setSpacing(8)
         self._btn_start = QPushButton(tr("开始生成"))
@@ -306,11 +328,9 @@ class SoloPage(QWidget):
         T(self._btn_sync, "把生成的首帧图与最终帧序列同步到 IDE 模式继续编辑", attr="tooltip")
         self._btn_sync.clicked.connect(self._on_sync)
         ctrl.addWidget(self._btn_sync)
-        lp.addLayout(ctrl)
+        root.addLayout(ctrl)
 
-        top.addWidget(left_panel)
-
-        # ---------- 右：预览（占据整个右边，支持 GIF 倍速） ----------
+        # ---------- 预览（页签 0，支持 GIF 倍速） ----------
         preview_box = T(QGroupBox(), "预览")
         pv = QVBoxLayout(preview_box)
         pv.setContentsMargins(8, 18, 8, 8)
@@ -326,9 +346,7 @@ class SoloPage(QWidget):
         pv.addLayout(speed_row)
         self._preview = ImageViewer()
         pv.addWidget(self._preview, 1)
-        top.addWidget(preview_box, 1)
-
-        root.addLayout(top, 1)
+        param_layout.addWidget(preview_box, 1)
 
         # ---------- 底部：步骤 + 进度 + 日志 ----------
         bottom = QHBoxLayout()
@@ -348,12 +366,64 @@ class SoloPage(QWidget):
         self._log_view.setMaximumHeight(140)
         root.addWidget(self._log_view)
 
+    # ------------------------------------------------------------------ #
+    # 主窗口工具条协议（Krita 风格：工具条内容随工作区变化）
+    # ------------------------------------------------------------------ #
+    def toolbar_actions(self) -> list:
+        """返回 [(图标, 文本, 提示, 回调, 是否主按钮), …] 供主窗口工具条渲染。
+
+        主按钮走 `self._btn_start.click()`（= 原来的 `_on_start`），生成中按钮被禁用时
+        自动失效，避免工具条重复触发第二次生成。
+        """
+        return [
+            ("onion", "开始生成", "按当前参数一键生成像素动画", self._btn_start.click, True),
+            ("copy", "同步到 IDE", "把生成的首帧图与最终帧序列同步到 IDE 模式继续编辑", self._on_sync, False),
+            ("export_image", "打开输出目录", "打开本次生成结果的输出目录", self._on_open_output, False),
+        ]
+
+    def workspace_status(self) -> str:
+        """工具条右侧的状态标识：帧数 + 帧率。"""
+        return tr("{0}帧 · {1}fps").format(self._frames_spin.value(), self._fps_spin.value())
+
     def _restore_settings(self) -> None:
         out = self._ctx.ui_settings.get("output_dir")
         if out:
             self._output_edit.setText(str(out))
         theme = self._ctx.ui_settings.get("theme", "dark")
         self._log_html(tr("主题: {theme}；请先在「设置」中配置 API（或勾选模拟 API）").format(theme=theme), "info")
+
+    # ------------------------------------------------------------------ #
+    # 布局持久化（停靠栏宽度 + 收起状态）
+    # ------------------------------------------------------------------ #
+    def _restore_layout(self) -> None:
+        """恢复上次的停靠栏宽度与收起状态。"""
+        try:
+            sizes = self._ctx.ui_settings.get("solo_dock_sizes") or []
+            if (isinstance(sizes, (list, tuple)) and len(sizes) == 2
+                    and int(sizes[1]) >= scaled(320)):
+                # 预览区过窄说明上次保存的是病态布局 -> 退回默认宽度
+                self._splitter.setSizes([int(v) for v in sizes])
+            if self._ctx.ui_settings.get("solo_left_collapsed"):
+                self._left_dock.set_collapsed(True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Solo 页布局恢复失败: %s", exc)
+
+    def _remember_layout(self) -> None:
+        try:
+            s = self._ctx.ui_settings
+            s.set("solo_dock_sizes", list(self._splitter.sizes()))
+            s.set("solo_left_collapsed", self._left_dock.is_collapsed())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Solo 页布局保存失败: %s", exc)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self._remember_layout()
+        super().hideEvent(event)
+
+    def apply_ui_scale(self, scale: float) -> None:
+        """按界面比例同步缩放停靠栏与分隔条。"""
+        self._left_dock.apply_ui_scale()
+        self._splitter.setHandleWidth(scaled(5))
 
     # ------------------------------------------------------------------ #
     # 事件
@@ -484,6 +554,7 @@ class SoloPage(QWidget):
         speed = float(self._preview_speed_combo.currentData() or 1.0)
         if result.gif_path:
             self._preview.show_gif(result.gif_path, speed=speed)
+            self._tabs.setCurrentWidget(self._param_tab)  # 切到「预览」页签展示动画
             self._log(f"GIF: {result.gif_path}")
         elif result.first_frame:
             self._preview.show_path(result.first_frame)

@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 from PIL import Image
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -27,24 +27,21 @@ from PySide6.QtWidgets import (
 )
 
 from core.tilemap import TileMapModel
+from ui import qt_image as qimg_utils
 from ui.i18n import T, tr
 
 logger = logging.getLogger("PixelFoundry.ui.tilemap_view")
 
 GRID_LINE = QColor(0, 0, 0, 46)
-GRID_LINE_LIGHT = QColor(255, 255, 255, 60)
 
 
 def pil_to_qimage(img: Image.Image) -> QImage:
     """PIL RGBA -> QImage（Format_RGBA8888）。"""
-    rgba = img.convert("RGBA")
-    data = rgba.tobytes("raw", "RGBA")
-    qimg = QImage(data, rgba.width, rgba.height, QImage.Format.Format_RGBA8888)
-    return qimg.copy()
+    return qimg_utils.pil_to_qimage(img)
 
 
 def pil_to_qpixmap(img: Image.Image) -> QPixmap:
-    return QPixmap.fromImage(pil_to_qimage(img))
+    return qimg_utils.pil_to_qpixmap(img)
 
 
 class TilemapView(QWidget):

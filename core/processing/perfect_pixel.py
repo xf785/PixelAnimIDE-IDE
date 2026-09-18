@@ -1,4 +1,4 @@
-﻿"""Perfect Pixel 算法（纯 NumPy 实现，内嵌自 perfectPixel-main）。
+"""Perfect Pixel 算法（纯 NumPy 实现，内嵌自 perfectPixel-main）。
 
 原始项目：https://github.com/theamusing/perfectPixel （MIT License）
 实现来源：perfect_pixel_noCV2.py（无 OpenCV 依赖版）
@@ -81,6 +81,8 @@ def sobel_xy(gray: np.ndarray, ksize: int = 3):
     return gx, gy
 
 
+# 说明：本模块是上游 perfectPixel 的忠实移植，下面这些工具函数当前未被本项目调用，
+# 但保留以维持与原实现的对应关系（改上游时便于对照），不要误删。
 def magnitude(gx: np.ndarray, gy: np.ndarray) -> np.ndarray:
     return np.sqrt(gx * gx + gy * gy).astype(np.float32)
 
@@ -590,6 +592,7 @@ def sample_mode_exact(image, x_coords, y_coords, dominance=0.35):
 
 
 def sample_majority(image, x_coords, y_coords, max_samples=128, iters=6, seed=0):
+    """上游的另一种采样实现（本项目的对齐式采样用 sample_mode_fast）；保留以便对照。"""
     rng = np.random.default_rng(seed)
     img = image.astype(np.float32) if image.dtype != np.float32 else image
     H, W = img.shape[:2]

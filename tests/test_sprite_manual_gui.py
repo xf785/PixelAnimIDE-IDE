@@ -140,18 +140,30 @@ def test_segmented_toggle_hover_tooltip(ctx, monkeypatch):
 
 
 def test_pixel_page_settings_collapsible(ctx):
-    """像素页画布设置栏：可收起（画布更大），可重新展开；分栏可拖拽调宽。"""
+    """像素页 Krita 风格布局：左右停靠栏可整体收起，三栏可拖拽调宽。"""
     from ui.pages.pixel_page import PixelPage
 
     page = PixelPage(ctx)
-    assert not page._settings_panel.isHidden()
-    assert page._splitter is not None
-    page._on_collapse_settings()
-    assert page._settings_panel.isHidden()            # 收起后隐藏
-    assert not page._btn_expand.isHidden()            # 仅剩展开按钮
-    page._on_expand_settings()
-    assert not page._settings_panel.isHidden()        # 重新展开
-    assert page._btn_expand.isHidden()
+    # 三栏工作区：左停靠栏 | 画布 | 右停靠栏
+    assert page._splitter is not None and page._splitter.count() == 3
+    assert page._left_dock is not None and page._right_dock is not None
+    assert not page._left_dock.is_collapsed() and not page._right_dock.is_collapsed()
+
+    page._right_dock.set_collapsed(True)              # 收起画布设置栏 -> 只剩竖排标签
+    assert page._right_dock.is_collapsed()
+    assert page._right_dock.width() <= 30
+    page._right_dock.set_collapsed(False)             # 重新展开
+    assert not page._right_dock.is_collapsed()
+    assert page._right_dock.width() > 100
+
+    page._left_dock.set_collapsed(True)               # 左侧资源栏同理
+    assert page._left_dock.is_collapsed()
+    page._left_dock.set_collapsed(False)
+    assert not page._left_dock.is_collapsed()
+
+    # 面板尺寸可写回设置（下次打开恢复）
+    page._remember_layout()
+    assert ctx.ui_settings.get("pixel_dock_sizes")
     page.close()
 
 

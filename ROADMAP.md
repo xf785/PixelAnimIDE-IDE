@@ -26,8 +26,9 @@ Turn the full "AI generation → pixelization → polish → game assets" flow i
 | IDE step workspace (6 steps, timeline, per-step params panel) | ✅ Working |
 | Pixel editor (4 tools + selection/layers, color families, color wheel, import/export) | ✅ Working |
 | Sprite workflow (grid sheet → crop → key → export, IDE sync) | ✅ Working |
-| Standalone pixel board (resolution settings, two-way sync, video first-frame) | ✅ Working |
+| Standalone pixel board (resolution settings, two-way sync, video first-frame) | ✅ Working (Krita-style three-column docks + in-pack folder browsing) |
 | **Tilemap mode (5th mode, v0.2–v0.3 main line)** | ✅ Working (see below) |
+| **Krita-style shell (menu bar / contextual toolbar / docker panels / resizable splitters)** | ✅ Working (all 5 modes) |
 | zh/en i18n + UI scaling + DSH-style icons | ✅ Working |
 | CI (GitHub Actions, Py3.11/3.13 × Win/Linux), **527** tests | ✅ Running |
 | Windows packaging (PyInstaller onedir) + GitHub Release | ✅ v0.3.0 |

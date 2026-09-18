@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from core.tilemap import BIT, TileMapModel, compose_art_tile
+from core.tilemap import TileMapModel
 from core.tilemap.cliff import (
     build_cliff_set,
     cliff_art_from_terrain,

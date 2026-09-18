@@ -1,4 +1,4 @@
-﻿"""时间轴 / 帧列表控件：缩略图预览、点击选中、拖动排序、插入/复制/删除/追加。
+"""时间轴 / 帧列表控件：缩略图预览、点击选中、拖动排序、插入/复制/删除/追加。
 
 本控件只负责展示与交互（发信号），帧数据的实际增删改由页面层操作
 IdeSession.frames 完成后再调用 set_frames 刷新。
@@ -10,7 +10,7 @@ from typing import List, Optional
 
 from PIL import Image
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QImage, QPixmap
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -22,22 +22,16 @@ from PySide6.QtWidgets import (
 )
 
 from ui.i18n import T, tr
+from ui.qt_image import pil_to_thumbnail
 
 logger = logging.getLogger("PixelFoundry.ui.timeline")
 
 THUMB_SIZE = 56
 
 
-def _pil_to_qpixmap(img: Image.Image, size: int) -> QPixmap:
-    rgba = img.convert("RGBA")
-    data = rgba.tobytes("raw", "RGBA")
-    qimg = QImage(data, rgba.width, rgba.height, QImage.Format.Format_RGBA8888).copy()
-    pm = QPixmap.fromImage(qimg)
-    return pm.scaled(
-        size, size,
-        Qt.AspectRatioMode.KeepAspectRatio,
-        Qt.TransformationMode.FastTransformation,  # NEAREST，保持像素边缘
-    )
+def _pil_to_qpixmap(img: Image.Image, size: int):
+    """帧缩略图：等比缩放到 size×size（NEAREST，保持像素边缘）。"""
+    return pil_to_thumbnail(img, size)
 
 
 class _FrameList(QListWidget):

@@ -1,10 +1,8 @@
 """项目命名与数据目录迁移的回归测试（改名后防回退）。"""
 import importlib
 import os
-import sys
 from pathlib import Path
 
-import pytest
 
 
 def _reload_settings(tmp_appdata: Path):

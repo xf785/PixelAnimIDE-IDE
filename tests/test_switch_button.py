@@ -80,7 +80,6 @@ def test_switch_theme_variants():
 
 def test_segmented_toggle_click_switches():
     """分段式执行方式开关：点击切换（左=自动 / 右=手动），信号正确。"""
-    from PySide6.QtWidgets import QWidget
 
     from ui.widgets.segmented_toggle import SegmentedToggle
 

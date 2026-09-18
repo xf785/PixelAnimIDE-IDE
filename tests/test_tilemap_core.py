@@ -9,7 +9,6 @@
 - 地图模型铺设、自动衔接、渲染跨边无缝不变量、序列化
 """
 import numpy as np
-import pytest
 from PIL import Image
 
 from core.tilemap import (
@@ -19,10 +18,8 @@ from core.tilemap import (
     build_47_sheet,
     compose_tile,
     crop_base_3x3,
-    derive_corners,
     make_edge_seamless,
     make_texture_seamless,
-    mask_from_neighbors,
     normalize_tileset,
     process_base_set,
 )

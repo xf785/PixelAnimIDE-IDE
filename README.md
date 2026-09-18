@@ -26,7 +26,7 @@ Built for indie game devs, pixel artists, and AI tinkerers who want *real* pixel
 - 🎬 **IDE step workspace** — 6 independently runnable steps, step-aware parameter panel, frame timeline, live keying preview.
 - 🧩 **Sprite sheets** — one img2img call produces a whole i×j grid sheet, auto-cropped, loop-closed and keyed.
 - 🖌️ **Krita-style pixel editor** — color-family palette with right-click whole-family replace, right-click color wheel, selection & floating layers, onion skin, palette lock.
-- 🖼️ **Standalone pixel board** — 4th mode with resolution settings, two-way IDE sync, and video-first-frame handoff (NEAREST upscale, never blurry). , left-sidebar **tile/prop pack browser** (category switcher + search + thumbnails + place/replace on canvas + auto-restore) |
+- 🖼️ **Standalone pixel board** — 4th mode with resolution settings, two-way IDE sync, and video-first-frame handoff (NEAREST upscale, never blurry); Krita-style resizable docks plus a **tile/prop pack browser** that browses **every folder level** inside a pack (atlases, individual tiles, textures, raw sheets), with category switcher, search, thumbnails, place/replace on canvas and auto-restore |
 - 🌐 **Bilingual + scalable UI** — Chinese / English, UI scale 0.8×–1.5×, self-drawn DSH-style icons.
 - 🔌 **Provider-agnostic** — one-click presets for DeepSeek, Kimi, Zhipu, SiliconFlow, Ark, DashScope, Hunyuan, Ollama, gpt.ge, Kling… plus proxy & SSL options.
 - 📦 **Open source** — MIT license, CI on GitHub Actions (Win + Linux), Windows releases via PyInstaller.
@@ -90,10 +90,17 @@ A dedicated pixel canvas (reusing the full editor):
 - **Sync from IDE** pulls the current IDE frame for fine pixel editing; **Sync to IDE** sends the canvas as **first frame + i2i reference**.
 - **Use as video first frame** hands it to Solo for image-to-video — if below the API minimum size it is **NEAREST-upscaled** (hard edges, no blur) via `video_image_min_side` (default 256) paired with `video_image_max_side` (default 512).
 - **Export PNG**.
-- **Tile / prop packs**: import `.tilepack`, exported zips or folders into the pixel canvas from the
-  left sidebar, browse them with a category switcher (all / terrain / buildings / props / source sheets)
-  plus search and thumbnails, then **Place on canvas** (centred, canvas size kept) or **Replace canvas**.
-  Loaded packs are remembered per user.
+- **Krita-style three-column layout**: left *Assets* docker | canvas | right *Canvas* docker — **every
+  splitter handle is draggable**, each dock collapses into a slim vertical tab (instant bigger canvas),
+  docker headers fold, and widths/collapsed states are remembered. The common actions (import /
+  sync from IDE / sync to IDE / use as first frame / export PNG) live in the **top toolbar**, so they
+  no longer eat sidebar width.
+- **Tile / prop packs**: import `.tilepack`, exported zips, exported folders — or a **plain image
+  folder without a manifest**. **Every folder level inside a pack is browsable**: expand `atlas/`
+  (47-tile sheets), `tiles/terrain_1/` (each individual tile), `textures/`, `source/` (raw AI sheets),
+  `pieces/`, `props/` and clicking any level filters the thumbnail grid. Combined with the category
+  switcher (all / terrain / buildings / props / sheets / atlases / tiles / textures) plus search, then
+  **Place on canvas** (centred, canvas size kept) or **Replace canvas**. Loaded packs are remembered.
 
 ### Tilemap Mode — text-to-tileset with seamless stitching
 
@@ -162,8 +169,14 @@ The fifth mode: **one text prompt → a complete, game-ready tileset + playable 
 | Dual-resolution export | Pixel-art output exports both the native grid resolution and the user preset, sharing one palette (identical colors) |
 | IDE workspace | Step nav / center preview+edit+prompts / right step-aware params (collapsible) / bottom timeline + collapsible log |
 | Timeline | Frame thumbnails, click-select, drag-reorder, insert/duplicate/delete/append blank frame |
-| Pixel editor | Pencil/Eraser/Eyedropper/Fill/Select, undo/redo (Ctrl+Z / Ctrl+Shift+Z), integer zoom + grid + checkerboard, cursor-focus wheel zoom, Ctrl+left pan, **local import/export images**, background modes, right icon column + collapsible palette bar |
-| Tool icons | Self-drawn 16px flat-line icons (DSH style, recolorable); left-click = tool, right-click = second-level options (brush size / selection mode / fill / background) |
+| Pixel editor | Pencil/Eraser/Eyedropper/Fill/**Line/Rectangle/Ellipse**/Select, undo/redo (Ctrl+Z / Ctrl+Shift+Z), integer zoom + grid + checkerboard, cursor-focus wheel zoom, Ctrl+left pan, **local import/export images**, background modes, scrollable right icon column + collapsible palette bar |
+| Shape tools | Line / Rectangle / Ellipse with a live drag preview that commits on release (one undo per shape); right-click a rectangle/ellipse for **stroke / fill**, right-click a line for brush thickness; default keys B/E/I/G/L/U/O/M |
+| Symmetry drawing | Left-click cycles off → horizontal → vertical → four-quadrant mirror, right-click picks the axis; the axis is shown in orange and every stroke is mirrored (great for characters and icons) |
+| Wrap-around drawing | Strokes that cross a canvas edge continue on the opposite side — **seamless tiles** (grass, brick, floor) line up in one pass |
+| Canvas transform | Flip H/V, rotate 90° either way, **crop to selection**, canvas resize (content anchored centre/corner, new area transparent), integer nearest-neighbour content scaling (2×/4×…, never blurry) — all undoable |
+| Export | Right-hand *Export* docker: **1×/2×/4×/8× nearest-neighbour upscale** to PNG, or one-click **copy to clipboard** for pasting into an engine or a document |
+| Palette interop | The family dialog can **export / import GIMP `.gpl` palettes** (plain `R G B` text works too); an imported palette is locked automatically so drawing snaps to it — round-trips with Aseprite / Krita / GIMP |
+| Tool icons | Self-drawn 16px flat-line icons (DSH style, recolorable); left-click = tool, right-click = second-level options (brush size / shape style / selection mode / fill / background) |
 | Brush size | 1–8 px square brushes for pencil/eraser |
 | Selection & floating layer | Rect / lasso / Ctrl+click multi-select with a **screen-space blue dashed border** (1px cosmetic pen, crisp at any zoom); Ctrl+C → Ctrl+V semi-transparent floating layer → Ctrl+right-drag move (any tool, auto-lifts a selection) → Ctrl+M merge (alpha, undoable) |
 | Region fill | Right-drag a rectangle and release to fill it with the current color (undoable); quick right-click/hold still opens the color wheel |
@@ -180,7 +193,9 @@ The fifth mode: **one text prompt → a complete, game-ready tileset + playable 
 | Solo → IDE sync | First frame + final frame sequence imported into the IDE workspace in one click |
 | Sprite generation | Text-only grid sheet with **Auto / Manual toggle in the left rail** (slide left = auto, right = manual; manual: 7 steps, each step can be rerun or continued): **high-res base image (1024×1024) used as-is for i2i** → one-call i×j sheet (strong built-in prompt: uniform cells, first/last pose identical, character never mutates) → crop (row-major, auto `cell_inset` removes AI black borders) → **Perfect-Pixel dual resolution** (native grid size + user size, NEAREST upscale, shared palette) → loop close → keying; exports **both** resolutions in three formats: PNG sequence / **algorithmically re-composited grid sheet** (+ index JSON) / GIF |
 | Sprite → IDE sync | Base image (as first frame) + cropped frames imported for pixel polish, then IDE export |
-| Standalone pixel board | 4th mode: resolution settings (**collapsible settings panel** for a bigger canvas, **draggable splitter** to resize the panel), IDE sync both ways, video-first-frame handoff, PNG export |
+| Standalone pixel board | 4th mode: resolution settings, IDE sync both ways, video-first-frame handoff, PNG export; **Krita-style three-column docker layout** (collapsible side docks, draggable splitters, remembered widths) and a **tile/prop pack browser** that browses every folder inside a pack |
+| Krita-style shell | **Menu bar** (File / Edit / View / Workspace / Help: new canvas, open/save project, undo/redo, copy/paste/merge selection, theme, UI scale, fullscreen, reset layout, about) + a **contextual toolbar** whose actions follow the active workspace (each page exposes `toolbar_actions()`) + a status bar showing UI scale / theme |
+| Dockers | Every parameter/resource column is a collapsible docker (title + icon + fold chevron); **collapsing frees space** — a folded docker keeps only its title bar and the freed height is handed to the other expanded dockers in the same column (stacked fill), restored to its previous height when re-opened; panels are drag-resizable and a whole dock collapses into a 22px vertical tab |
 | i18n | Chinese/English UI (Settings → General → Language); `ui/i18n.py` translation table |
 | Token savings | First-frame images ≤ `video_image_max_side` (512) before upload; LLM `max_tokens` 800; image size prefers the API default; minimal GET polling |
 
@@ -195,6 +210,10 @@ Provider differences are configured in **Settings** — no code changes:
 
 ## 📁 Project Layout
 
+> **Tech stack**: Python 3.10+ / **PySide6 (Qt 6 Widgets)** desktop GUI with QSS themes (`ui/styles/dark.qss`, `light.qss`),
+> Pillow + NumPy for image processing and plain `requests` API clients. No web engine anywhere: the menu bar, toolbar,
+> docker panels and the pixel canvas are native Qt widgets / hand-painted (icons are QPainter vector drawings that recolour with the theme).
+
 ```
 PixelFoundry/
 ├── main.py                 # entry (GUI + --demo)
@@ -204,7 +223,7 @@ PixelFoundry/
 │   ├── api/                # BaseAPI / LLM / Image / Video / Mock / factory
 │   ├── workflow/           # Solo / IDE / sprite workflows
 │   ├── processing/         # pixelizer / background / frame_utils / prompt_utils
-│   ├── editing/            # pixel canvas model (draw / undo / selection / paste)
+│   ├── editing/            # pixel canvas model (draw / shapes / symmetry / wrap / transforms / undo / selection / paste)
 │   └── storage/            # keyring (encrypted), project files
 ├── ui/                     # main window, pages, widgets, QSS + DSH-style icons
 │   ├── i18n.py             # zh/en translation table (tr())

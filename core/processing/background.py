@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 from PIL import Image, ImageFilter
@@ -145,11 +145,6 @@ def _erode_fg(mask: np.ndarray, erode: int) -> np.ndarray:
     if erode > 0:
         fg = fg.filter(ImageFilter.MinFilter(2 * erode + 1))
     return np.array(fg) > 127
-
-
-def remove_white_background(img: Image.Image, tolerance: int = 30, feather: int = 0, edge_clean: bool = True) -> Image.Image:
-    """去除白色背景的便捷入口。"""
-    return remove_background(img, (255, 255, 255), tolerance=tolerance, feather=feather, edge_clean=edge_clean)
 
 
 # --------------------------------------------------------------------------- #

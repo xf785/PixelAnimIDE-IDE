@@ -56,7 +56,6 @@ def app_data_dir() -> Path:
 
 
 DATA_DIR = app_data_dir()
-CONFIG_DIR = app_root() / "config"
 ASSETS_DIR = app_root() / "assets"
 DEFAULT_OUTPUT_DIR = Path.home() / f"{APP_NAME}_Output"
 
@@ -94,4 +93,3 @@ DEFAULT_ASPECT = "1:1"
 
 # 导出命名
 EXPORT_PREFIX = "pixel_anim"
-FRAME_NAME_PATTERN = "frame_{index:04d}.png"

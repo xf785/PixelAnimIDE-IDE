@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -28,7 +28,7 @@ from core.processing.prompt_utils import (
     build_fallback_prompts,
     normalize_prompts,
 )
-from core.workflow.shared import finalize_prompts, generate_prompt_data
+from core.workflow.shared import WorkflowLogMixin, finalize_prompts, generate_prompt_data
 from core.workflow.solo_workflow import WorkflowError
 from ui.i18n import tr
 
@@ -155,7 +155,7 @@ class SpriteResult:
     step_log: List[str] = field(default_factory=list)
 
 
-class SpriteWorkflow:
+class SpriteWorkflow(WorkflowLogMixin):
     """精灵图全流程执行器。"""
 
     def __init__(
@@ -176,22 +176,7 @@ class SpriteWorkflow:
         self.step_log: List[str] = []
 
     # ------------------------------------------------------------------ #
-    def _log_msg(self, level: str, message: str) -> None:
-        entry = f"[{level}] {message}"
-        self.step_log.append(entry)
-        logger.log(getattr(logging, level.upper(), logging.INFO), "%s", message)
-        if self._log:
-            try:
-                self._log(level, message)
-            except Exception:  # noqa: BLE001
-                pass
-
-    def _check_cancel(self) -> None:
-        from core.workflow.solo_workflow import WorkflowCancelled
-
-        if self._cancel.is_set():
-            raise WorkflowCancelled()
-
+    # 日志转发与取消检查由 WorkflowLogMixin 提供
     # ------------------------------------------------------------------ #
     def run(self, params: SpriteParams) -> SpriteResult:
         """自动模式：无干涉按顺序执行全部步骤。"""

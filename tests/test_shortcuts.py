@@ -61,7 +61,8 @@ def test_modes_and_defaults():
     assert sc.get("preview_play", "ide") == "Space"
     assert sc.get("timeline_insert", "ide") == "I"
     assert sc.get("preview_play", "solo") == "Space"
-    assert sc.get("tool_pencil", "pixel") == ""        # 默认不绑定
+    assert sc.get("tool_pencil", "pixel") == "B"       # 工具默认绑定 B/E/I/G/L/U/O/M
+    assert sc.get("tool_rect", "pixel") == "U"
     # 像素模式没有 preview_play，solo 没有 undo
     assert sc.get("preview_play", "pixel") == ""
     assert sc.get("undo", "solo") == ""

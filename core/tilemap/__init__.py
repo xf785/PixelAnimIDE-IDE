@@ -142,6 +142,7 @@ __all__ = [
     "MASK_TO_INDEX",
     "ProceduralTerrain",
     "Perlin2D",
+    "neighbour_mask",
     "string_seed_to_uint32",
     "IMG_MTN",
     "IMG_NORM",

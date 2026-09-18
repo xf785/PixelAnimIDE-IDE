@@ -1,4 +1,4 @@
-﻿"""API Key 加密存储：使用 cryptography 的 Fernet 对称加密。
+"""API Key 加密存储：使用 cryptography 的 Fernet 对称加密。
 
 密钥文件保存在用户数据目录（首次使用时自动生成），
 磁盘上的 API 配置中只保存密文，不落明文。

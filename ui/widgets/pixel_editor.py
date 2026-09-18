@@ -17,7 +17,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 from PIL import Image
 from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QWheelEvent
+from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPalette, QPen, QWheelEvent
 from PySide6.QtWidgets import (
     QColorDialog,
     QDialog,
@@ -27,12 +27,14 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from core.editing import PixelCanvas
+from core.editing.canvas import SYM_BOTH, SYM_H, SYM_NONE, SYM_V
 from ui.i18n import T, tr
 from ui.layout import scaled
 
@@ -44,13 +46,42 @@ class Tool(Enum):
     ERASER = "eraser"
     EYEDROPPER = "eyedropper"
     FILL = "fill"
+    LINE = "line"
+    RECT = "rect"
+    ELLIPSE = "ellipse"
     SELECT = "select"
 
+
+#: 形状工具（拖动预览，松开落笔）
+SHAPE_TOOLS = (Tool.LINE, Tool.RECT, Tool.ELLIPSE)
 
 # 调色板显示数量（前 N 个高频色族 + … 弹窗看完整）
 PALETTE_SHOW = 6
 
 TRANSPARENT = (0, 0, 0, 0)
+
+
+def parse_gpl(text: str) -> List[Tuple[int, int, int, int]]:
+    """解析 GIMP .gpl / 纯文本调色板："R G B[ 名称]" 每行一色。
+
+    忽略 GIMP Palette / Name: / Columns: / # 注释等头部行；解析失败的行跳过。
+    """
+    colors: List[Tuple[int, int, int, int]] = []
+    for raw in str(text).splitlines():
+        line = raw.split("#")[0].strip()
+        if not line:
+            continue
+        parts = line.replace("\t", " ").split()
+        if len(parts) < 3:
+            continue
+        try:
+            r, g, b = (int(float(parts[0])), int(float(parts[1])), int(float(parts[2])))
+        except ValueError:
+            continue
+        c = (max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)), 255)
+        if c not in colors:
+            colors.append(c)
+    return colors
 
 # 色族聚类阈值（RGB 欧氏距离，超过则另起一族）
 FAMILY_THRESHOLD = 70
@@ -231,6 +262,12 @@ class PixelEditorWidget(QWidget):
         self._brush_size = 1
         self._fill_global = False
         self._sel_mode = "rect"      # rect | lasso
+        # 形状工具 / 对称 / 环绕（无缝瓦片）
+        self._symmetry = SYM_NONE
+        self._wrap = False
+        self._shape_start: Optional[Tuple[int, int]] = None
+        self._shape_cur: Optional[Tuple[int, int]] = None
+        self._shape_filled = False    # 矩形/椭圆：填充 or 描边
         self._selection: Optional[np.ndarray] = None   # bool (h, w)
         self._sel_hl_qimg: Optional[QImage] = None
         self._sel_border_segments: List[Tuple[int, int, int, int]] = []  # 屏幕空间细线（蓝虚线）
@@ -286,7 +323,6 @@ class PixelEditorWidget(QWidget):
         btn.setCheckable(checkable)
         btn.setFixedSize(scaled(34), scaled(34))
         return btn
-
     def _build_side_panel(self) -> QWidget:
         """右侧图标控制列：默认收起（仅剩一个三角展开钮），点击展开全部图标。
 
@@ -295,7 +331,20 @@ class PixelEditorWidget(QWidget):
         panel = QWidget()
         panel.setObjectName("EditorSidePanel")
         panel.setFixedWidth(SIDE_MIN)  # 默认收起
-        v = QVBoxLayout(panel)
+        # 图标列放进滚动区：窗口不高时也不会把底部按钮挤掉（Krita 的工具箱同理）
+        outer = QVBoxLayout(panel)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        scroll = QScrollArea()
+        scroll.setObjectName("EditorToolScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        inner = QWidget()
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
+        v = QVBoxLayout(inner)
         v.setContentsMargins(3, 4, 3, 4)
         v.setSpacing(4)
 
@@ -320,6 +369,9 @@ class PixelEditorWidget(QWidget):
             (Tool.ERASER, "eraser", tr("橡皮（右键笔刷大小）")),
             (Tool.EYEDROPPER, "eyedropper", tr("取色")),
             (Tool.FILL, "fill", tr("填充（右键填充方式）")),
+            (Tool.LINE, "line", tr("直线（拖动预览，右键笔刷粗细）")),
+            (Tool.RECT, "rect", tr("矩形（右键：描边 / 填充）")),
+            (Tool.ELLIPSE, "ellipse", tr("椭圆（右键：描边 / 填充）")),
             (Tool.SELECT, "select", tr("选择（右键框选/套索；Ctrl+左键加点；Ctrl+C 复制，Ctrl+V 粘贴半透明新图层；Ctrl+右键拖拽移动；Ctrl+M 合并）")),
         ]
         for tool, kind, label in tool_defs:
@@ -331,6 +383,25 @@ class PixelEditorWidget(QWidget):
             self._side_buttons.append(btn)
             v.addWidget(btn, 0, Qt.AlignmentFlag.AlignHCenter)
         self._tool_buttons[Tool.PENCIL].setChecked(True)
+        v.addSpacing(6)
+
+        # 对称 / 环绕（无缝瓦片）：两个开关
+        self._sym_btn = self._icon_btn("symmetry", "对称绘制：关闭（左键切换，右键选轴）", checkable=True)
+        self._sym_btn.clicked.connect(self._on_symmetry_clicked)
+        self._sym_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._sym_btn.customContextMenuRequested.connect(lambda pos, b=self._sym_btn: self._on_symmetry_menu(b, pos))
+        self._side_buttons.append(self._sym_btn)
+        v.addWidget(self._sym_btn, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        self._wrap_btn = self._icon_btn("wrap", tr("环绕绘制：笔刷越过边界回到另一侧（画无缝瓦片）"), checkable=True)
+        self._wrap_btn.toggled.connect(self._on_wrap_toggled)
+        self._side_buttons.append(self._wrap_btn)
+        v.addWidget(self._wrap_btn, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        self._transform_btn = self._icon_btn("transform", tr("画布变换：翻转 / 旋转 / 裁剪 / 尺寸 / 缩放"))
+        self._transform_btn.clicked.connect(lambda: self._on_transform_menu(self._transform_btn))
+        self._side_buttons.append(self._transform_btn)
+        v.addWidget(self._transform_btn, 0, Qt.AlignmentFlag.AlignHCenter)
         v.addSpacing(6)
 
         # 撤销 / 重做
@@ -440,6 +511,12 @@ class PixelEditorWidget(QWidget):
         self._toggle_side_btn.setIcon(editor_icon(kind, "#9aa0a8", size=16))
         T(self._toggle_side_btn, "展开控制面板" if self._side_collapsed else "收起控制面板", attr="tooltip")
 
+    def retranslate_ui(self) -> None:
+        """语言切换后重刷动态文案（色族色块提示、对称按钮提示等）。"""
+        self._refresh_palette()
+        self.set_symmetry(self._symmetry)
+        T(self._wrap_btn, "环绕绘制：笔刷越过边界回到另一侧（画无缝瓦片）", attr="tooltip")
+
     def apply_ui_scale(self, scale: float) -> None:
         """按界面布局比例同步缩放编辑器全部固定尺寸（按钮/面板/调色板）。"""
         self._color_swatch.setFixedSize(scaled(30), scaled(30))
@@ -525,7 +602,162 @@ class PixelEditorWidget(QWidget):
             act.setCheckable(True)
             act.setChecked(self._fill_global)
             act.triggered.connect(lambda _=False: self._set_fill_global(True))
+        elif tool == Tool.LINE:
+            menu.addSection(tr("笔刷粗细"))
+            for sz in (1, 2, 3, 4, 6, 8):
+                act = menu.addAction(f"{sz}×{sz}")
+                act.setCheckable(True)
+                act.setChecked(self._brush_size == sz)
+                act.triggered.connect(lambda _=False, s=sz: self._set_brush_size(s))
+        elif tool in (Tool.RECT, Tool.ELLIPSE):
+            menu.addSection(tr("形状样式"))
+            for filled, label in ((False, tr("描边")), (True, tr("填充"))):
+                act = menu.addAction(label)
+                act.setCheckable(True)
+                act.setChecked(self._shape_filled is filled)
+                act.triggered.connect(lambda _=False, f=filled: self._set_shape_filled(f))
+            menu.addSeparator()
+            menu.addSection(tr("笔刷粗细"))
+            for sz in (1, 2, 3, 4, 6, 8):
+                act = menu.addAction(f"{sz}×{sz}")
+                act.setCheckable(True)
+                act.setChecked(self._brush_size == sz)
+                act.triggered.connect(lambda _=False, s=sz: self._set_brush_size(s))
         menu.exec(btn.mapToGlobal(pos))
+
+    def _set_shape_filled(self, filled: bool) -> None:
+        """矩形/椭圆：填充 or 仅描边（下次落笔生效）。"""
+        self._shape_filled = bool(filled)
+
+    # ------------------------------------------------------------------ #
+    # 对称绘制 / 环绕绘制（无缝瓦片）/ 画布变换
+    # ------------------------------------------------------------------ #
+    def symmetry(self) -> str:
+        return self._symmetry
+
+    def set_symmetry(self, mode: str) -> None:
+        """设置对称模式（none / h / v / both），并同步按钮状态与提示。"""
+        self._symmetry = mode if mode in (SYM_NONE, SYM_H, SYM_V, SYM_BOTH) else SYM_NONE
+        self._sym_btn.setChecked(self._symmetry != SYM_NONE)
+        tip = {
+            SYM_NONE: "对称绘制：关闭（左键切换，右键选轴）",
+            SYM_H: "对称绘制：左右镜像（左键关闭，右键选轴）",
+            SYM_V: "对称绘制：上下镜像（左键关闭，右键选轴）",
+            SYM_BOTH: "对称绘制：四象限镜像（左键关闭，右键选轴）",
+        }[self._symmetry]
+        T(self._sym_btn, tip, attr="tooltip")
+        self._canvas_host.update()
+
+    def _on_symmetry_clicked(self, checked: bool) -> None:
+        """左键：关闭 -> 左右 -> 上下 -> 四象限 循环。"""
+        if not checked:
+            self.set_symmetry(SYM_NONE)
+            return
+        order = (SYM_H, SYM_V, SYM_BOTH)
+        try:
+            nxt = order[(order.index(self._symmetry) + 1) % len(order)]
+        except ValueError:
+            nxt = SYM_H
+        self.set_symmetry(nxt)
+
+    def _on_symmetry_menu(self, btn, pos: QPoint) -> None:
+        menu = QMenu(self)
+        menu.addSection(tr("对称轴"))
+        for key, label in ((SYM_NONE, "关闭"), (SYM_H, "左右镜像"), (SYM_V, "上下镜像"), (SYM_BOTH, "四象限镜像")):
+            act = menu.addAction(tr(label))
+            act.setCheckable(True)
+            act.setChecked(self._symmetry == key)
+            act.triggered.connect(lambda _=False, k=key: self.set_symmetry(k))
+        menu.exec(btn.mapToGlobal(pos))
+
+    def wrap_enabled(self) -> bool:
+        return self._wrap
+
+    def set_wrap(self, enabled: bool) -> None:
+        """环绕绘制：笔刷越过边界后从另一侧继续（画无缝瓦片）。"""
+        self._wrap = bool(enabled)
+        self._wrap_btn.setChecked(self._wrap)
+        self._canvas_host.update()
+
+    def _on_wrap_toggled(self, checked: bool) -> None:
+        self.set_wrap(checked)
+
+    def _on_transform_menu(self, btn) -> None:
+        """画布变换菜单：翻转 / 旋转 / 裁剪 / 尺寸 / 缩放。"""
+        menu = QMenu(self)
+        menu.addAction(tr("水平翻转")).triggered.connect(lambda: self.transform("flip_h"))
+        menu.addAction(tr("垂直翻转")).triggered.connect(lambda: self.transform("flip_v"))
+        menu.addSeparator()
+        menu.addAction(tr("顺时针旋转 90°")).triggered.connect(lambda: self.transform("rotate_cw"))
+        menu.addAction(tr("逆时针旋转 90°")).triggered.connect(lambda: self.transform("rotate_ccw"))
+        menu.addSeparator()
+        crop = menu.addAction(tr("裁剪到选区"))
+        crop.setEnabled(bool(self._selection is not None and self._selection.any()))
+        crop.triggered.connect(lambda: self.transform("crop_selection"))
+        menu.addAction(tr("画布尺寸…")).triggered.connect(lambda: self.transform("resize"))
+        menu.addAction(tr("内容整数倍缩放…")).triggered.connect(lambda: self.transform("scale"))
+        menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
+
+    def transform(self, action: str) -> bool:
+        """执行画布变换（供按钮 / 主窗口菜单调用），返回是否发生了变化。"""
+        before = self._canvas.size
+        ok = False
+        if action == "flip_h":
+            ok = self._canvas.flip_horizontal()
+        elif action == "flip_v":
+            ok = self._canvas.flip_vertical()
+        elif action == "rotate_cw":
+            ok = self._canvas.rotate_90(clockwise=True)
+        elif action == "rotate_ccw":
+            ok = self._canvas.rotate_90(clockwise=False)
+        elif action == "crop_selection":
+            ok = self._crop_to_selection()
+        elif action == "resize":
+            ok = self._resize_canvas_dialog()
+        elif action == "scale":
+            ok = self._scale_content_dialog()
+        if ok:
+            self._clear_selection()
+            self._rebuild()
+            self._refresh_palette()
+            self.edited.emit()
+            self._canvas_host.update()
+        if self._canvas.size != before:
+            self._clamp_pan()
+        return ok
+
+    def _crop_to_selection(self) -> bool:
+        sel = self._selection
+        if sel is None or not sel.any():
+            return False
+        ys, xs = np.nonzero(sel)
+        return self._canvas.crop_to((int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())))
+
+    def _resize_canvas_dialog(self) -> bool:
+        from PySide6.QtWidgets import QInputDialog
+
+        w, ok = QInputDialog.getInt(self, tr("画布尺寸"), tr("宽度(px)"), self._canvas.width, 1, 4096, 1)
+        if not ok:
+            return False
+        h, ok = QInputDialog.getInt(self, tr("画布尺寸"), tr("高度(px)"), self._canvas.height, 1, 4096, 1)
+        if not ok:
+            return False
+        anchor, ok = QInputDialog.getItem(
+            self, tr("画布尺寸"), tr("内容对齐"),
+            [tr("居中"), tr("左上"), tr("右上"), tr("左下"), tr("右下")], 0, False,
+        )
+        if not ok:
+            return False
+        key = {"居中": "center", "左上": "tl", "右上": "tr", "左下": "bl", "右下": "br"}.get(anchor, "center")
+        return self._canvas.resize_canvas(w, h, key)
+
+    def _scale_content_dialog(self) -> bool:
+        from PySide6.QtWidgets import QInputDialog
+
+        factor, ok = QInputDialog.getInt(self, tr("内容缩放"), tr("放大整数倍"), 2, 1, 16, 1)
+        if not ok:
+            return False
+        return self._canvas.scale_content(factor)
 
     def _set_brush_size(self, size: int) -> None:
         self._brush_size = max(1, min(8, int(size)))
@@ -718,7 +950,7 @@ class PixelEditorWidget(QWidget):
 
         if not path:
             path, _ = QFileDialog.getOpenFileName(
-                self, tr("导入图片"), "", "图片 (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;所有文件 (*)"
+                self, tr("导入图片"), "", tr("图片 (*.png *.jpg *.jpeg *.bmp *.gif *.webp);;所有文件 (*)")
             )
             if not path:
                 return None
@@ -737,7 +969,7 @@ class PixelEditorWidget(QWidget):
 
         if not path:
             path, _ = QFileDialog.getSaveFileName(
-                self, tr("导出当前帧为 PNG"), "frame.png", "PNG 图片 (*.png)"
+                self, tr("导出当前帧为 PNG"), "frame.png", tr("PNG 图片 (*.png)")
             )
             if not path:
                 return None
@@ -776,6 +1008,41 @@ class PixelEditorWidget(QWidget):
         if self._canvas.redo():
             self._rebuild()
 
+    # ---- 对外公开的选区/图层命令（主窗口菜单与工具条用） ----
+    def copy_selection(self) -> None:
+        """复制当前选区到剪贴板。"""
+        self._copy_selection()
+
+    def paste_layer(self) -> None:
+        """把剪贴板内容粘贴成半透明浮动图层。"""
+        self._paste_layer()
+
+    def merge_float_layer(self) -> None:
+        """把浮动图层合并进当前帧。"""
+        self._merge_float_layer()
+
+    def zoom_in(self) -> None:
+        self._set_zoom(self._zoom + 1)
+
+    def zoom_out(self) -> None:
+        self._set_zoom(self._zoom - 1)
+
+    def zoom(self) -> int:
+        return self._zoom
+
+    def fit_zoom(self) -> None:
+        """按视图大小选一个合适的整数倍缩放（新建/载入画布后让画布占满视图）。"""
+        host = self._canvas_host
+        w = max(1, self._canvas.width)
+        h = max(1, self._canvas.height)
+        if host.width() < 16 or host.height() < 16:
+            return
+        z = min((host.width() - 24) // w, (host.height() - 24) // h)
+        self._pan_x = 0
+        self._pan_y = 0
+        self._set_zoom(max(1, min(32, int(z))))
+        self._canvas_host.update()
+
     def _set_zoom(self, zoom: int, focus: Optional[QPoint] = None) -> None:
         """整数倍缩放；focus 给出时以其为焦点（保持焦点处画布格不动）。"""
         zoom = max(1, min(32, int(zoom)))
@@ -802,11 +1069,6 @@ class PixelEditorWidget(QWidget):
             f"background-color: rgba({r},{g},{b},{a});"
             "border: 1px solid rgba(255,255,255,0.35);"
         )
-
-    def _on_pick_custom(self) -> None:
-        c = QColorDialog.getColor(QColor(*self._color[:3]), self, tr("选择颜色"))
-        if c.isValid():
-            self.set_color((c.red(), c.green(), c.blue(), 255))
 
     def _on_onion_toggled(self, checked: bool) -> None:
         self.set_onion_enabled(checked)
@@ -941,7 +1203,18 @@ class PixelEditorWidget(QWidget):
         dialog = _PaletteDialog(families, self)
         dialog.color_selected.connect(self.set_color)
         dialog.color_replaced.connect(self._on_replace_family)
+        dialog.palette_loaded.connect(self.apply_imported_palette)
         dialog.exec()
+
+    def apply_imported_palette(self, colors) -> None:
+        """导入调色板：锁定为这些颜色（绘制/填充自动吸附到最近色）。"""
+        colors = [tuple(int(v) for v in c) for c in colors]
+        if not colors:
+            return
+        # 先勾选锁定（其槽函数会先把本图调色板写进画布），再用导入的调色板覆盖
+        self._palette_lock_btn.setChecked(True)
+        self._palette_locked = True
+        self._canvas.set_palette(colors)
 
     def _rebuild(self) -> None:
         self._qimg = _to_qimage(self._canvas.image)
@@ -964,16 +1237,21 @@ class PixelEditorWidget(QWidget):
         x, y = cell
         if self._float_layer is not None and self._tool != Tool.SELECT:
             self._merge_float_layer()  # 绘制/填充前先合并浮动图层
+        sym, wrap = self._symmetry, self._wrap
         if self._tool == Tool.PENCIL:
             if from_cell:
-                self._canvas.draw_line(from_cell, cell, self._color, size=self._brush_size)
+                self._canvas.draw_line(from_cell, cell, self._color, size=self._brush_size,
+                                       symmetry=sym, wrap=wrap)
             else:
-                self._canvas.set_pixel(x, y, self._color, size=self._brush_size)
+                self._canvas.set_pixel(x, y, self._color, size=self._brush_size,
+                                       symmetry=sym, wrap=wrap)
         elif self._tool == Tool.ERASER:
             if from_cell:
-                self._canvas.draw_line(from_cell, cell, TRANSPARENT, size=self._brush_size)
+                self._canvas.draw_line(from_cell, cell, TRANSPARENT, size=self._brush_size,
+                                       symmetry=sym, wrap=wrap)
             else:
-                self._canvas.set_pixel(x, y, TRANSPARENT, size=self._brush_size)
+                self._canvas.set_pixel(x, y, TRANSPARENT, size=self._brush_size,
+                                       symmetry=sym, wrap=wrap)
         elif self._tool == Tool.FILL:
             if self._fill_global:
                 target = self._canvas.get_pixel(x, y)
@@ -990,6 +1268,48 @@ class PixelEditorWidget(QWidget):
         if self._tool in (Tool.PENCIL, Tool.ERASER, Tool.FILL):
             self._rebuild()
             self.edited.emit()
+
+    # ------------------------------------------------------------------ #
+    # 形状工具：拖动预览 -> 松开落笔（直线 / 矩形 / 椭圆）
+    # ------------------------------------------------------------------ #
+    def _shape_commit(self) -> None:
+        """把预览中的形状真正画进画布。"""
+        if self._shape_start is None or self._shape_cur is None:
+            return
+        p0, p1 = self._shape_start, self._shape_cur
+        sym, wrap = self._symmetry, self._wrap
+        color = TRANSPARENT if self._tool == Tool.ERASER else self._color
+        n = 0
+        if self._tool == Tool.LINE:
+            n = self._canvas.draw_line(p0, p1, color, size=self._brush_size, symmetry=sym, wrap=wrap)
+        elif self._tool == Tool.RECT:
+            n = self._canvas.draw_rect(p0, p1, color, size=self._brush_size,
+                                       filled=self._shape_filled, symmetry=sym, wrap=wrap)
+        elif self._tool == Tool.ELLIPSE:
+            n = self._canvas.draw_ellipse(p0, p1, color, size=self._brush_size,
+                                          filled=self._shape_filled, symmetry=sym, wrap=wrap)
+        self._shape_start = None
+        self._shape_cur = None
+        self._rebuild()
+        self._canvas_host.update()
+        if n:
+            self.edited.emit()
+
+    def _shape_preview_cells(self):
+        """预览用的格子集合（与落笔结果一致，含镜像与环绕）。"""
+        if self._shape_start is None or self._shape_cur is None:
+            return set()
+        p0, p1 = self._shape_start, self._shape_cur
+        if self._tool == Tool.LINE:
+            base = set(self._canvas._line_points(p0, p1))
+        elif self._tool == Tool.RECT:
+            base = set(self._canvas.rect_cells(p0, p1, self._shape_filled))
+        else:
+            base = set(self._canvas.ellipse_cells(p0, p1, self._shape_filled))
+        cells = set()
+        for x, y in base:
+            cells.update(self._canvas.mirror_cells(x, y, self._symmetry))
+        return set(self._canvas._normalize(cells, self._wrap))
 
     # ------------------------------------------------------------------ #
     # 选择工具：框选 / 套索 / Ctrl+点选 / 浮动图层（Ctrl+C 复制、Ctrl+M 合并）
@@ -1227,6 +1547,9 @@ class PixelEditorWidget(QWidget):
             ("tool_eraser", Tool.ERASER),
             ("tool_eyedropper", Tool.EYEDROPPER),
             ("tool_fill", Tool.FILL),
+            ("tool_line", Tool.LINE),
+            ("tool_rect", Tool.RECT),
+            ("tool_ellipse", Tool.ELLIPSE),
             ("tool_select", Tool.SELECT),
         ):
             seq = sc.get(aid, "pixel")
@@ -1234,6 +1557,15 @@ class PixelEditorWidget(QWidget):
                 self.set_tool(tool)
                 event.accept()
                 return
+        # 对称 / 环绕：无默认快捷键，但用户可在设置里绑定
+        if sc.match(event, sc.get("toggle_symmetry", "pixel")):
+            self.set_symmetry(SYM_NONE if self._symmetry != SYM_NONE else SYM_H)
+            event.accept()
+            return
+        if sc.match(event, sc.get("toggle_wrap", "pixel")):
+            self.set_wrap(not self._wrap)
+            event.accept()
+            return
         super().keyPressEvent(event)
 
     # ------------------------------------------------------------------ #
@@ -1243,6 +1575,15 @@ class PixelEditorWidget(QWidget):
         cell = self._cell_at(event.position().toPoint())
         if cell is None:
             return
+        if self._tool in SHAPE_TOOLS:
+            # 形状工具：按下只记起点，拖动预览，松开才落笔
+            if self._float_layer is not None:
+                self._merge_float_layer()
+            self._shape_start = cell
+            self._shape_cur = cell
+            self._drawing = True
+            self._canvas_host.update()
+            return
         self._drawing = True
         self._last_cell = cell
         self._apply(cell)
@@ -1251,6 +1592,11 @@ class PixelEditorWidget(QWidget):
         if not self._drawing:
             return
         cell = self._cell_at(event.position().toPoint())
+        if self._tool in SHAPE_TOOLS:
+            if cell is not None and cell != self._shape_cur:
+                self._shape_cur = cell
+                self._canvas_host.update()
+            return
         if cell is None:
             return
         if self._tool in (Tool.EYEDROPPER, Tool.FILL):
@@ -1260,19 +1606,29 @@ class PixelEditorWidget(QWidget):
             self._last_cell = cell
 
     def _on_mouse_release(self, event: QMouseEvent) -> None:
+        if self._tool in SHAPE_TOOLS and self._shape_start is not None:
+            cell = self._cell_at(event.position().toPoint())
+            if cell is not None:
+                self._shape_cur = cell
+            self._shape_commit()
         self._drawing = False
         self._last_cell = None
 
 
 class _PaletteDialog(QDialog):
-    """完整色族调色板弹窗：网格显示本图全部色族；左键选代表色、右键整族替换（保留渐变）。"""
+    """完整色族调色板弹窗：网格显示本图全部色族；左键选代表色、右键整族替换（保留渐变）。
+
+    另外支持**导出 / 导入 GIMP .gpl 调色板**（Aseprite、Krita、GIMP 都能互相读写）。
+    """
 
     color_selected = Signal(object)   # 左键选中（传代表色）
     color_replaced = Signal(object)   # 右键替换（传 (rep, members) 色族）
+    palette_loaded = Signal(object)   # 导入调色板（传颜色列表）
 
     def __init__(self, families, parent=None):
         """families: [(rep, total, members)] 色族列表。紧凑网格：只显示色块，族名悬停显示。"""
         super().__init__(parent)
+        self._families = list(families)
         self.setWindowTitle(tr("色族调色板"))
         self.setMinimumSize(340, 220)
         layout = QVBoxLayout(self)
@@ -1305,6 +1661,14 @@ class _PaletteDialog(QDialog):
         custom = QPushButton(tr("自定义颜色…"))
         custom.clicked.connect(self._on_custom)
         btn_row.addWidget(custom)
+        btn_export = QPushButton(tr("导出调色板…"))
+        T(btn_export, "导出为 GIMP .gpl 调色板（Aseprite / Krita / GIMP 可直接导入）", attr="tooltip")
+        btn_export.clicked.connect(self._on_export_palette)
+        btn_row.addWidget(btn_export)
+        btn_import = QPushButton(tr("导入调色板…"))
+        T(btn_import, "导入 .gpl / 纯文本调色板并锁定，之后绘制自动吸附到这些颜色", attr="tooltip")
+        btn_import.clicked.connect(self._on_import_palette)
+        btn_row.addWidget(btn_import)
         close_btn = QPushButton(tr("关闭"))
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)
@@ -1324,6 +1688,68 @@ class _PaletteDialog(QDialog):
         c = QColorDialog.getColor(QColor(0, 0, 0), self, tr("选择颜色"))
         if c.isValid():
             self.color_selected.emit((c.red(), c.green(), c.blue(), 255))
+
+    # ------------------------------------------------------------------ #
+    # 调色板导入 / 导出（GIMP .gpl，纯文本 "R G B" 也认）
+    # ------------------------------------------------------------------ #
+    def palette_colors(self) -> List[Tuple[int, int, int, int]]:
+        """当前调色板里的全部颜色（族内成员去重，按出现顺序）。"""
+        seen: List[Tuple[int, int, int, int]] = []
+        for rep, _total, members in self._families:
+            for c in list(members) + [rep]:
+                c = tuple(int(v) for v in c)
+                if len(c) == 3:
+                    c = (c[0], c[1], c[2], 255)
+                if c[3] > 0 and c not in seen:
+                    seen.append(c)
+        return seen
+
+    def _on_export_palette(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        colors = self.palette_colors()
+        if not colors:
+            return
+        path, _f = QFileDialog.getSaveFileName(
+            self, tr("导出调色板"), "palette.gpl", tr("GIMP 调色板 (*.gpl);;所有文件 (*)")
+        )
+        if not path:
+            return
+        lines = ["GIMP Palette", "Name: PixelFoundry", "Columns: 16", "#"]
+        for r, g, b, _a in colors:
+            lines.append(f"{r:3d} {g:3d} {b:3d}\t#{r:02X}{g:02X}{b:02X}")
+        try:
+            Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+            self._status(tr("已导出调色板：{0}（{1} 色）").format(path, len(colors)))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, tr("导出调色板失败"), str(exc))
+
+    def _on_import_palette(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        path, _f = QFileDialog.getOpenFileName(
+            self, tr("导入调色板"), "", tr("调色板 (*.gpl *.txt *.pal);;所有文件 (*)")
+        )
+        if not path:
+            return
+        try:
+            colors = parse_gpl(Path(path).read_text(encoding="utf-8", errors="replace"))
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, tr("导入调色板失败"), str(exc))
+            return
+        if not colors:
+            QMessageBox.information(self, tr("导入调色板"), tr("这个文件里没有解析到颜色"))
+            return
+        self.palette_loaded.emit(colors)
+        self._status(tr("已导入调色板：{0} 色（已锁定）").format(len(colors)))
+
+    def _status(self, message: str) -> None:
+        win = self.window()
+        if win is not None and hasattr(win, "statusBar"):
+            try:
+                win.statusBar().showMessage(message)
+            except Exception:  # noqa: BLE001
+                pass
 
 
 class _CanvasView(QWidget):
@@ -1350,6 +1776,12 @@ class _CanvasView(QWidget):
         target = QRect(ox, oy, fw * zoom, fh * zoom)
 
         # 背景：灰黑网格 / 纯白 / 纯黑 / 纯绿（透明像素露出背景色）
+        # 画布「外部」用工作区底色（Krita 的深灰台面），画布「内部」才画棋盘格，
+        # 这样画布边界一眼可见；配色随主题（深/浅）自动切换。
+        dark = self.palette().color(QPalette.ColorRole.Window).lightness() < 128
+        workspace = QColor("#232327") if dark else QColor("#c9ced6")
+        check_a = QColor("#3a3a3e") if dark else QColor("#ffffff")
+        check_b = QColor("#2c2c2e") if dark else QColor("#dadde3")
         bg = editor._bg_mode
         if bg == "white":
             painter.fillRect(self.rect(), QColor(255, 255, 255))
@@ -1358,14 +1790,16 @@ class _CanvasView(QWidget):
         elif bg == "green":
             painter.fillRect(self.rect(), QColor(0, 255, 0))
         else:  # checker
-            painter.fillRect(self.rect(), QColor("#1e1e20"))
+            painter.fillRect(self.rect(), workspace)
+            painter.save()
+            painter.setClipRect(target)
+            painter.fillRect(target, check_b)
             cell = max(4, 8 * zoom)
-            for gy in range((target.height() // cell) + 1):
-                for gx in range((target.width() // cell) + 1):
+            for gy in range((target.height() // cell) + 2):
+                for gx in range((target.width() // cell) + 2):
                     if (gx + gy) % 2 == 0:
-                        painter.fillRect(ox + gx * cell, oy + gy * cell, cell, cell, QColor("#3a3a3e"))
-                    else:
-                        painter.fillRect(ox + gx * cell, oy + gy * cell, cell, cell, QColor("#2c2c2e"))
+                        painter.fillRect(ox + gx * cell, oy + gy * cell, cell, cell, check_a)
+            painter.restore()
 
         # 洋葱皮幽灵帧（半透明，绘制在当前帧之下）
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, False)
@@ -1427,6 +1861,39 @@ class _CanvasView(QWidget):
             painter.fillRect(sel, QColor(80, 160, 255, 70))
             painter.setPen(QPen(QColor(80, 160, 255), 1))
             painter.drawRect(sel)
+
+        # 形状工具预览（直线/矩形/椭圆的拖动虚影）
+        preview = editor._shape_preview_cells() if editor._tool in SHAPE_TOOLS else set()
+        if preview:
+            col = (0, 0, 0, 0) if editor._tool == Tool.ERASER else editor._color
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(col[0], col[1], col[2], 150))
+            for cx, cy in preview:
+                painter.drawRect(QRect(ox + cx * zoom, oy + cy * zoom, zoom, zoom))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            pen = QPen(QColor("#3d9bff"), 1)
+            pen.setCosmetic(True)
+            pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            x0, y0 = editor._shape_start
+            x1, y1 = editor._shape_cur
+            painter.drawRect(QRect(
+                ox + min(x0, x1) * zoom, oy + min(y0, y1) * zoom,
+                (abs(x1 - x0) + 1) * zoom, (abs(y1 - y0) + 1) * zoom,
+            ))
+
+        # 对称轴（开启对称绘制时显示中轴虚线）
+        if editor._symmetry != SYM_NONE:
+            pen = QPen(QColor("#ff9d3d"), 1)
+            pen.setCosmetic(True)
+            pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            if editor._symmetry in (SYM_H, SYM_BOTH):
+                cx = ox + (fw / 2.0) * zoom
+                painter.drawLine(QPointF(cx, oy), QPointF(cx, oy + fh * zoom))
+            if editor._symmetry in (SYM_V, SYM_BOTH):
+                cy = oy + (fh / 2.0) * zoom
+                painter.drawLine(QPointF(ox, cy), QPointF(ox + fw * zoom, cy))
 
         # 像素网格（可显示/隐藏；深底用浅线、浅底用深线）
         if editor._grid_visible:

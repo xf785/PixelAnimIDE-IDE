@@ -8,14 +8,13 @@ from __future__ import annotations
 import logging
 from typing import Dict, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
-    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -405,11 +404,11 @@ class ApiConfigWidget(QWidget):
                 self._set_field(pkey, pval)
         self._test_result.setStyleSheet("")
         if self._get_field("api_key"):
-            self._test_result.setText(tr("已应用预设「{0}」，正在查询可用模型…").format(preset["label"]))
+            self._test_result.setText(tr("已应用预设「{0}」，正在查询可用模型…").format(tr(preset["label"])))
             self._on_list_models()
         else:
             self._test_result.setText(
-                tr("已应用预设「{0}」；填写 API Key 后可点「查询模型」一键选择").format(preset["label"])
+                tr("已应用预设「{0}」；填写 API Key 后可点「查询模型」一键选择").format(tr(preset["label"]))
             )
 
     # ------------------------------------------------------------------ #

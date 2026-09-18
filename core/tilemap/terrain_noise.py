@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Tuple
 
 import numpy as np
 
@@ -98,19 +98,6 @@ class Perlin2D:
         x2 = grad(ab, xf, yf - 1) + u * (grad(bb, xf - 1, yf - 1) - grad(ab, xf, yf - 1))
         return x1 + v * (x2 - x1)
 
-    def fbm(self, x: float, y: float, octaves: int, persistence: float, lacunarity: float) -> float:
-        total = 0.0
-        amp = 1.0
-        freq = 1.0
-        norm = 0.0
-        for _ in range(octaves):
-            total += amp * self(x * freq, y * freq)
-            norm += amp
-            amp *= persistence
-            freq *= lacunarity
-        return total / norm
-
-
 def neighbour_mask(x: int, y: int, pred: Callable[[int, int], bool]) -> int:
     """按预测函数取 8 邻域掩码（对角位遵循 canonical 规则）。"""
     mask = 0
@@ -138,13 +125,6 @@ class ProceduralTerrain:
         self.n_height = Perlin2D(base)
         self.n_mountain = Perlin2D(base ^ 0x414004)
         self.n_river = Perlin2D(base ^ 0x927B51C1)
-        self.clear_cache()
-
-    def set_params(self, sea_level: Optional[float] = None, mountain_threshold: Optional[float] = None) -> None:
-        if sea_level is not None:
-            self.sea_level = float(sea_level)
-        if mountain_threshold is not None:
-            self.mountain_threshold = float(mountain_threshold)
         self.clear_cache()
 
     def clear_cache(self) -> None:
@@ -227,14 +207,6 @@ class ProceduralTerrain:
             return "water", self.mask_water(wx, wy)
         b = self.biome(wx, wy)
         return ("mtn" if b == IMG_MTN else "norm"), self.mask_land_biome(wx, wy, b)
-
-    def is_walkable(self, wx: int, wy: int) -> bool:
-        """仅平地可走。"""
-        return self.land(wx, wy) == 1 and self.biome(wx, wy) == IMG_NORM
-
-    def is_land(self, wx: int, wy: int) -> bool:
-        """陆地（含山地），树木等装饰用。"""
-        return self.land(wx, wy) == 1
 
     def grid(self, width: int, height: int, origin: Tuple[int, int] = (0, 0)) -> Tuple[np.ndarray, np.ndarray]:
         """批量取一块世界：返回 (kinds, masks)；kind 0=水 1=平 2=山。"""

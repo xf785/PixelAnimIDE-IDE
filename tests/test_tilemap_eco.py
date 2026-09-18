@@ -358,7 +358,6 @@ def test_compose_aligned_edges_and_corners():
     """边/角几何：暴露侧是基础地形条带，外角圆角、内角凹口。"""
     art = _art()
     band = art.band
-    rim = art.line_width
     ground = np.asarray(art.base_texture)
     center = np.asarray(art.center)
 

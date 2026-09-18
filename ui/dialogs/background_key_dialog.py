@@ -10,8 +10,6 @@ from typing import Optional
 
 import numpy as np
 from PIL import Image
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -25,14 +23,8 @@ from PySide6.QtWidgets import (
 
 from core.processing import background as bg_mod
 from ui.i18n import tr
+from ui.qt_image import pil_to_qpixmap as _pil_to_qpixmap
 from ui.widgets.image_viewer import ImageViewer
-
-
-def _pil_to_qpixmap(img: Image.Image) -> QPixmap:
-    rgba = img.convert("RGBA")
-    data = rgba.tobytes("raw", "RGBA")
-    qimg = QImage(data, rgba.width, rgba.height, QImage.Format.Format_RGBA8888).copy()
-    return QPixmap.fromImage(qimg)
 
 
 def _checkerboard(size, cell: int = 8) -> Image.Image:

@@ -2,7 +2,7 @@
 import numpy as np
 from PIL import Image, ImageDraw
 
-from core.tilemap import BIT, TileMapModel, compose_art_tile
+from core.tilemap import TileMapModel
 from core.tilemap.cliff import cliff_art_from_terrain
 from core.tilemap.fidelity import faithful_tile_texture
 from core.tilemap.tiles import EDGE_NAMES, BaseTileSet

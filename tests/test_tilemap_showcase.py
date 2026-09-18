@@ -4,7 +4,6 @@
 所以外角/内角/单行/单列这些瓦片在成品里根本看不到；边界也只有一条平色描边。
 """
 import numpy as np
-import pytest
 from PIL import Image
 
 from core.tilemap import BIT, TileMapModel, canonical_mask, compose_art_tile, mask_for_terrain

@@ -262,7 +262,6 @@ def test_api_config_widget_advanced_collapsible(qtbot, ctx):
 
 def test_api_config_widget_provider_preset(qtbot, ctx):
     """选择服务商预设自动填充 Base URL / 模型 / 适配参数。"""
-    from config.api_config import PROVIDER_PRESETS
 
     widget = ApiConfigWidget(ctx.api, "video")
     qtbot.addWidget(widget)
@@ -1190,7 +1189,7 @@ def _make_editor_with_painted_canvas(qtbot, size=(400, 300)):
 
 
 def _mouse_ev(ev_type, pos, button, modifiers):
-    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtCore import QPointF
     from PySide6.QtGui import QMouseEvent
 
     return QMouseEvent(ev_type, QPointF(pos), QPointF(pos), button, button, modifiers)
@@ -1572,8 +1571,9 @@ def test_pixel_page_structure_and_actions(qtbot, ctx, tmp_out):
     page._on_use_as_video()
     assert len(to_ide) == 1 and len(to_video) == 1
     assert to_ide[0].size == (8, 8)
-    # 导入/导出按钮位于左侧操作栏
-    assert page._btn_import is not None and page._btn_export is not None
+    # 导入/导出动作现在由主窗口上下文工具条提供（页面 toolbar_actions 协议）
+    actions = {item[1]: item for item in page.toolbar_actions()}
+    assert "导入图片…" in actions and "导出 PNG" in actions
     # 导入走编辑器导入逻辑（传路径免弹窗）
     imp_path = tmp_out / "imp.png"
     Image.new("RGBA", (10, 6), (9, 8, 7, 255)).save(imp_path)
@@ -1719,21 +1719,25 @@ def test_ui_scale_setting_scales_layout(qtbot, ctx):
 
 def test_language_switch_applies_immediately(qtbot, ctx):
     """语言切换立即生效：设置保存后按钮/页签/分组标题同步变英文。"""
+    from PySide6.QtWidgets import QToolButton
+
     from ui.i18n import set_language
 
     set_language("zh")
     window = MainWindow(ctx)
     qtbot.addWidget(window)
     window.show()
-    assert window.pixel_page._btn_export.text() == "导出 PNG"
+    window.set_mode("pixel")
     assert window.pixel_page._btn_new.text() == "新建画布"
     assert window.ide_page._btn_run.text() == "生成提示词"
+    assert "导出 PNG" in [b.text() for b in window._toolbar.findChildren(QToolButton)]
     # 切英文 + retranslate（设置保存时触发）→ 立即生效
     set_language("en")
     window.retranslate_ui()
-    assert window.pixel_page._btn_export.text() == "Export PNG"
     assert window.pixel_page._btn_new.text() == "New canvas"
-    assert window.pixel_page._btn_video.text() == "Use as video first frame"
+    toolbar_texts = [b.text() for b in window._toolbar.findChildren(QToolButton)]
+    assert "Export PNG" in toolbar_texts
+    assert "Use as first frame" in toolbar_texts
     assert window.ide_page._btn_run.text() == "Generate prompts"
     assert window.ide_page._tabs.tabText(0) == "Preview"
     # 复位中文

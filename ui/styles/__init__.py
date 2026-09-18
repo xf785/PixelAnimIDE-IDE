@@ -1,8 +1,6 @@
 """主题加载：dark/light QSS。"""
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtWidgets import QApplication
 
 from config.settings import bundle_root

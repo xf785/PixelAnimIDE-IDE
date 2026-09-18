@@ -252,13 +252,6 @@ def _dilate(mask: np.ndarray, radius: int) -> np.ndarray:
     return out
 
 
-def _row_runs(flags: np.ndarray) -> int:
-    """一维布尔序列中 True 连续段的个数。"""
-    if flags.size == 0 or not flags.any():
-        return 0
-    return int(np.count_nonzero(flags[1:] & ~flags[:-1]) + (1 if flags[0] else 0))
-
-
 def _stroke_signature(within: np.ndarray, box: Box) -> Tuple[float, int]:
     """文字的「等宽细笔画」特征：返回 (笔画宽度众数占比, 细笔画条数)。
 

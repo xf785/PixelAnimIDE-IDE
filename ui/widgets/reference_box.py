@@ -1,4 +1,4 @@
-﻿"""参考图上传卡片：豆包/即梦风格的紧凑小卡片。
+"""参考图上传卡片：豆包/即梦风格的紧凑小卡片。
 
 - 空状态：虚线边框 + 「＋ 参考图」，点击打开文件选择；
 - 已加载：显示缩略图 + 右上角 × 移除按钮，点击缩略图可更换；
@@ -15,6 +15,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QFileDialog, QLabel, QToolButton, QWidget
 
 from ui.i18n import T
+from ui.qt_image import pil_to_thumbnail
 
 logger = logging.getLogger("PixelFoundry.ui.reference_box")
 
@@ -29,17 +30,7 @@ _LOADED_STYLE = (
 
 
 def _pil_to_pixmap(img: Image.Image, size: int) -> QPixmap:
-    rgba = img.convert("RGBA")
-    data = rgba.tobytes("raw", "RGBA")
-    from PySide6.QtGui import QImage
-
-    qimg = QImage(data, rgba.width, rgba.height, QImage.Format.Format_RGBA8888).copy()
-    pm = QPixmap.fromImage(qimg)
-    return pm.scaled(
-        size, size,
-        Qt.AspectRatioMode.KeepAspectRatio,
-        Qt.TransformationMode.FastTransformation,  # NEAREST，保持像素边缘
-    )
+    return pil_to_thumbnail(img, size)
 
 
 class ReferenceImageBox(QWidget):

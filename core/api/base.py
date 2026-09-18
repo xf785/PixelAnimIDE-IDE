@@ -11,7 +11,7 @@ import json
 import logging
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import httpx
@@ -21,10 +21,6 @@ logger = logging.getLogger("PixelFoundry.api")
 
 class APIError(Exception):
     """API 调用失败（网络、超时、HTTP 错误、解析错误等）。"""
-
-
-class APIUnavailableError(APIError):
-    """配置缺失或不完整，无法发起调用。"""
 
 
 @dataclass
@@ -41,11 +37,6 @@ class APIResult:
         if self.ok:
             return "成功"
         return self.error or "调用失败"
-
-
-def default_retry_policy() -> dict:
-    """默认重试策略：最多重试 2 次，退避 0.5s / 1.5s。"""
-    return {"max_retries": 2, "backoff": [0.5, 1.5]}
 
 
 def _config_get(config: Any, key: str, default: Any = None) -> Any:

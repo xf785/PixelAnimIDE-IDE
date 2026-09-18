@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QSplitter,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -50,7 +51,9 @@ from core.tilemap.pack import (
 from core.workflow.tilemap_workflow import TilemapParams, TilemapWorkflow
 from core.workflow.solo_workflow import WorkflowError
 from ui.app_context import AppContext
-from ui.i18n import T, tr
+from ui.i18n import T, translations_of, tr
+from ui.layout import scaled
+from ui.widgets.dock import RAIL_W, SideDock
 from ui.widgets.tile_editor import TileEditorDialog, base_set_with_edits
 from ui.widgets.reference_box import ReferenceImageBox
 from ui.widgets.tilemap_view import TilemapView, pil_to_qpixmap
@@ -90,6 +93,7 @@ class TilemapPage(QWidget):
         self._prop_pack = None      # 素材包（跨多次生成累积）
         self._local_wf = TilemapWorkflow(image_api=None)  # 编辑后本地重跑（无需 API）
         self._build_ui()
+        self._restore_layout()
 
     # ------------------------------------------------------------------ #
     def _build_ui(self) -> None:
@@ -97,18 +101,18 @@ class TilemapPage(QWidget):
         root.setContentsMargins(16, 16, 16, 12)
         root.setSpacing(10)
 
-        top = QHBoxLayout()
-        top.setSpacing(14)
+        # ---------- 工作区：瓦片集参数停靠栏 | 预览（可拖动调宽） ----------
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.setObjectName("Workspace")
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.setHandleWidth(scaled(5))
 
-        # ---------- 左：参数表单 ----------
-        left = QWidget()
-        lp = QVBoxLayout(left)
-        lp.setContentsMargins(0, 0, 0, 0)
-        lp.setSpacing(10)
+        # ---------- 左：瓦片集参数停靠栏（面板可折叠、整栏可收起） ----------
+        self._left_dock = SideDock(tr("瓦片集"), side="left", default_width=FORM_WIDTH)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setFixedWidth(FORM_WIDTH)
+        scroll.setMinimumWidth(scaled(220))
         host = QWidget()
         fl = QVBoxLayout(host)
         fl.setContentsMargins(0, 0, 6, 0)
@@ -130,13 +134,16 @@ class TilemapPage(QWidget):
         self._desc_edit.setMaximumHeight(64)
         f.addRow(T(QLabel(), "纹理描述"), self._desc_edit)
 
-        # 地块生态特征槽（3 个：名称 + 描述）
+        # 地块生态特征槽（3 个：名称 + 描述）；默认名称随界面语言（tr，不注册，
+        # 避免语言切换时覆盖用户已经改过的名字）
         self._feature_rows: list = []
         self._feature_labels: list = []
+        self._feature_defaults: list = []      # [(QLineEdit, 中文默认名)]，供语言切换时重刷
         for i, default in enumerate(
             (("水塘", "a clear pond"), ("稀疏草地", "sparse patchy grass"), ("岩石", "a rocky outcrop"))
         ):
-            name_edit = QLineEdit(default[0])
+            name_edit = QLineEdit(tr(default[0]))
+            name_edit.setPlaceholderText(tr(default[0]))
             desc_edit = QLineEdit(default[1])
             row = QHBoxLayout()
             row.addWidget(name_edit, 1)
@@ -145,6 +152,7 @@ class TilemapPage(QWidget):
             f.addRow(label, row)
             self._feature_rows.append((name_edit, desc_edit))
             self._feature_labels.append(label)
+            self._feature_defaults.append((name_edit, default[0]))
 
         self._base_pos_label = T(QLabel(), "基础地形块")
         self._base_pos_combo = QComboBox()
@@ -249,13 +257,27 @@ class TilemapPage(QWidget):
         f.addRow(T(QLabel(), "演示地图"), size_row)
 
         fl.addWidget(input_box)
+        fl.addStretch(1)
+        scroll.setWidget(host)
+        params_panel = self._left_dock.add_docker("瓦片集参数", scroll, icon_kind="tiles", stretch=1)
+        params_panel.set_icon("tiles")
+        # 标题栏里的「收起整栏」按钮（收起后点竖排标签即可展开）
+        params_panel.add_header_widget(
+            self._left_dock.add_toggle_button("chevron_left", "收起参数面板")
+        )
+
+        # ---------- 左（下）：生成 / 结果：动作按钮 + 状态 ----------
+        result_box = QWidget()
+        rl = QVBoxLayout(result_box)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.setSpacing(8)
 
         actions = QHBoxLayout()
         self._gen_btn = T(QPushButton(), "生成瓦片集")
         self._gen_btn.setObjectName("PrimaryButton")
         self._gen_btn.clicked.connect(self._on_generate)
         actions.addWidget(self._gen_btn, 1)
-        fl.addLayout(actions)
+        rl.addLayout(actions)
 
         actions2 = QHBoxLayout()
         self._accept_btn = T(QPushButton(), "接受并生成瓦片集")
@@ -277,15 +299,16 @@ class TilemapPage(QWidget):
         self._pack_btn.clicked.connect(self._on_save_pack)
         self._pack_btn.setEnabled(False)
         actions2.addWidget(self._pack_btn)
-        fl.addLayout(actions2)
+        rl.addLayout(actions2)
 
         self._status = QLabel(tr("就绪"))
         self._status.setWordWrap(True)
-        fl.addWidget(self._status)
-        fl.addStretch(1)
-        scroll.setWidget(host)
-        lp.addWidget(scroll)
-        top.addWidget(left)
+        rl.addWidget(self._status)
+
+        result_panel = self._left_dock.add_docker("生成 / 结果", result_box, icon_kind="export_image")
+        result_panel.set_icon("export_image")
+
+        self._splitter.addWidget(self._left_dock)
 
         # ---------- 右：预览 ----------
         right = QWidget()
@@ -303,10 +326,75 @@ class TilemapPage(QWidget):
         self._preview_label.setMinimumSize(320, 320)
         self._preview_label.setStyleSheet("background: rgba(0,0,0,0.12); border-radius: 8px;")
         rp.addWidget(self._preview_label, 1)
-        top.addWidget(right, 1)
+        self._splitter.addWidget(right)
 
-        root.addLayout(top, 1)
+        self._splitter.setStretchFactor(0, 0)
+        self._splitter.setStretchFactor(1, 1)
+        self._left_dock.bind_splitter(self._splitter, 0, default_width=FORM_WIDTH)
+        self._splitter.setSizes([scaled(FORM_WIDTH), scaled(760)])
+        root.addWidget(self._splitter, 1)
         self._on_category_changed()
+
+    # ------------------------------------------------------------------ #
+    # 主窗口工具条协议（Krita 风格：工具条内容随工作区变化）
+    # ------------------------------------------------------------------ #
+    def toolbar_actions(self) -> list:
+        """返回 [(图标, 文本, 提示, 回调, 是否主按钮), …] 供主窗口工具条渲染。"""
+        actions = [
+            ("tiles", self._gen_btn.text() or tr("生成瓦片集"),
+             tr("生成瓦片集"), self._on_generate, True),
+        ]
+        if not self._accept_btn.isHidden():          # 底图已生成，等待确认
+            actions.append(("merge", tr("接受并生成瓦片集"), tr("接受并生成瓦片集"),
+                            self._on_accept, False))
+        if self._edit_btn.isEnabled():
+            actions.append(("pencil", tr("编辑瓦片"), tr("编辑瓦片"), self._on_edit_tiles, False))
+        actions.append(("move", tr("地图预览"),
+                        tr("无需先生成瓦片集：进入后可用「添加瓦片包」加载地块/建筑/素材包"),
+                        self._map_btn.click, False))
+        return actions
+
+    def workspace_status(self) -> str:
+        """工具条右侧的状态标识：瓦片尺寸 + 当前类别（无需先生成）。"""
+        try:
+            cat = CATEGORY_LABELS.get(self._category_combo.currentData(), "")
+            size = int(self._tile_spin.value())
+            base = "{}×{}".format(size, size)
+            return "{} · {}".format(base, tr(cat)) if cat else base
+        except Exception:  # noqa: BLE001
+            return ""
+
+    # ------------------------------------------------------------------ #
+    # 布局持久化（停靠栏宽度 + 收起状态）
+    # ------------------------------------------------------------------ #
+    def _restore_layout(self) -> None:
+        """恢复上次的停靠栏宽度与整栏收起状态。"""
+        try:
+            s = self._ctx.ui_settings
+            sizes = s.get("tilemap_dock_sizes") or []
+            if (isinstance(sizes, (list, tuple)) and len(sizes) == 2
+                    and int(sizes[1]) >= scaled(320)):
+                # 预览区过窄说明上次保存的是病态布局 -> 退回默认宽度
+                self._splitter.setSizes([int(v) for v in sizes])
+                if int(sizes[0]) > scaled(RAIL_W):
+                    # 展开时按上次拖动的宽度还原（而不是默认宽度）
+                    self._left_dock.bind_splitter(self._splitter, 0, default_width=int(sizes[0]))
+            if s.get("tilemap_left_collapsed"):
+                self._left_dock.set_collapsed(True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("瓦片地图页布局恢复失败: %s", exc)
+
+    def _remember_layout(self) -> None:
+        try:
+            s = self._ctx.ui_settings
+            s.set("tilemap_dock_sizes", list(self._splitter.sizes()))
+            s.set("tilemap_left_collapsed", self._left_dock.is_collapsed())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("瓦片地图页布局保存失败: %s", exc)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self._remember_layout()
+        super().hideEvent(event)
 
     # ------------------------------------------------------------------ #
     def _on_category_changed(self, *_args) -> None:
@@ -342,6 +430,26 @@ class TilemapPage(QWidget):
         # 切换类别：收起「接受」按钮、恢复生成按钮文案
         self._accept_btn.setVisible(False)
         self._gen_btn.setText(tr("生成瓦片集"))
+
+    def retranslate_ui(self) -> None:
+        """语言切换后重刷「按类别拼接」的动态文案：
+
+        - 描述占位提示（随瓦片类别变化）
+        - 生态特征默认名（只在用户没改过时替换，避免覆盖自定义名称）
+        """
+        try:
+            self._on_category_changed()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("瓦片地图提示重译失败: %s", exc)
+        for name_edit, zh_default in getattr(self, "_feature_defaults", []):
+            accepted = translations_of(zh_default)
+            try:
+                current = name_edit.text()
+            except RuntimeError:
+                continue
+            if current in accepted:          # 用户没改过 -> 跟着界面语言走
+                name_edit.setText(tr(zh_default))
+            name_edit.setPlaceholderText(tr(zh_default))
 
     def _save_ref_temp(self):
         """参考图另存到输出目录后把路径交给工作流（PIL Image -> 路径）。"""
@@ -587,8 +695,13 @@ class TilemapPage(QWidget):
             QMessageBox.information(self, tr("编辑瓦片"), tr("请先生成瓦片集"))
             return
         names, sets = self._block_base_set()
-        name, ok = QInputDialog.getItem(self, tr("编辑瓦片"), tr("选择瓦片组"), names, 0, False)
-        if not ok or name not in sets:
+        # 下拉里显示翻译后的名字，内部逻辑仍用原始键（sets / mapping 都按原名索引）
+        display = [tr(n) for n in names]
+        choice, ok = QInputDialog.getItem(self, tr("编辑瓦片"), tr("选择瓦片组"), display, 0, False)
+        if not ok or choice not in display:
+            return
+        name = names[display.index(choice)]
+        if name not in sets:
             return
         dialog = TileEditorDialog(sets[name], parent=self, note=self._editor_note())
         if dialog.exec() == QDialog.DialogCode.Accepted:

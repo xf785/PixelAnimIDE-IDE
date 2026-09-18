@@ -227,7 +227,6 @@ class ImageAPI(BaseAPI):
         w, h = self._parse_wh(size)
         sizes = [size] + (self._fallback_sizes(w, h) if w and h else [])
         multipart = bool(image) and self._use_multipart_upload()
-        last_exc: Optional[Exception] = None
         try:
             data = None
             for idx, size_str in enumerate(sizes):
@@ -246,7 +245,6 @@ class ImageAPI(BaseAPI):
                         data = self._post_json(self._generations_url(), payload)
                     break
                 except APIError as exc:
-                    last_exc = exc
                     if not self._is_size_error(exc) or idx == len(sizes) - 1:
                         raise
                     logger.info("尺寸 %s 不被服务商支持，尝试 %s", size_str, sizes[idx + 1])

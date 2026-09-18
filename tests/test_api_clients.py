@@ -3,10 +3,8 @@ import base64
 import io
 
 import httpx
-import pytest
 from PIL import Image
 
-from core.api.base import APIError
 from core.api.image_api import ImageAPI
 from core.api.llm_api import LLMAPI
 from core.api.video_api import VideoAPI

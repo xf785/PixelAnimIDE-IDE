@@ -36,7 +36,7 @@ from core.processing.prompt_utils import (
     build_fallback_prompts,
     normalize_prompts,
 )
-from core.workflow.shared import finalize_prompts, generate_prompt_data, resolve_api_image_size
+from core.workflow.shared import WorkflowLogMixin, finalize_prompts, generate_prompt_data, resolve_api_image_size
 from core.workflow.solo_workflow import WorkflowError
 from ui.i18n import tr
 
@@ -170,8 +170,10 @@ class IdeSession:
         return cls(**cleaned)
 
 
-class IdeWorkflow:
+class IdeWorkflow(WorkflowLogMixin):
     """IDE 分步流程执行器：每步独立，写入 session 并返回结果。"""
+
+    record_step_log = False   # IDE 步骤日志只转发到 UI，不写进 step_log
 
     def __init__(
         self,
@@ -187,20 +189,7 @@ class IdeWorkflow:
         self._log = log
         self._cancel = cancel or threading.Event()
 
-    # ------------------------------------------------------------------ #
-    def _log_msg(self, level: str, message: str) -> None:
-        logger.log(getattr(logging, level.upper(), logging.INFO), "%s", message)
-        if self._log:
-            try:
-                self._log(level, message)
-            except Exception:  # noqa: BLE001
-                pass
-
-    def _check_cancel(self) -> None:
-        from core.workflow.solo_workflow import WorkflowCancelled
-
-        if self._cancel.is_set():
-            raise WorkflowCancelled()
+    # 日志转发与取消检查由 WorkflowLogMixin 提供
 
     # ------------------------------------------------------------------ #
     # 步骤 1：文本生成

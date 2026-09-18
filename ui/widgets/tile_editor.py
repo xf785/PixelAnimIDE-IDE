@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List
+from typing import Dict
 
 from PIL import Image
 from PySide6.QtCore import Qt

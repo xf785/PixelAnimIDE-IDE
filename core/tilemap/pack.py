@@ -18,7 +18,7 @@ import logging
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence
 
 from PIL import Image
 
@@ -30,6 +30,9 @@ logger = logging.getLogger("PixelFoundry.tilemap.pack")
 PACK_FORMAT = "pixel-anim-tilepack"
 PACK_VERSION = 1
 PACK_SUFFIX = ".tilepack"
+
+#: 可浏览/可送入画布的图片后缀
+IMAGE_SUFFIXES = (".png", ".webp", ".bmp", ".gif", ".jpg", ".jpeg", ".tga")
 
 
 @dataclass
@@ -47,15 +50,6 @@ class TilePack:
     atlas_mode: str = "47"
     sheets: Dict[str, Image.Image] = field(default_factory=dict)   # 文生图原始底图（2×2/2×2×3 网格）
     meta: Dict = field(default_factory=dict)
-
-    @property
-    def has_terrain(self) -> bool:
-        return bool(self.terrains)
-
-    @property
-    def has_walls(self) -> bool:
-        return bool(self.pieces) or self.wall_art is not None
-
 
 # --------------------------------------------------------------------------- #
 # 写盘
@@ -385,6 +379,193 @@ def load_tileset(path) -> TilePack:
             raise ValueError(f"压缩包里没有 manifest.json: {p}")
         manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
         return _load_from_reader(manifest, zf.read, p.stem)
+
+
+# --------------------------------------------------------------------------- #
+# 包内目录浏览：一个瓦片集（zip / 文件夹）里的**每一级目录**都能被浏览
+# --------------------------------------------------------------------------- #
+#: 资源分类 -> 界面标签由 UI 层决定（这里只做归类）
+KIND_ATLAS = "atlas"        # atlas/*.png      47 图集 / 建筑 16 图集
+KIND_TILE = "tile"          # tiles/**         逐张单独瓦片
+KIND_TEXTURE = "texture"    # textures/*.png   地形/墙纹理
+KIND_SOURCE = "source"      # source/*.png     文生图原始底图
+KIND_PIECE = "piece"        # pieces/*.png     建筑拼件
+KIND_PROP = "prop"          # props/*.png      素材（道具）
+KIND_IMAGE = "image"        # 其它目录里的图片（松散图片文件夹）
+KIND_DATA = "data"          # json / txt 等非图片
+
+
+def is_image_path(rel: str) -> bool:
+    """判断包内相对路径是否为可显示的图片。"""
+    return Path(str(rel)).suffix.lower() in IMAGE_SUFFIXES
+
+
+def classify_asset(rel: str) -> str:
+    """把包内相对路径归类（用于切换器过滤与图标选择）。"""
+    parts = [p for p in str(rel).replace("\\", "/").split("/") if p]
+    if not parts:
+        return KIND_DATA
+    if not is_image_path(parts[-1]):
+        return KIND_DATA
+    head = parts[0].lower()
+    if head == "atlas":
+        return KIND_ATLAS
+    if head == "tiles":
+        return KIND_TILE
+    if head == "textures":
+        return KIND_TEXTURE
+    if head in ("source", "sheets"):
+        return KIND_SOURCE
+    if head == "props":
+        return KIND_PROP
+    if head == "pieces":
+        return KIND_PIECE
+    return KIND_IMAGE
+
+
+class PackArchive:
+    """统一读取一个瓦片集内部的**全部文件**（zip / 文件夹两种来源）。
+
+    与 :class:`TilePack` 的区别：``TilePack`` 只保留「能重新构图」的纹理与拼件；
+    这里保留**原始目录结构**，于是 ``atlas/``、``tiles/terrain_1/``、``source/``
+    等每一级目录里的资源都能在界面上逐级浏览。
+    """
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.is_dir = self.path.is_dir()
+        self._zip: Optional[zipfile.ZipFile] = None
+        self._names: List[str] = []
+        self._scan()
+
+    # ------------------------------------------------------------------ #
+    def _scan(self) -> None:
+        if self.is_dir:
+            self._names = sorted(
+                p.relative_to(self.path).as_posix()
+                for p in self.path.rglob("*")
+                if p.is_file() and "__pycache__" not in p.parts
+            )
+        else:
+            self._zip = zipfile.ZipFile(self.path, "r")
+            self._names = sorted(
+                n for n in self._zip.namelist() if not n.endswith("/") and "__MACOSX" not in n
+            )
+
+    @property
+    def name(self) -> str:
+        return self.path.name if self.is_dir else self.path.stem
+
+    def rel_paths(self) -> List[str]:
+        """包内全部文件的相对路径（'/' 分隔，已排序）。"""
+        return list(self._names)
+
+    def image_paths(self) -> List[str]:
+        return [n for n in self._names if is_image_path(n)]
+
+    def read(self, rel: str) -> bytes:
+        """读取包内文件字节。"""
+        if self.is_dir:
+            return (self.path / rel).read_bytes()
+        if self._zip is None:
+            self._zip = zipfile.ZipFile(self.path, "r")
+        return self._zip.read(rel)
+
+    def load_image(self, rel: str) -> Image.Image:
+        """按需解码包内图片（RGBA）。"""
+        with Image.open(io.BytesIO(self.read(rel))) as im:
+            return im.convert("RGBA")
+
+    def has(self, rel: str) -> bool:
+        return rel in set(self._names)
+
+    def close(self) -> None:
+        if self._zip is not None:
+            try:
+                self._zip.close()
+            finally:
+                self._zip = None
+
+    def __del__(self):  # pragma: no cover - 解释器退出时的兜底
+        try:
+            self.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def file_tree(paths: Sequence[str]) -> Dict[str, object]:
+    """把相对路径列表折叠成 ``{目录: 子树 | [文件名, ...]}`` 的嵌套结构。
+
+    叶子是**文件名列表**（同一目录下的文件），中间节点是子目录字典（按名排序），
+    目录与文件同名时不会冲突（文件不会成为字典的键）。
+    """
+    root: Dict[str, object] = {}
+    for rel in sorted(paths):
+        parts = [p for p in str(rel).replace("\\", "/").split("/") if p]
+        if not parts:
+            continue
+        node = root
+        for part in parts[:-1]:
+            nxt = node.get(part)
+            if not isinstance(nxt, dict):
+                nxt = {}
+                node[part] = nxt
+            node = nxt
+        files = node.setdefault("__files__", [])
+        if isinstance(files, list):
+            files.append(parts[-1])
+    return root
+
+
+def dir_image_count(tree: Dict[str, object]) -> int:
+    """统计子树里的图片数量（用于目录树计数）。"""
+    total = 0
+    for key, value in tree.items():
+        if key == "__files__":
+            total += sum(1 for f in value if is_image_path(f))  # type: ignore[union-attr]
+        elif isinstance(value, dict):
+            total += dir_image_count(value)
+    return total
+
+
+@dataclass
+class PackHandle:
+    """一个已导入的包：``pack``（结构化数据）+ ``archive``（原始目录浏览）。"""
+
+    pack: TilePack
+    archive: PackArchive
+    raw: bool = False                     # True = 没有 manifest，按「图片文件夹」导入
+
+    @property
+    def name(self) -> str:
+        return self.pack.name or self.archive.name
+
+    def close(self) -> None:
+        self.archive.close()
+
+
+def _raw_pack(archive: PackArchive) -> TilePack:
+    """没有 manifest 的文件夹/zip：按图片文件夹导入（逐级目录仍可浏览）。"""
+    return TilePack(
+        name=archive.name, category="raw", tile_size=32,
+        meta={"raw": True, "files": len(archive.image_paths())},
+    )
+
+
+def load_pack_handle(path) -> PackHandle:
+    """导入一个包并同时拿到可逐级浏览的原始目录（支持图片文件夹 / zip / .tilepack）。"""
+    p = Path(path)
+    archive = PackArchive(p)
+    try:
+        pack = load_tileset(p)
+        return PackHandle(pack=pack, archive=archive, raw=False)
+    except Exception as exc:  # noqa: BLE001 - 缺 manifest 时退化为图片文件夹
+        images = archive.image_paths()
+        if not images:
+            archive.close()
+            raise
+        logger.info("按「图片文件夹」导入 %s（%d 张图片；原因：%s）", p, len(images), exc)
+        return PackHandle(pack=_raw_pack(archive), archive=archive, raw=True)
 
 
 def _load_from_reader(manifest: dict, read, default_name: str) -> TilePack:

@@ -1,9 +1,9 @@
-﻿"""应用上下文：在页面之间共享的配置管理器与用户设置。"""
+"""应用上下文：在页面之间共享的配置管理器与用户设置。"""
 from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 

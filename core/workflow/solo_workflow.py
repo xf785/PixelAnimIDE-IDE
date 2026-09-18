@@ -42,7 +42,7 @@ from core.processing.prompt_utils import (
     recommended_frames,
 )
 from core.storage.project import Project, save_project
-from core.workflow.shared import finalize_prompts, generate_prompt_data, resolve_api_image_size
+from core.workflow.shared import WorkflowLogMixin, finalize_prompts, generate_prompt_data, resolve_api_image_size
 
 logger = logging.getLogger("PixelFoundry.workflow.solo")
 
@@ -159,7 +159,7 @@ class SoloResult:
     step_log: List[str] = field(default_factory=list)
 
 
-class SoloWorkflow:
+class SoloWorkflow(WorkflowLogMixin):
     """Solo 全自动流程执行器。"""
 
     def __init__(
@@ -738,17 +738,3 @@ class SoloWorkflow:
                 self._progress(step, total, name, float(pct), message)
             except Exception:  # noqa: BLE001
                 pass
-
-    def _log_msg(self, level: str, message: str) -> None:
-        entry = f"[{level}] {message}"
-        self.step_log.append(entry)
-        logger.log(getattr(logging, level.upper(), logging.INFO), "%s", message)
-        if self._log:
-            try:
-                self._log(level, message)
-            except Exception:  # noqa: BLE001
-                pass
-
-    def _check_cancel(self) -> None:
-        if self._cancel and self._cancel.is_set():
-            raise WorkflowCancelled()

@@ -9,7 +9,6 @@ from PIL import Image
 
 from .autotile import (
     BIT,
-    compose_art_tile,
     compose_art_tile_cached,
     compose_tile,
     dual_grid_map,

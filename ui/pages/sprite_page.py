@@ -3,6 +3,12 @@
 链路：文生对象底图 → 以底图为参考图生成 i×j 网格精灵图 → 算法裁切帧序列
       → 完美像素双分辨率 → 一键抠除纯色背景 → 导出 GIF / PNG 序列 / 拼接网格图。
 
+布局参考 Krita：
+- **左停靠栏**：参数拆成 3 个可折叠 docker（输入参数 / 处理选项 / 输出），
+  整栏可收起成竖排标签，宽度由外层 splitter 拖动调整；
+- **右侧工作区**：预览页签（对象底图 / 精灵图 / 帧序列），随窗口弹性伸缩；
+- **底部**：运行控制 + 进度 + 日志。
+
 执行方式：
 - 自动：无干涉跑完全流程；
 - 手动：逐步执行，每步完成后可「重跑本步」或「继续下一步」。
@@ -15,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QUrl, Qt, Signal
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -31,17 +37,20 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QSplitter,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from config.settings import DEFAULT_FPS, DEFAULT_MAX_COLORS, DEFAULT_OUTPUT_DIR, PIXEL_SIZES
+from config.settings import DEFAULT_MAX_COLORS, DEFAULT_OUTPUT_DIR, PIXEL_SIZES
 from core.workflow import STEP_ORDER, SpriteParams, SpriteResult, SpriteWorkflow, WorkflowError
 from ui.app_context import AppContext
 from ui.i18n import T, tr
+from ui.layout import scaled
 from ui.widgets.action_combo import populate_action_combo
+from ui.widgets.dock import SideDock
 from ui.widgets.image_viewer import ImageViewer
 from ui.workers import SPRITE_API_KINDS, IdeStepWorker, SpriteWorker, create_api_clients
 
@@ -86,6 +95,7 @@ class SpritePage(QWidget):
         self._step_worker: IdeStepWorker | None = None
         self._last_param_error: str = ""
         self._build_ui()
+        self._restore_layout()
         self._restore_settings()
         self.base_ready.connect(self._on_base_ready)
         self.sheet_ready.connect(self._on_sheet_ready)
@@ -97,18 +107,20 @@ class SpritePage(QWidget):
         root.setContentsMargins(16, 16, 16, 12)
         root.setSpacing(10)
 
-        top = QHBoxLayout()
-        top.setSpacing(14)
+        # ---------- 工作区：左停靠栏（参数）| 右侧预览页签（宽度可拖动） ----------
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.setObjectName("Workspace")
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.setHandleWidth(scaled(5))
 
-        # ---------- 左：参数表单 ----------
-        left = QWidget()
-        lp = QVBoxLayout(left)
-        lp.setContentsMargins(0, 0, 0, 0)
-        lp.setSpacing(10)
+        self._left_dock = SideDock(tr("参数"), side="left", default_width=FORM_WIDTH)
+        self._splitter.addWidget(self._left_dock)
+
+        # 「输入参数」字段最多：沿用原来的滚动区，面板被拖矮时仍可滚动查看全部字段
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        scroll.setFixedWidth(FORM_WIDTH)
+        scroll.setMinimumWidth(scaled(200))
         self._form_scroll = scroll
         host = QWidget()
         fl = QVBoxLayout(host)
@@ -178,8 +190,6 @@ class SpritePage(QWidget):
         self._loop_chk.setChecked(True)
         T(self._loop_chk, "末帧强制等于首帧；角色形象逐格一致、仅动作平滑变化", attr="tooltip")
         of.addWidget(self._loop_chk)
-        fl.addWidget(input_box)
-        fl.addWidget(opt_box)
 
         out_box = T(QGroupBox(), "输出")
         ef = QFormLayout(out_box)
@@ -194,10 +204,19 @@ class SpritePage(QWidget):
         self._btn_open_out = T(QPushButton(), "打开输出目录")
         self._btn_open_out.clicked.connect(self._on_open_output)
         ef.addRow("", self._btn_open_out)
-        fl.addWidget(out_box)
-        fl.addStretch(1)
+
+        # ---------- 表单分组 -> 左停靠栏的 docker ----------
+        fl.addWidget(input_box)
         scroll.setWidget(host)
-        lp.addWidget(scroll, 1)
+        input_docker = self._left_dock.add_docker("输入参数", scroll, icon_kind="pencil", stretch=1)
+        input_docker.set_icon("pencil")  # 图标要显式渲染一次才可见（与像素页一致）
+        # 收起按钮放在第一个面板标题里（Krita 的 docker 右上角）
+        input_docker.add_header_widget(self._left_dock.add_toggle_button("chevron_left", "收起参数栏"))
+
+        opt_docker = self._left_dock.add_docker("处理选项", opt_box, icon_kind="layers")
+        opt_docker.set_icon("layers")
+        out_docker = self._left_dock.add_docker("输出", out_box, icon_kind="export_image")
+        out_docker.set_icon("export_image")
 
         # 执行方式由主窗口侧栏开关控制（向左=自动，向右=手动），此处不再放置按钮
         ctrl = QHBoxLayout()
@@ -224,10 +243,8 @@ class SpritePage(QWidget):
         T(self._btn_sync, "把精灵图帧序列同步到 IDE 模式继续编辑", attr="tooltip")
         self._btn_sync.clicked.connect(self._on_sync)
         ctrl.addWidget(self._btn_sync)
-        lp.addLayout(ctrl)
-        top.addWidget(left)
 
-        # ---------- 右：预览 ----------
+        # ---------- 右：预览（对象底图 / 精灵图 / 帧序列） ----------
         self._tabs = QTabWidget()
         self._base_viewer = ImageViewer()
         self._tabs.addTab(self._base_viewer, T(None, "对象底图"))
@@ -235,9 +252,16 @@ class SpritePage(QWidget):
         self._tabs.addTab(self._sheet_viewer, T(None, "精灵图"))
         self._frames_viewer = ImageViewer()
         self._tabs.addTab(self._frames_viewer, T(None, "帧序列"))
-        top.addWidget(self._tabs, 1)
+        self._splitter.addWidget(self._tabs)
 
-        root.addLayout(top, 1)
+        self._splitter.setStretchFactor(0, 0)
+        self._splitter.setStretchFactor(1, 1)
+        self._left_dock.bind_splitter(self._splitter, 0, default_width=FORM_WIDTH)
+        self._splitter.setSizes([scaled(FORM_WIDTH), scaled(760)])
+        root.addWidget(self._splitter, 1)
+
+        # 运行控制（固定在底部，不随预览页签切换）
+        root.addLayout(ctrl)
 
         # ---------- 底部：进度 + 日志 ----------
         bottom = QHBoxLayout()
@@ -257,11 +281,63 @@ class SpritePage(QWidget):
         root.addWidget(self._log_view)
 
     # ------------------------------------------------------------------ #
+    # 主窗口工具条协议（Krita 风格：工具条内容随工作区变化）
+    # ------------------------------------------------------------------ #
+    def toolbar_actions(self) -> list:
+        """返回 [(图标, 文本, 提示, 回调, 是否主按钮), …] 供主窗口工具条渲染。
+
+        手动模式停在本步时，主按钮跟着变成「继续下一步」（走的是同一个按钮，
+        因此仍受按钮可用状态约束，不会打乱逐步执行流程）。
+        """
+        if self._manual_mode and self._manual_active and self._btn_next.isEnabled():
+            primary = ("chevron_right", self._btn_next.text(), "继续执行下一步骤", self._btn_next.click, True)
+        else:
+            primary = ("grid", self._btn_start.text(), "按当前参数生成网格精灵图", self._btn_start.click, True)
+        return [
+            primary,
+            ("copy", "同步到 IDE", "把精灵图帧序列同步到 IDE 模式继续编辑", self._on_sync, False),
+            ("export_image", "打开输出目录", "打开本次生成结果的输出目录", self._on_open_output, False),
+        ]
+
+    def workspace_status(self) -> str:
+        """工具条右侧的状态标识：帧数 + 网格 i×j。"""
+        return tr("{0}帧 · {1}×{2}").format(
+            self._frames_spin.value(), self._rows_spin.value(), self._cols_spin.value()
+        )
+
     def _restore_settings(self) -> None:
         out = self._ctx.ui_settings.get("output_dir")
         if out:
             self._output_edit.setText(str(out))
         self._log(tr("精灵图模式：仅用文生图生成网格精灵图（帧数 / i×j 网格 / 一键抠图）"), "info")
+
+    # ------------------------------------------------------------------ #
+    # 布局持久化（停靠栏宽度 + 收起状态）
+    # ------------------------------------------------------------------ #
+    def _restore_layout(self) -> None:
+        """恢复上次的停靠栏宽度与收起状态。"""
+        try:
+            sizes = self._ctx.ui_settings.get("sprite_dock_sizes") or []
+            if (isinstance(sizes, (list, tuple)) and len(sizes) == 2
+                    and int(sizes[1]) >= scaled(320)):
+                # 预览区过窄说明上次保存的是病态布局 -> 退回默认宽度
+                self._splitter.setSizes([int(v) for v in sizes])
+            if self._ctx.ui_settings.get("sprite_left_collapsed"):
+                self._left_dock.set_collapsed(True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("精灵图页布局恢复失败: %s", exc)
+
+    def _remember_layout(self) -> None:
+        try:
+            s = self._ctx.ui_settings
+            s.set("sprite_dock_sizes", list(self._splitter.sizes()))
+            s.set("sprite_left_collapsed", self._left_dock.is_collapsed())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("精灵图页布局保存失败: %s", exc)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        self._remember_layout()
+        super().hideEvent(event)
 
     # ------------------------------------------------------------------ #
     def _on_browse_output(self) -> None:
@@ -553,9 +629,11 @@ class SpritePage(QWidget):
         super().keyPressEvent(event)
 
     def apply_ui_scale(self, scale: float) -> None:
-        """按界面比例调整左侧表单宽度。"""
+        """按界面比例同步缩放停靠栏、分隔条与表单最小宽度（宽度交给 splitter）。"""
         if hasattr(self, "_form_scroll"):
-            self._form_scroll.setFixedWidth(max(240, int(FORM_WIDTH * scale)))
+            self._form_scroll.setMinimumWidth(scaled(200))
+        self._left_dock.apply_ui_scale()
+        self._splitter.setHandleWidth(scaled(5))
 
     def retranslate_ui(self) -> None:
         """语言切换：刷新动作预设分组下拉。"""

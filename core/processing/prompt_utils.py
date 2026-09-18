@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from pathlib import Path
 from typing import List, Optional, Tuple
 
 from config.settings import ASSETS_DIR

@@ -28,7 +28,6 @@ from core.tilemap import (
     BaseTileSet,
     TileMapModel,
     align_terrain_set,
-    build_47_sheet,
     build_47_sheet_art,
     build_dual_pieces_sheet_art,
     building_from_blocks,
@@ -40,9 +39,6 @@ from core.tilemap import (
     normalize_tileset,
     opaque_ratio,
     patch_marks,
-    prepare_terrain_set,
-    process_base_set,
-    process_building_sheet,
     strip_grid_frames,
 )
 from core.tilemap.prompts import (
@@ -65,6 +61,7 @@ from core.tilemap.tiles import (
     grid_cell_px,
     to_base_set,
 )
+from core.workflow.shared import WorkflowLogMixin
 from core.workflow.solo_workflow import WorkflowError
 from ui.i18n import tr
 
@@ -316,7 +313,7 @@ def _demo_map(model: TileMapModel, params: Optional[TilemapParams] = None) -> No
     _demo_showcase(model, f1, f2, base)
 
 
-class TilemapWorkflow:
+class TilemapWorkflow(WorkflowLogMixin):
     """瓦片地图流程执行器（纯同步，可在 QThread 中运行）。"""
 
     def __init__(
@@ -330,21 +327,7 @@ class TilemapWorkflow:
         self._cancel = cancel or threading.Event()
         self.step_log: List[str] = []
 
-    # ------------------------------------------------------------------ #
-    def _log_msg(self, level: str, message: str) -> None:
-        self.step_log.append(f"[{level}] {message}")
-        logger.log(getattr(logging, level.upper(), logging.INFO), "%s", message)
-        if self._log:
-            try:
-                self._log(level, message)
-            except Exception:  # noqa: BLE001
-                pass
-
-    def _check_cancel(self) -> None:
-        from core.workflow.solo_workflow import WorkflowCancelled
-
-        if self._cancel.is_set():
-            raise WorkflowCancelled()
+    # 日志转发与取消检查由 WorkflowLogMixin 提供
 
     def new_session(self, params: TilemapParams) -> TilemapSession:
         return TilemapSession(params=params)
@@ -569,7 +552,6 @@ class TilemapWorkflow:
                     tr("未能可靠识别基础地形块，已按左上块处理：底图里应有一块四周无边界/描边的纯基础地形纹理，建议重新生成或手动指定位置"),
                 )
             # 文字/水印兜底已在裁切时（源分辨率四块中心格）完成
-            eco_items = None
         elif params.category == "prop":
             from core.tilemap.props import process_prop_sheet, prop_names
 
@@ -885,7 +867,7 @@ class TilemapWorkflow:
 
     def _export_prop(self, params: TilemapParams, session: TilemapSession, export_dir: Path) -> None:
         """素材导出：逐个 PNG + 打进一个瓦片包（预览里可直接「添加瓦片包」使用）。"""
-        from core.tilemap.pack import TilePack, save_tilepack
+        from core.tilemap.pack import TilePack
 
         if not session.props:
             raise WorkflowError("尚未生成素材，请先执行上一步", step="export")

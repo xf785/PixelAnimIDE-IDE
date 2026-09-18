@@ -26,10 +26,6 @@ from PIL import Image
 logger = logging.getLogger("PixelFoundry.tilemap.seamless")
 
 
-def _crop(img: Image.Image, box) -> Image.Image:
-    return img.convert("RGBA").crop(box)
-
-
 def _block_mode_downscale(arr: np.ndarray, target: int) -> Optional[np.ndarray]:
     """整数倍块众数降采样（保持像素格色；非整数倍返回 None）。"""
     from .tiles import _mode_downscale
@@ -86,7 +82,7 @@ def faithful_tile_texture(
             k = max(1, full // max(1, target))
             win = k * target
     # 在可选窗口里挑边缘最接近的一个（焊缝更不可见）
-    best_box, best_cost, best_arr = None, None, None
+    best_cost, best_arr = None, None
     # 关键：窗口偏移必须是 k 的整数倍，才能与 AI 的像素格对齐
     #（否则块众数降采样会跨格取值，颜色/形状都会错位 —— 这正是"成品比底图差"的另一半原因）
     inset_k = (inset // max(1, k)) * max(1, k)
@@ -99,9 +95,8 @@ def faithful_tile_texture(
             probe = small if small is not None else cand[::max(1, win // target), ::max(1, win // target)][:target, :target]
             cost = _edge_cost(probe)
             if best_cost is None or cost < best_cost:
-                best_box, best_cost, best_arr = (x0, y0, x0 + win, y0 + win), cost, cand
+                best_cost, best_arr = cost, cand
     if best_arr is None:
-        best_box = (0, 0, min(h, win), min(w, win))
         best_arr = src[:win, :win]
     small = _block_mode_downscale(best_arr, target)
     if small is None:                                # 非整数倍：面积平均（抗锯齿但不引入重影）

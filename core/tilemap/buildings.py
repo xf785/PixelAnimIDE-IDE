@@ -8,12 +8,12 @@ corner（外转角，旋转 4 向）、pillar（立柱）。同一纹理 + 同�
 from __future__ import annotations
 
 import logging
-from typing import Dict, Tuple
+from typing import Tuple
 
 import numpy as np
 from PIL import Image
 
-from core.processing import background as bg
+from . import art_utils
 from .seamless import make_texture_seamless
 from .tiles import BuildingSheet
 
@@ -23,11 +23,7 @@ PIECE_NAMES = ("straight", "end", "corner", "pillar")
 
 
 def _key_white(img: Image.Image, tolerance: int = 42) -> Image.Image:
-    """白键抠除背景：接近白色的像素透明（建筑外区域透明，可叠放）。"""
-    return bg.remove_background(
-        img.convert("RGBA"), key_color=(255, 255, 255), tolerance=tolerance,
-        feather=0, edge_clean=True, mode="hybrid",
-    )
+    return art_utils.key_white(img, tolerance)
 
 
 def opaque_ratio(tile: Image.Image, tol: int = 18) -> float:
@@ -42,16 +38,7 @@ def opaque_ratio(tile: Image.Image, tol: int = 18) -> float:
 
 
 def _outline_color(img: Image.Image) -> Tuple[int, int, int]:
-    """轮廓色 = 不透明像素中最暗 15% 的中位数（稳健、贴近描边色）。"""
-    arr = np.asarray(img.convert("RGBA"))
-    mask = arr[..., 3] > 32
-    if not mask.any():
-        return (0, 0, 0)
-    rgb = arr[mask][..., :3].astype(np.float32)
-    lum = 0.299 * rgb[:, 0] + 0.587 * rgb[:, 1] + 0.114 * rgb[:, 2]
-    k = max(1, int(len(lum) * 0.15))
-    dark = rgb[np.argsort(lum)[:k]]
-    return tuple(int(c) for c in np.median(dark, axis=0))
+    return art_utils.outline_color(img, fallback=(0, 0, 0))
 
 
 def _apply_mask(texture: Image.Image, mask: np.ndarray, outline: Tuple[int, int, int]) -> Image.Image:

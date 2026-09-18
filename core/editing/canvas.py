@@ -9,10 +9,19 @@ from collections import deque
 from typing import List, Optional, Tuple
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 
 RGBA = Tuple[int, int, int, int]
 TRANSPARENT: RGBA = (0, 0, 0, 0)
+
+#: 对称绘制模式
+SYM_NONE = "none"
+SYM_H = "h"        # 左右镜像（以垂直中轴为对称轴）
+SYM_V = "v"        # 上下镜像（以水平中轴为对称轴）
+SYM_BOTH = "both"  # 四象限镜像
+
+#: 画布尺寸调整时的内容锚点
+ANCHORS = ("center", "tl", "tr", "bl", "br")
 
 
 def _as_rgba(color) -> RGBA:
@@ -106,69 +115,136 @@ class PixelCanvas:
         self._img = Image.fromarray(arr, "RGBA")
 
     # ------------------------------------------------------------------ #
-    def set_pixel(self, x: int, y: int, color, size: int = 1) -> None:
-        """单点/方形笔刷绘制（铅笔）。越界或颜色未变化时不做任何事。"""
-        c = self._snap(color)
-        if size <= 1:
-            if not (0 <= x < self.width and 0 <= y < self.height):
-                return
-            if self._img.getpixel((x, y)) == c:
-                return
-            self._snapshot()
-            self._img.putpixel((x, y), c)
-            return
-        self._brush_rect(x, y, size, c)
+    # 统一的整批写入：对称镜像 + 环绕（无缝瓦片）+ 一次快照一次提交
+    # ------------------------------------------------------------------ #
+    def mirror_cells(self, x: int, y: int, symmetry: str = SYM_NONE) -> List[Tuple[int, int]]:
+        """按对称模式给出镜像格（含自身）。"""
+        pts = [(x, y)]
+        if symmetry in (SYM_H, SYM_BOTH):
+            pts.append((self.width - 1 - x, y))
+        if symmetry in (SYM_V, SYM_BOTH):
+            pts.append((x, self.height - 1 - y))
+        if symmetry == SYM_BOTH:
+            pts.append((self.width - 1 - x, self.height - 1 - y))
+        return pts
 
-    def _brush_rect(self, cx: int, cy: int, size: int, c: RGBA) -> None:
-        """以 (cx,cy) 为中心盖 size×size 方形笔刷（裁剪到画布）。"""
-        r = size // 2
-        x0 = max(0, cx - r)
-        x1 = min(self.width - 1, cx + (size - 1 - r))
-        y0 = max(0, cy - r)
-        y1 = min(self.height - 1, cy + (size - 1 - r))
-        if x1 < x0 or y1 < y0:
-            return
+    def _normalize(self, cells, wrap: bool) -> List[Tuple[int, int]]:
+        """越界格：wrap=True 时环绕到另一侧（画无缝瓦片用），否则丢弃。"""
+        out = []
+        w, h = self.width, self.height
+        for x, y in cells:
+            if wrap:
+                out.append((int(x) % w, int(y) % h))
+            elif 0 <= x < w and 0 <= y < h:
+                out.append((int(x), int(y)))
+        return out
+
+    def stamp(self, cells, color, *, symmetry: str = SYM_NONE, wrap: bool = False) -> int:
+        """把一组格子整体涂成 color（自动补镜像与环绕），返回变化的像素数。
+
+        只做一次快照/一次提交，因此一次拖动 = 一条撤销记录。
+        """
+        c = self._snap(color)
+        pts = set()
+        for x, y in cells:
+            pts.update(self.mirror_cells(int(x), int(y), symmetry))
+        pts = self._normalize(pts, wrap)
+        if not pts:
+            return 0
         arr = np.asarray(self._img).copy()
-        sub = arr[y0 : y1 + 1, x0 : x1 + 1]
         target = np.array(c, dtype=np.uint8)
-        if not (sub != target).any():
-            return
+        changed = [(x, y) for x, y in pts if tuple(arr[y, x]) != c]
+        if not changed:
+            return 0
         self._snapshot()
-        sub[:] = target
+        for x, y in changed:
+            arr[y, x] = target
         self._commit(arr)
+        return len(changed)
 
-    def draw_line(self, p0: Tuple[int, int], p1: Tuple[int, int], color, size: int = 1) -> None:
-        """Bresenham 连线（铅笔快速拖动避免断点）；size>1 时为方形笔刷盖章。"""
-        c = self._snap(color)
-        pts = list(self._line_points(p0, p1))
+    def stamp_brush(self, cells, color, size: int = 1, *,
+                    symmetry: str = SYM_NONE, wrap: bool = False) -> int:
+        """以方形笔刷盖住 cells（size>1 时每个点扩成 size×size）。"""
         if size <= 1:
-            changed = any(
-                0 <= x < self.width and 0 <= y < self.height and self._img.getpixel((x, y)) != c
-                for x, y in pts
-            )
-            if not changed:
-                return
-            self._snapshot()
-            for x, y in pts:
-                if 0 <= x < self.width and 0 <= y < self.height:
-                    self._img.putpixel((x, y), c)
-            return
-        # 方形笔刷：收集整条线的盖章格
+            return self.stamp(cells, color, symmetry=symmetry, wrap=wrap)
         r = size // 2
+        all_cells = set()
+        for x, y in cells:
+            for yy in range(y - r, y + size - r):
+                for xx in range(x - r, x + size - r):
+                    all_cells.add((xx, yy))
+        return self.stamp(all_cells, color, symmetry=symmetry, wrap=wrap)
+
+    # ------------------------------------------------------------------ #
+    def set_pixel(self, x: int, y: int, color, size: int = 1, *,
+                  symmetry: str = SYM_NONE, wrap: bool = False) -> None:
+        """单点/方形笔刷绘制（铅笔）。越界或颜色未变化时不做任何事。"""
+        self.stamp_brush([(x, y)], color, size, symmetry=symmetry, wrap=wrap)
+
+    def draw_line(self, p0: Tuple[int, int], p1: Tuple[int, int], color, size: int = 1, *,
+                  symmetry: str = SYM_NONE, wrap: bool = False) -> int:
+        """Bresenham 连线（铅笔快速拖动避免断点）；size>1 时为方形笔刷盖章。"""
+        return self.stamp_brush(self._line_points(p0, p1), color, size,
+                                symmetry=symmetry, wrap=wrap)
+
+    # ------------------------------------------------------------------ #
+    # 形状工具：矩形 / 椭圆（描边或填充，支持对称与环绕）
+    # ------------------------------------------------------------------ #
+    def rect_cells(self, p0, p1, filled: bool = False):
+        """矩形覆盖的格子（filled=False 为空心描边）。"""
+        x0, x1 = sorted((int(p0[0]), int(p1[0])))
+        y0, y1 = sorted((int(p0[1]), int(p1[1])))
+        if filled:
+            return [(x, y) for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)]
+        cells = []
+        for x in range(x0, x1 + 1):
+            cells.append((x, y0))
+            cells.append((x, y1))
+        for y in range(y0 + 1, y1):
+            cells.append((x0, y))
+            cells.append((x1, y))
+        return cells
+
+    def ellipse_cells(self, p0, p1, filled: bool = False):
+        """椭圆覆盖的格子（外接矩形 p0-p1；整数中点算法，像素风不锯齿）。"""
+        x0, x1 = sorted((int(p0[0]), int(p1[0])))
+        y0, y1 = sorted((int(p0[1]), int(p1[1])))
+        w = x1 - x0 + 1
+        h = y1 - y0 + 1
+        if w <= 0 or h <= 0:
+            return []
+        a = (w - 1) / 2.0
+        b = (h - 1) / 2.0
+        cx = x0 + a
+        cy = y0 + b
         cells = set()
-        for x, y in pts:
-            for yy in range(max(0, y - r), min(self.height, y + size - r)):
-                for xx in range(max(0, x - r), min(self.width, x + size - r)):
-                    cells.add((xx, yy))
-        if not cells:
-            return
-        arr = np.asarray(self._img).copy()
-        if not any(tuple(arr[yy, xx]) != c for xx, yy in cells):
-            return
-        self._snapshot()
-        for xx, yy in cells:
-            arr[yy, xx] = np.array(c, dtype=np.uint8)
-        self._commit(arr)
+        if filled:
+            for y in range(y0, y1 + 1):
+                dy = (y - cy) / (b or 1.0)
+                rest = 1.0 - dy * dy
+                if rest < 0:
+                    continue
+                dx = a * (rest ** 0.5)
+                for x in range(int(round(cx - dx)), int(round(cx + dx)) + 1):
+                    cells.add((x, y))
+        else:
+            steps = max(16, int((w + h) * 2))
+            import math
+
+            for i in range(steps):
+                t = 2 * math.pi * i / steps
+                cells.add((int(round(cx + a * math.cos(t))), int(round(cy + b * math.sin(t)))))
+        return sorted(cells)
+
+    def draw_rect(self, p0, p1, color, size: int = 1, filled: bool = False, *,
+                  symmetry: str = SYM_NONE, wrap: bool = False) -> int:
+        return self.stamp_brush(self.rect_cells(p0, p1, filled), color, size,
+                                symmetry=symmetry, wrap=wrap)
+
+    def draw_ellipse(self, p0, p1, color, size: int = 1, filled: bool = False, *,
+                     symmetry: str = SYM_NONE, wrap: bool = False) -> int:
+        return self.stamp_brush(self.ellipse_cells(p0, p1, filled), color, size,
+                                symmetry=symmetry, wrap=wrap)
 
     @staticmethod
     def _line_points(p0, p1):
@@ -321,3 +397,80 @@ class PixelCanvas:
         sub[mask] = target
         self._commit(arr)
         return n
+
+    # ------------------------------------------------------------------ #
+    # 画布变换（翻转 / 旋转 / 裁剪 / 尺寸 / 缩放；全部可撤销）
+    # ------------------------------------------------------------------ #
+    def _apply_transform(self, fn) -> bool:
+        """对整张图做几何变换：有变化才记一条撤销。"""
+        new = fn(self._img.convert("RGBA")).convert("RGBA")
+        if new.size == self._img.size and np.array_equal(np.asarray(new), np.asarray(self._img)):
+            return False
+        self._snapshot()
+        self._img = new
+        return True
+
+    def flip_horizontal(self) -> bool:
+        """左右翻转（内容镜像，画布尺寸不变）。"""
+        return self._apply_transform(lambda im: im.transpose(Image.Transpose.FLIP_LEFT_RIGHT))
+
+    def flip_vertical(self) -> bool:
+        """上下翻转。"""
+        return self._apply_transform(lambda im: im.transpose(Image.Transpose.FLIP_TOP_BOTTOM))
+
+    def rotate_90(self, clockwise: bool = True) -> bool:
+        """旋转 90°（画布宽高互换）。"""
+        mode = Image.Transpose.ROTATE_270 if clockwise else Image.Transpose.ROTATE_90
+        return self._apply_transform(lambda im: im.transpose(mode))
+
+    def crop_to(self, box) -> bool:
+        """裁剪到矩形 [x0, y0, x1, y1]（含端点，越界自动夹取）。"""
+        x0, y0, x1, y1 = (int(v) for v in box)
+        x0, x1 = sorted((x0, x1))
+        y0, y1 = sorted((y0, y1))
+        x0 = max(0, min(self.width - 1, x0))
+        x1 = max(0, min(self.width - 1, x1))
+        y0 = max(0, min(self.height - 1, y0))
+        y1 = max(0, min(self.height - 1, y1))
+        if x1 < x0 or y1 < y0:
+            return False
+        if (x0, y0, x1, y1) == (0, 0, self.width - 1, self.height - 1):
+            return False
+        return self._apply_transform(lambda im: im.crop((x0, y0, x1 + 1, y1 + 1)))
+
+    def resize_canvas(self, width: int, height: int, anchor: str = "center") -> bool:
+        """改变画布尺寸（内容不缩放，按 anchor 对齐；新区域透明）。"""
+        width = max(1, min(4096, int(width)))
+        height = max(1, min(4096, int(height)))
+        if (width, height) == self.size:
+            return False
+        anchor = anchor if anchor in ANCHORS else "center"
+        dx = dy = 0
+        if anchor in ("tr", "br"):
+            dx = width - self.width
+        elif anchor == "center":
+            dx = (width - self.width) // 2
+        if anchor in ("bl", "br"):
+            dy = height - self.height
+        elif anchor == "center":
+            dy = (height - self.height) // 2
+
+        def _fn(im):
+            out = Image.new("RGBA", (width, height), TRANSPARENT)
+            out.alpha_composite(im, (dx, dy))
+            return out
+
+        return self._apply_transform(_fn)
+
+    def scale_content(self, factor: int) -> bool:
+        """按整数倍最近邻缩放内容（像素画放大不失真）。"""
+        factor = int(factor)
+        if factor < 1 or factor == 1 or factor > 16:
+            return False
+        w = max(1, self.width * factor)
+        h = max(1, self.height * factor)
+        if w > 4096 or h > 4096:
+            return False
+        return self._apply_transform(
+            lambda im: im.resize((w, h), Image.Resampling.NEAREST)
+        )
