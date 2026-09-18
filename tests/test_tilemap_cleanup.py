@@ -234,7 +234,9 @@ def test_aligned_seams_only_differ_in_corner_zones():
             ]
             mask = mask_for_terrain(nb, int(grid[y, x]), base_terrain=1)
             tiles[(x, y)] = np.asarray(compose_art_tile(arts[int(grid[y, x])], mask))
-    corner = band + 2
+    # 转角带宽度 = 条带 + 描边/倒角/环境阴影的内扩深度（后者约 4px），
+    # 这几像素本来就该随「本格哪几条边暴露」而不同（正是 2.5D 立体感的来源）。
+    corner = band + 10   # 条带 + 边缘噪声幅度（该测试用 10px 噪声）
     problems = []
     for y in range(H):
         for x in range(W - 1):

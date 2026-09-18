@@ -53,6 +53,7 @@ class TileMapModel:
         self.edge_blend = 0.0           # 不同地块包 / 不同地形交界的块状渗透融合强度
         self.height_grid: Optional[np.ndarray] = None   # 2.5D 高度层（0=平地，1+=高台）
         self.cliff_arts: Dict[int, object] = {}         # 地形 id -> CliffArt
+        self.terrain_heights: Dict[int, int] = {}       # 地形 id -> 高度偏移（水=-1 / 岩=+1）
         self.wall_grid: Optional[np.ndarray] = None
         self.wall_pieces: Dict[str, Image.Image] = {}
         self.base_terrain: Optional[int] = None
@@ -205,9 +206,18 @@ class TileMapModel:
         out = {}
         for y in range(self.height):
             for x in range(self.width):
-                if y > 0 and int(self.height_grid[y - 1, x]) > int(self.height_grid[y, x]):
+                if self.effective_height(x, y - 1) > self.effective_height(x, y):
                     out[(x, y)] = True
         return out
+
+    def effective_height(self, x: int, y: int) -> int:
+        """该格的实际高度 = 地形语义高度（水 -1 / 岩 +1）+ 手绘高度层。"""
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            return 0
+        tid = int(self.grid[y, x]) or (self.base_terrain or 0)
+        base = int(self.terrain_heights.get(tid, 0))
+        extra = int(self.height_grid[y, x]) if self.height_grid is not None else 0
+        return base + extra
 
     def _render_cliffs(self, canvas: Image.Image) -> None:
         """崖壁层：在低地格的上半部叠一块崖壁件（16-tile 按相邻崖壁自动选型）。"""
@@ -221,7 +231,9 @@ class TileMapModel:
         s = self.tile_size
         cache: Dict[tuple, Image.Image] = {}
         for (x, y) in cells:
-            tid = int(self.grid[y, x]) or (self.base_terrain or 0)
+            # 崖壁材质取**较高一侧**的地形（水岸露出的是岸上的泥土/岩石，而不是水面）
+            above = int(self.grid[y - 1, x]) or (self.base_terrain or 0) if y > 0 else 0
+            tid = above or int(self.grid[y, x]) or (self.base_terrain or 0)
             art = self.cliff_arts.get(tid) or next(iter(self.cliff_arts.values()), None)
             if art is None:
                 continue
@@ -448,6 +460,8 @@ class TileMapModel:
             data["edge_blend"] = round(float(self.edge_blend), 3)
         if self.height_grid is not None and self.height_grid.any():
             data["height_grid"] = self.height_grid.astype(int).tolist()
+        if self.terrain_heights:
+            data["terrain_heights"] = {str(k): int(v) for k, v in self.terrain_heights.items()}
         # 建筑 overlay：按拼件名 + 旋转序列化（恢复时用 pieces 注册表还原图像）
         overlays = [
             {"x": x, "y": y, "piece": item[2], "rot": item[1],
@@ -478,6 +492,8 @@ class TileMapModel:
             model.edge_blend = float(data["edge_blend"])
         if data.get("height_grid") is not None:
             model.height_grid = np.array(data["height_grid"], dtype=np.uint8)[: model.height, : model.width]
+        if data.get("terrain_heights"):
+            model.terrain_heights = {int(k): int(v) for k, v in data["terrain_heights"].items()}
         if data.get("wall_grid") is not None and pieces:
             walls = data["wall_grid"]
             model.enable_wall_layer(pieces)

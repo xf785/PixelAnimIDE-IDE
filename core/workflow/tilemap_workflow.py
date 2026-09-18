@@ -117,6 +117,7 @@ class TilemapParams:
     edge_blend: float = 0.5          # 地形交界融合强度（噪声渗透咬合，0=平滑硬边）
     reference_image: Optional[str] = None   # 文生瓦片底图的参考图（图生图，可选）
     terrain_25d: bool = True         # 2.5D 高度层：高台南侧画崖壁（俯视 2.5D）
+    feature_heights: bool = True     # 按特征语义自动定高：水=-1（岸），岩石/山=+1（丘）
     wall_thickness: float = 0.56     # 建筑：墙体厚度（占瓦片边长比例）
     prop_variants: int = 4           # 素材：一次生成几个变体
     prop_name: str = "prop"          # 素材：命名前缀（导出为 名字_1.png …）
@@ -144,6 +145,7 @@ class TilemapSession:
     ecosystem: Optional[EcosystemSheet] = None     # 地块生态：1 基础 + 3 特征（可编辑）
     props: Dict[str, Image.Image] = field(default_factory=dict)  # 素材（道具）：名字 -> RGBA
     cliff_arts: Dict[int, object] = field(default_factory=dict)  # 2.5D：地形 id -> CliffArt
+    terrain_heights: Dict[int, int] = field(default_factory=dict)  # 2.5D：地形 id -> 高度偏移
     building: Optional[BuildingSheet] = None       # 建筑：墙体/顶面/开口/立柱（可编辑）
     terrain_sets: Dict[int, BaseTileSet] = field(default_factory=dict)  # 生态处理后各地形瓦片组
     pieces: Optional[dict] = None                  # 建筑：处理后的拼件 {"pieces":..., "core":..., ...}
@@ -217,6 +219,30 @@ def _demo_showcase(model: TileMapModel, f1: int, f2: int, base: int) -> None:
     rect(rx, ry, rx + size, ry + size, f1)                    # 环形：四类内角同时出现
     rect(rx + 1, ry + 1, rx + size - 1, ry + size - 1, base)
     rect(0, h - 2, w - 1, h - 2, f2)                          # 贴边的长条（含边缘端头）
+
+
+_WATER_WORDS = ("水", "湖", "河", "海", "池", "塘", "沼泽", "湿地", "water", "lake", "river",
+                "sea", "pond", "ocean", "pool", "swamp", "marsh", "stream", "ice", "冰")
+_HIGH_WORDS = ("岩", "石", "山", "丘", "崖", "峭", "矿", "沙丘", "rock", "stone", "mountain", "hill",
+               "cliff", "boulder", "crag", "peak", "dune", "ruin", "遗迹")
+
+
+def _terrain_height_hint(name: str) -> int:
+    """按特征名字猜高度：水/河/湖 -> -1（洼地，岸边出崖壁）；岩/山/丘 -> +1（高台）。"""
+    text = (name or "").lower()
+    if any(w in text for w in _WATER_WORDS):
+        return -1
+    if any(w in text for w in _HIGH_WORDS):
+        return 1
+    return 0
+
+
+def _feature_names(params: "TilemapParams") -> Dict[int, str]:
+    """地形 id -> 名字（1=基础地形，2..=特征）。"""
+    names: Dict[int, str] = {1: params.description or tr("基础地形")}
+    for i, feat in enumerate(params.features or {}, start=2):
+        names[i] = str(feat)
+    return names
 
 
 def _apply_wall_layout(model: TileMapModel, walls, pieces: Dict[str, Image.Image]) -> None:
@@ -635,6 +661,16 @@ class TilemapWorkflow:
                     int(tid): cliff_art_from_terrain(tset, edge_noise=noise)
                     for tid, tset in arts.items()
                 }
+                if params.feature_heights:
+                    session.terrain_heights = {
+                        int(tid): _terrain_height_hint(name)
+                        for tid, name in _feature_names(params).items()
+                    }
+                    heights_txt = "、".join(
+                        f"{_feature_names(params).get(tid, tid)}={'+' if h > 0 else ''}{h}"
+                        for tid, h in sorted(session.terrain_heights.items()) if h
+                    ) or tr("全部为平地")
+                    self._log_msg("info", tr("2.5D 自动高度：{0}").format(heights_txt))
                 self._log_msg(
                     "info",
                     tr("2.5D 崖壁已推导：{0} 个地形（顶面 + 崖壁 16-tile 族，预览里可抬高/降低格子）").format(
@@ -819,6 +855,7 @@ class TilemapWorkflow:
         # 俯视 2.5D 演示：地图左上抬出一块高原，南缘自动出现崖壁（顶面层 + 崖壁层）
         if params.terrain_25d and session.cliff_arts:
             model.enable_height_layer(session.cliff_arts)
+            model.terrain_heights = dict(session.terrain_heights)
             hx, hy = max(1, params.map_width // 6), max(1, params.map_height // 6)
             for yy in range(hy, min(params.map_height - 1, hy + 4)):
                 for xx in range(hx, min(params.map_width - 1, hx + 6)):

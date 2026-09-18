@@ -232,44 +232,30 @@ def _inset_crop(img: Image.Image, frac: float) -> Image.Image:
 def make_tile_texture(
     tile: Image.Image,
     target: int,
-    inset_frac: float = 0.10,
-    max_colors: int = 64,
+    inset_frac: float = 0.04,
+    max_colors: int = 0,
 ) -> Image.Image:
-    """把一格 AI 像素画变成「可网格对齐平铺」的无缝纹理（target×target）。
+    """AI 一格 → 网格对齐无缝纹理（**保真实现**，见 `fidelity.py` 模块文档）。
 
-    1. 去掉外侧 inset_frac（甩掉格线框与边缘噪声）；
-    2. 偏移错位缝合 → 左右/上下边缘逐像素相等（周期平铺零接缝）；
-    3. 块众数/最近邻缩放到瓦片尺寸（保持像素硬边）；
-    4. **缩放后再缝合一次**：块众数降采样按块取值，会破坏步骤 2 的边缘相等性，
-       而「相邻瓦片共享边逐像素相等」这条不变量正建立在最终尺寸的边缘相等上。
+    历史实现（偏移错位缝合 ×2 + 非整数倍最近邻 + 量化）会把 AI 画面 roll 半格并淡化约 25%
+    的像素，成品因此明显不如底图；现在改为「整数倍窗口块众数降采样 + 最佳偏移 + 1px 边缘焊合」，
+    除最外 1 圈行列外与 AI 原图逐像素一致。
     """
-    from .tiles import resize_tile
+    from .fidelity import make_tile_texture as _impl
 
-    core = _inset_crop(tile.convert("RGBA"), inset_frac)
-    seamless = make_texture_seamless(core, max_colors=max_colors)
-    return make_texture_seamless(resize_tile(seamless, int(target)), max_colors=max_colors)
+    return _impl(tile, int(target), inset_frac=inset_frac, max_colors=max_colors)
 
 
 def median_tile_texture(
     tiles,
     target: int,
-    inset_frac: float = 0.10,
-    max_colors: int = 64,
+    inset_frac: float = 0.04,
+    max_colors: int = 0,
 ) -> Image.Image:
-    """九格逐像素中位数 → 纹理（抹掉只出现在个别格里的文字/贴花/水印）。
+    """九格逐像素中位数 → 纹理（抹掉只出现在个别格里的文字/贴花），同样走保真降采样。"""
+    from .fidelity import median_tile_texture as _impl
 
-    基础地形块的 9 格理应是同一种纹理；任何只画在某一格里的东西（文字、签名、
-    装饰）在 9 格中位数里都会被「投票」掉，这是对「底图上写了字」最稳的兜底。
-    """
-    from .tiles import resize_tile
-
-    crops = [np.asarray(_inset_crop(t.convert("RGBA"), inset_frac), dtype=np.float32) for t in tiles]
-    h = min(c.shape[0] for c in crops)
-    w = min(c.shape[1] for c in crops)
-    stack = np.stack([c[:h, :w] for c in crops], axis=0)
-    med = np.median(stack, axis=0).astype(np.uint8)
-    tex = make_texture_seamless(Image.fromarray(med, "RGBA"), max_colors=max_colors)
-    return make_texture_seamless(resize_tile(tex, int(target)), max_colors=max_colors)
+    return _impl(tiles, int(target), inset_frac=inset_frac, max_colors=max_colors)
 
 
 def _first_feature_depth(profile: np.ndarray, target: np.ndarray, tol: float) -> Optional[int]:
